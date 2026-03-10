@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/openshare/backend/internal/config"
 	"github.com/openshare/backend/internal/router"
+	"github.com/openshare/backend/internal/service"
 	"github.com/openshare/backend/pkg/database"
 	"github.com/openshare/backend/pkg/logger"
 	"github.com/openshare/backend/pkg/storage"
@@ -45,6 +47,16 @@ func main() {
 		log.Fatal("Failed to migrate database", "error", err)
 	}
 
+	// 初始化服务层
+	services := service.New(&service.Options{
+		DB:     database.GetDB(),
+		Config: cfg,
+		Logger: log,
+	})
+
+	// 初始化超级管理员
+	initSuperAdmin(services, log)
+
 	// 初始化路由
 	r := router.Setup(cfg, database.GetDB(), log)
 
@@ -53,5 +65,25 @@ func main() {
 	log.Info("Server starting", "port", cfg.Server.Port)
 	if err := r.Run(addr); err != nil {
 		log.Fatal("Failed to start server", "error", err)
+	}
+}
+
+// initSuperAdmin 初始化超级管理员账号
+// 仅在首次运行时创建，密码以安全方式输出到日志
+func initSuperAdmin(services *service.Services, log *logger.Logger) {
+	created, password, err := services.Admin.InitSuperAdmin()
+	if err != nil {
+		log.Fatal("Failed to initialize super admin", "error", err)
+	}
+
+	if created {
+		// 使用醒目的格式输出初始密码，便于首次部署时记录
+		separator := strings.Repeat("=", 60)
+		log.Info(separator)
+		log.Info("SUPER ADMIN INITIALIZED")
+		log.Info("Username: admin")
+		log.Info("Password: " + password)
+		log.Info("Please change this password immediately after first login!")
+		log.Info(separator)
 	}
 }
