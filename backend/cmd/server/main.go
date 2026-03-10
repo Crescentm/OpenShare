@@ -76,6 +76,7 @@ func main() {
 		Logger:     log,
 		Handlers:   handlers,
 		JWTManager: jwtManager,
+		DB:         database.GetDB(),
 	})
 
 	// 启动服务

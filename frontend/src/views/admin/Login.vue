@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { authApi } from '@/api/admin'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,24 +25,21 @@ const handleLogin = async () => {
   error.value = ''
 
   try {
-    // TODO: 调用登录 API
-    // const { data } = await authApi.login(form.value)
-    // authStore.setToken(data.data.token)
-    // authStore.setAdminInfo(data.data.admin)
-
-    // 模拟登录
-    authStore.setToken('mock-token')
-    authStore.setAdminInfo({
-      id: 1,
-      username: form.value.username,
-      role: 'super_admin',
-      created_at: new Date().toISOString(),
-    })
-
-    const redirect = route.query.redirect as string
-    router.push(redirect || '/admin')
-  } catch {
-    error.value = '登录失败，请检查用户名和密码'
+    const { data } = await authApi.login(form.value)
+    
+    if (data.data) {
+      authStore.setToken(data.data.token, data.data.expires_at)
+      authStore.setAdminInfo(data.data.admin)
+      
+      const redirect = route.query.redirect as string
+      router.push(redirect || '/admin')
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+      error.value = err.message || '登录失败，请检查用户名和密码'
+    } else {
+      error.value = '登录失败，请检查用户名和密码'
+    }
   } finally {
     loading.value = false
   }

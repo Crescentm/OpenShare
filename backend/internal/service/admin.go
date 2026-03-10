@@ -202,6 +202,364 @@ func (s *AdminService) ResetPassword(id uint) (string, error) {
 	return password, nil
 }
 
+// ============ 管理员 CRUD ============
+
+// CreateAdminInput 创建管理员的输入参数
+type CreateAdminInput struct {
+	Username string
+}
+
+// CreateAdminResult 创建管理员的返回结果
+type CreateAdminResult struct {
+	Admin    *model.Admin
+	Password string // 初始密码，仅创建时返回
+}
+
+// CreateAdmin 创建普通管理员
+// 仅超级管理员可调用，返回管理员信息和初始密码
+func (s *AdminService) CreateAdmin(input *CreateAdminInput) (*CreateAdminResult, error) {
+	// 验证用户名
+	if err := s.validateUsername(input.Username); err != nil {
+		return nil, err
+	}
+
+	// 检查用户名是否已存在
+	existing, err := s.GetByUsername(input.Username)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, errors.New("username already exists")
+	}
+
+	// 生成初始密码
+	password, err := generateSecurePassword(12)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate password: %w", err)
+	}
+
+	hashedPassword, err := HashPassword(password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	admin := &model.Admin{
+		Username: input.Username,
+		Password: hashedPassword,
+		Role:     model.RoleAdmin,
+		Status:   model.AdminStatusActive,
+	}
+
+	if err := s.db.Create(admin).Error; err != nil {
+		return nil, fmt.Errorf("failed to create admin: %w", err)
+	}
+
+	s.logger.Info("Admin created",
+		"admin_id", admin.ID,
+		"username", admin.Username,
+	)
+
+	return &CreateAdminResult{
+		Admin:    admin,
+		Password: password,
+	}, nil
+}
+
+// validateUsername 验证用户名格式
+func (s *AdminService) validateUsername(username string) error {
+	if len(username) < 3 {
+		return errors.New("username must be at least 3 characters")
+	}
+	if len(username) > 32 {
+		return errors.New("username must be at most 32 characters")
+	}
+	// 只允许字母、数字、下划线
+	for _, c := range username {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_') {
+			return errors.New("username can only contain letters, numbers And underscores")
+		}
+	}
+	return nil
+}
+
+// ListAdminsInput 查询管理员列表的输入参数
+type ListAdminsInput struct {
+	Page     int
+	PageSize int
+	Role     string // 可选，筛选角色
+	Status   string // 可选，筛选状态
+	Keyword  string // 可选，搜索用户名
+}
+
+// ListAdminsResult 查询管理员列表的返回结果
+type ListAdminsResult struct {
+	Admins []*model.Admin
+	Total  int64
+}
+
+// ListAdmins 获取管理员列表（分页）
+func (s *AdminService) ListAdmins(input *ListAdminsInput) (*ListAdminsResult, error) {
+	// 设置默认分页
+	if input.Page < 1 {
+		input.Page = 1
+	}
+	if input.PageSize < 1 || input.PageSize > 100 {
+		input.PageSize = 20
+	}
+
+	query := s.db.Model(&model.Admin{})
+
+	// 筛选条件
+	if input.Role != "" {
+		query = query.Where("role = ?", input.Role)
+	}
+	if input.Status != "" {
+		query = query.Where("status = ?", input.Status)
+	}
+	if input.Keyword != "" {
+		query = query.Where("username ILIKE ?", "%"+input.Keyword+"%")
+	}
+
+	// 统计总数
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, fmt.Errorf("failed to count admins: %w", err)
+	}
+
+	// 查询列表
+	var admins []*model.Admin
+	offset := (input.Page - 1) * input.PageSize
+	if err := query.
+		Preload("Permissions").
+		Order("created_at DESC").
+		Offset(offset).
+		Limit(input.PageSize).
+		Find(&admins).Error; err != nil {
+		return nil, fmt.Errorf("failed to list admins: %w", err)
+	}
+
+	return &ListAdminsResult{
+		Admins: admins,
+		Total:  total,
+	}, nil
+}
+
+// UpdateAdminInput 更新管理员的输入参数
+type UpdateAdminInput struct {
+	ID       uint
+	Username *string // 可选，新用户名
+	Status   *string // 可选，新状态
+}
+
+// UpdateAdmin 更新管理员基本信息
+func (s *AdminService) UpdateAdmin(input *UpdateAdminInput) (*model.Admin, error) {
+	admin, err := s.GetByID(input.ID)
+	if err != nil {
+		return nil, err
+	}
+	if admin == nil {
+		return nil, errors.New("admin not found")
+	}
+
+	// 不允许修改超级管理员
+	if admin.Role == model.RoleSuperAdmin {
+		return nil, errors.New("cannot modify super admin")
+	}
+
+	updates := make(map[string]interface{})
+
+	// 更新用户名
+	if input.Username != nil && *input.Username != admin.Username {
+		if err := s.validateUsername(*input.Username); err != nil {
+			return nil, err
+		}
+		// 检查新用户名是否已存在
+		existing, err := s.GetByUsername(*input.Username)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil && existing.ID != admin.ID {
+			return nil, errors.New("username already exists")
+		}
+		updates["username"] = *input.Username
+	}
+
+	// 更新状态
+	if input.Status != nil {
+		if *input.Status != model.AdminStatusActive && *input.Status != model.AdminStatusDisabled {
+			return nil, errors.New("invalid status")
+		}
+		updates["status"] = *input.Status
+	}
+
+	if len(updates) > 0 {
+		if err := s.db.Model(&model.Admin{}).
+			Where("id = ?", input.ID).
+			Updates(updates).Error; err != nil {
+			return nil, fmt.Errorf("failed to update admin: %w", err)
+		}
+	}
+
+	// 返回更新后的数据
+	return s.GetByID(input.ID)
+}
+
+// DeleteAdmin 删除管理员
+// 采用软删除策略（禁用账号），超级管理员不可删除
+func (s *AdminService) DeleteAdmin(id uint) error {
+	admin, err := s.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if admin == nil {
+		return errors.New("admin not found")
+	}
+
+	// 不允许删除超级管理员
+	if admin.Role == model.RoleSuperAdmin {
+		return errors.New("cannot delete super admin")
+	}
+
+	// 软删除：设置状态为 disabled
+	if err := s.db.Model(&model.Admin{}).
+		Where("id = ?", id).
+		Update("status", model.AdminStatusDisabled).Error; err != nil {
+		return fmt.Errorf("failed to delete admin: %w", err)
+	}
+
+	// 同时清除权限
+	if err := s.db.Where("admin_id = ?", id).Delete(&model.AdminPermission{}).Error; err != nil {
+		s.logger.Warn("Failed to clear permissions for deleted admin",
+			"admin_id", id,
+			"error", err,
+		)
+	}
+
+	s.logger.Info("Admin deleted",
+		"admin_id", id,
+		"username", admin.Username,
+	)
+
+	return nil
+}
+
+// ============ 权限管理 ============
+
+// SetPermissions 设置管理员权限（整体替换）
+// permissions 为权限代码列表，空列表表示清除所有权限
+func (s *AdminService) SetPermissions(adminID uint, permissions []string) error {
+	admin, err := s.GetByID(adminID)
+	if err != nil {
+		return err
+	}
+	if admin == nil {
+		return errors.New("admin not found")
+	}
+
+	// 超级管理员无需设置权限
+	if admin.Role == model.RoleSuperAdmin {
+		return errors.New("super admin has all permissions by default")
+	}
+
+	// 验证权限代码
+	for _, perm := range permissions {
+		if !model.IsValidPermission(perm) {
+			return fmt.Errorf("invalid permission: %s", perm)
+		}
+	}
+
+	// 使用事务
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// 删除现有权限
+		if err := tx.Where("admin_id = ?", adminID).Delete(&model.AdminPermission{}).Error; err != nil {
+			return fmt.Errorf("failed to clear permissions: %w", err)
+		}
+
+		// 添加新权限
+		for _, perm := range permissions {
+			ap := &model.AdminPermission{
+				AdminID:    adminID,
+				Permission: perm,
+			}
+			if err := tx.Create(ap).Error; err != nil {
+				return fmt.Errorf("failed to add permission %s: %w", perm, err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// AddPermission 为管理员添加单个权限
+func (s *AdminService) AddPermission(adminID uint, permission string) error {
+	admin, err := s.GetByID(adminID)
+	if err != nil {
+		return err
+	}
+	if admin == nil {
+		return errors.New("admin not found")
+	}
+
+	if admin.Role == model.RoleSuperAdmin {
+		return errors.New("super admin has all permissions by default")
+	}
+
+	if !model.IsValidPermission(permission) {
+		return fmt.Errorf("invalid permission: %s", permission)
+	}
+
+	// 检查是否已有该权限
+	if admin.HasPermission(permission) {
+		return nil // 幂等操作，已有则跳过
+	}
+
+	ap := &model.AdminPermission{
+		AdminID:    adminID,
+		Permission: permission,
+	}
+	if err := s.db.Create(ap).Error; err != nil {
+		return fmt.Errorf("failed to add permission: %w", err)
+	}
+
+	return nil
+}
+
+// RemovePermission 移除管理员的单个权限
+func (s *AdminService) RemovePermission(adminID uint, permission string) error {
+	admin, err := s.GetByID(adminID)
+	if err != nil {
+		return err
+	}
+	if admin == nil {
+		return errors.New("admin not found")
+	}
+
+	if admin.Role == model.RoleSuperAdmin {
+		return errors.New("cannot modify super admin permissions")
+	}
+
+	if err := s.db.Where("admin_id = ? AND permission = ?", adminID, permission).
+		Delete(&model.AdminPermission{}).Error; err != nil {
+		return fmt.Errorf("failed to remove permission: %w", err)
+	}
+
+	return nil
+}
+
+// GetPermissions 获取管理员的权限列表
+func (s *AdminService) GetPermissions(adminID uint) ([]string, error) {
+	admin, err := s.GetByID(adminID)
+	if err != nil {
+		return nil, err
+	}
+	if admin == nil {
+		return nil, errors.New("admin not found")
+	}
+
+	return admin.GetPermissionCodes(), nil
+}
+
 // ============ 密码工具函数 ============
 
 // HashPassword 使用 bcrypt 哈希密码

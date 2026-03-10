@@ -1,10 +1,30 @@
 import { http } from '@/utils/http'
-import type { AdminInfo, FileInfo, PageData, Submission, Tag, Report, Announcement, OperationLog } from '@/types'
+import type { AdminInfo, FileInfo, PageData, Submission, Tag, Report, Announcement, OperationLog, LoginResponse } from '@/types'
 
 // 认证 API
 export const authApi = {
   login(data: { username: string; password: string }) {
-    return http.post<{ token: string; admin: AdminInfo }>('/admin/login', data)
+    return http.post<LoginResponse>('/admin/login', data)
+  },
+  
+  // 获取当前登录管理员信息
+  getCurrentAdmin() {
+    return http.get<AdminInfo>('/admin/me')
+  },
+  
+  // 修改密码
+  changePassword(data: { old_password: string; new_password: string }) {
+    return http.post('/admin/password', data)
+  },
+  
+  // 刷新 Token
+  refreshToken() {
+    return http.post<{ token: string; expires_at: number }>('/admin/refresh')
+  },
+  
+  // 退出登录
+  logout() {
+    return http.post('/admin/logout')
   },
 }
 

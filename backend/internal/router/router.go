@@ -5,8 +5,10 @@ import (
 	"github.com/openshare/backend/internal/config"
 	"github.com/openshare/backend/internal/handler"
 	"github.com/openshare/backend/internal/middleware"
+	"github.com/openshare/backend/internal/model"
 	"github.com/openshare/backend/pkg/jwt"
 	"github.com/openshare/backend/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // Options 路由初始化配置
@@ -15,6 +17,7 @@ type Options struct {
 	Logger     *logger.Logger
 	Handlers   *handler.Handlers
 	JWTManager *jwt.Manager
+	DB         *gorm.DB
 }
 
 // Setup 初始化路由
@@ -66,54 +69,92 @@ func Setup(opts *Options) *gin.Engine {
 			// 认证接口（无需 token）
 			admin.POST("/login", opts.Handlers.Admin.Login)
 
-			// 需要认证的接口
-			auth := admin.Group("")
-			auth.Use(middleware.Auth(opts.JWTManager))
+			// 基础认证接口（无需权限加载）
+			basicAuth := admin.Group("")
+			basicAuth.Use(middleware.Auth(opts.JWTManager))
 			{
-				// 当前用户
-				auth.GET("/me", opts.Handlers.Admin.GetCurrentAdmin)
-				auth.POST("/password", opts.Handlers.Admin.ChangePassword)
-				auth.POST("/refresh", opts.Handlers.Admin.RefreshToken)
-				auth.POST("/logout", opts.Handlers.Admin.Logout)
+				// 当前用户相关（只需要认证，不需要特定权限）
+				basicAuth.GET("/me", opts.Handlers.Admin.GetCurrentAdmin)
+				basicAuth.POST("/password", opts.Handlers.Admin.ChangePassword)
+				basicAuth.POST("/refresh", opts.Handlers.Admin.RefreshToken)
+				basicAuth.POST("/logout", opts.Handlers.Admin.Logout)
+			}
 
-				// 审核管理
-				auth.GET("/submissions", handler.NotImplemented)
-				auth.POST("/submissions/:id/approve", handler.NotImplemented)
-				auth.POST("/submissions/:id/reject", handler.NotImplemented)
+			// 需要权限验证的接口
+			auth := admin.Group("")
+			auth.Use(middleware.AuthWithPermissions(opts.JWTManager, opts.DB))
+			{
+				// 审核管理 - 需要审核权限
+				submissions := auth.Group("/submissions")
+				submissions.Use(middleware.RequirePermission(model.PermissionReviewSubmission))
+				{
+					submissions.GET("", handler.NotImplemented)
+					submissions.POST("/:id/approve", handler.NotImplemented)
+					submissions.POST("/:id/reject", handler.NotImplemented)
+				}
 
-				// 资料管理
-				auth.GET("/files", handler.NotImplemented)
-				auth.PUT("/files/:id", handler.NotImplemented)
-				auth.DELETE("/files/:id", handler.NotImplemented)
-				auth.POST("/files/:id/offline", handler.NotImplemented)
+				// 资料管理 - 需要对应权限
+				files := auth.Group("/files")
+				{
+					files.GET("", handler.NotImplemented) // 查看列表无需特殊权限
+					files.PUT("/:id", middleware.RequirePermission(model.PermissionEditFile), handler.NotImplemented)
+					files.DELETE("/:id", middleware.RequirePermission(model.PermissionDeleteFile), handler.NotImplemented)
+					files.POST("/:id/offline", middleware.RequirePermission(model.PermissionEditFile), handler.NotImplemented)
+				}
 
-				// Tag 管理
-				auth.POST("/tags", handler.NotImplemented)
-				auth.PUT("/tags/:id", handler.NotImplemented)
-				auth.DELETE("/tags/:id", handler.NotImplemented)
+				// Tag 管理 - 需要 Tag 管理权限
+				tags := auth.Group("/tags")
+				tags.Use(middleware.RequirePermission(model.PermissionManageTag))
+				{
+					tags.POST("", handler.NotImplemented)
+					tags.PUT("/:id", handler.NotImplemented)
+					tags.DELETE("/:id", handler.NotImplemented)
+				}
 
-				// 举报管理
-				auth.GET("/reports", handler.NotImplemented)
-				auth.POST("/reports/:id/approve", handler.NotImplemented)
-				auth.POST("/reports/:id/reject", handler.NotImplemented)
+				// 举报管理 - 需要举报管理权限
+				reports := auth.Group("/reports")
+				reports.Use(middleware.RequirePermission(model.PermissionManageReport))
+				{
+					reports.GET("", handler.NotImplemented)
+					reports.POST("/:id/approve", handler.NotImplemented)
+					reports.POST("/:id/reject", handler.NotImplemented)
+				}
 
-				// 公告管理
-				auth.POST("/announcements", handler.NotImplemented)
-				auth.PUT("/announcements/:id", handler.NotImplemented)
-				auth.DELETE("/announcements/:id", handler.NotImplemented)
+				// 公告管理 - 需要发布公告权限
+				announcements := auth.Group("/announcements")
+				announcements.Use(middleware.RequirePermission(model.PermissionPublishAnnounce))
+				{
+					announcements.POST("", handler.NotImplemented)
+					announcements.PUT("/:id", handler.NotImplemented)
+					announcements.DELETE("/:id", handler.NotImplemented)
+				}
 
-				// 管理员管理
-				auth.GET("/admins", handler.NotImplemented)
-				auth.POST("/admins", handler.NotImplemented)
-				auth.PUT("/admins/:id", handler.NotImplemented)
-				auth.DELETE("/admins/:id", handler.NotImplemented)
+				// 管理员管理 - 仅超级管理员
+				admins := auth.Group("/admins")
+				admins.Use(middleware.RequireSuperAdmin())
+				{
+					admins.GET("", opts.Handlers.Admin.ListAdmins)
+					admins.POST("", opts.Handlers.Admin.CreateAdmin)
+					admins.GET("/:id", opts.Handlers.Admin.GetAdmin)
+					admins.PUT("/:id", opts.Handlers.Admin.UpdateAdmin)
+					admins.DELETE("/:id", opts.Handlers.Admin.DeleteAdmin)
+					admins.PUT("/:id/permissions", opts.Handlers.Admin.SetAdminPermissions)
+					admins.POST("/:id/reset-password", opts.Handlers.Admin.ResetAdminPassword)
+				}
 
-				// 操作日志
-				auth.GET("/logs", handler.NotImplemented)
+				// 权限元数据 - 无需特殊权限（便于前端展示）
+				auth.GET("/permissions", opts.Handlers.Admin.GetAllPermissions)
 
-				// 系统配置
-				auth.GET("/settings", handler.NotImplemented)
-				auth.PUT("/settings", handler.NotImplemented)
+				// 操作日志 - 需要查看日志权限
+				auth.GET("/logs", middleware.RequirePermission(model.PermissionViewLog), handler.NotImplemented)
+
+				// 系统配置 - 仅超级管理员
+				settings := auth.Group("/settings")
+				settings.Use(middleware.RequireSuperAdmin())
+				{
+					settings.GET("", handler.NotImplemented)
+					settings.PUT("", handler.NotImplemented)
+				}
 			}
 		}
 	}

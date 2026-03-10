@@ -19,7 +19,15 @@ export interface AdminInfo {
   username: string
   role: 'admin' | 'super_admin'
   permissions?: string[]
-  created_at: string
+  created_at?: string
+  last_login?: string
+}
+
+// 登录响应
+export interface LoginResponse {
+  token: string
+  expires_at: number
+  admin: AdminInfo
 }
 
 // 文件信息

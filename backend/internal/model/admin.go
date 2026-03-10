@@ -26,12 +26,9 @@ type Admin struct {
 // 使用独立表存储权限，便于扩展和细粒度控制
 type AdminPermission struct {
 	ID         uint      `gorm:"primarykey" json:"id"`
-	AdminID    uint      `gorm:"not null;index" json:"admin_id"`
-	Permission string    `gorm:"type:varchar(50);not null" json:"permission"`
+	AdminID    uint      `gorm:"not null;uniqueIndex:idx_admin_permission" json:"admin_id"`
+	Permission string    `gorm:"type:varchar(50);not null;uniqueIndex:idx_admin_permission" json:"permission"`
 	CreatedAt  time.Time `json:"created_at"`
-
-	// 确保同一管理员不会有重复权限
-	// 通过组合唯一索引实现
 }
 
 // TableName 指定表名
@@ -84,4 +81,27 @@ func (a *Admin) HasPermission(perm string) bool {
 		}
 	}
 	return false
+}
+
+// GetPermissionCodes 获取管理员的权限代码列表
+func (a *Admin) GetPermissionCodes() []string {
+	// 超级管理员返回所有权限
+	if a.Role == RoleSuperAdmin {
+		return AllPermissions
+	}
+	codes := make([]string, 0, len(a.Permissions))
+	for _, p := range a.Permissions {
+		codes = append(codes, p.Permission)
+	}
+	return codes
+}
+
+// IsSuperAdmin 检查是否为超级管理员
+func (a *Admin) IsSuperAdmin() bool {
+	return a.Role == RoleSuperAdmin
+}
+
+// IsActive 检查账号是否处于活跃状态
+func (a *Admin) IsActive() bool {
+	return a.Status == AdminStatusActive
 }
