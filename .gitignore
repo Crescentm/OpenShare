@@ -1,31 +1,62 @@
 .DS_Store
+
+# Environment
 .env
 .env.*
+!.env.example
 
+# Editors
 .idea/
 .vscode/
 
+# Logs
+*.log
+logs/
+
+# Node / frontend
 node_modules/
 dist/
 build/
-coverage/
 .cache/
-*.log
-
-# Vite
+coverage/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/coverage/
+frontend/.cache/
 vite.config.ts.timestamp-*
-
-# TypeScript
 *.tsbuildinfo
 
-# Go
+# Go / backend
 bin/
-pkg/
-*.test
-*.out
 coverage.out
+*.out
+*.test
+backend/bin/
+backend/coverage.out
+backend/tmp/
+backend/.air/
 
-# Local runtime data
+# Runtime data
 tmp/
 temp/
+data/
 uploads/
+storage/
+.pids/
+*.pid
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Local file storage
+repository/
+staging/
+trash/
+
+# OS / generated
+Thumbs.db
