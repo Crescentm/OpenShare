@@ -54,15 +54,45 @@ func (f *File) GetDisplayTitle() string {
 
 // IsPreviewable 判断文件是否支持预览
 func (f *File) IsPreviewable() bool {
-	switch f.MimeType {
-	case "application/pdf":
-		return true
-	case "text/plain":
-		return true
-	}
-	// 检查是否是图片类型
-	if len(f.MimeType) > 6 && f.MimeType[:6] == "image/" {
-		return true
-	}
-	return false
+	return GetPreviewType(f.MimeType, f.Extension) != PreviewTypeNone
+}
+
+// GetPreviewType 获取预览类型
+func (f *File) GetPreviewType() PreviewType {
+	return GetPreviewType(f.MimeType, f.Extension)
+}
+
+// GetCategory 获取文件分类
+func (f *File) GetCategory() FileCategory {
+	return GetFileCategory(f.MimeType)
+}
+
+// GetFormattedSize 获取格式化的文件大小
+func (f *File) GetFormattedSize() string {
+	return FormatFileSize(f.Size)
+}
+
+// IsActive 是否为活跃状态（对外可见）
+func (f *File) IsActive() bool {
+	return f.Status == ResourceActive
+}
+
+// IsOffline 是否已下架
+func (f *File) IsOffline() bool {
+	return f.Status == ResourceOffline
+}
+
+// IsDeleted 是否已删除
+func (f *File) IsDeleted() bool {
+	return f.Status == ResourceDeleted
+}
+
+// CanTransitionTo 检查是否可以转换到目标状态
+func (f *File) CanTransitionTo(targetStatus string) bool {
+	return CanTransitionResource(f.Status, targetStatus)
+}
+
+// GetStatusText 获取状态显示文本
+func (f *File) GetStatusText() string {
+	return GetResourceStatusText(f.Status)
 }

@@ -37,3 +37,51 @@ func (f *Folder) BeforeCreate(tx *gorm.DB) error {
 func (Folder) TableName() string {
 	return "folders"
 }
+
+// IsRoot 是否是根目录
+func (f *Folder) IsRoot() bool {
+	return f.ParentID == nil
+}
+
+// IsActive 是否为活跃状态
+func (f *Folder) IsActive() bool {
+	return f.Status == ResourceActive
+}
+
+// IsOffline 是否已下架
+func (f *Folder) IsOffline() bool {
+	return f.Status == ResourceOffline
+}
+
+// IsDeleted 是否已删除
+func (f *Folder) IsDeleted() bool {
+	return f.Status == ResourceDeleted
+}
+
+// CanTransitionTo 检查是否可以转换到目标状态
+func (f *Folder) CanTransitionTo(targetStatus string) bool {
+	return CanTransitionResource(f.Status, targetStatus)
+}
+
+// GetStatusText 获取状态显示文本
+func (f *Folder) GetStatusText() string {
+	return GetResourceStatusText(f.Status)
+}
+
+// GetDepth 获取目录深度（根目录为0）
+func (f *Folder) GetDepth() int {
+	if f.Path == "/" || f.Path == "" {
+		return 0
+	}
+	depth := 0
+	for _, c := range f.Path {
+		if c == '/' {
+			depth++
+		}
+	}
+	// 如果路径以 / 开头，减去1
+	if len(f.Path) > 0 && f.Path[0] == '/' {
+		depth--
+	}
+	return depth
+}

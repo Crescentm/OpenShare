@@ -63,6 +63,31 @@ func (s *Submission) IsRejected() bool {
 	return s.Status == StatusRejected
 }
 
+// CanTransitionTo 检查是否可以转换到目标状态
+func (s *Submission) CanTransitionTo(targetStatus string) bool {
+	return CanTransitionSubmission(s.Status, targetStatus)
+}
+
+// GetStatusText 获取状态显示文本
+func (s *Submission) GetStatusText() string {
+	return GetSubmissionStatusText(s.Status)
+}
+
+// GetFormattedSize 获取格式化的文件大小
+func (s *Submission) GetFormattedSize() string {
+	return FormatFileSize(s.FileSize)
+}
+
+// IsReviewed 是否已审核（无论通过还是驳回）
+func (s *Submission) IsReviewed() bool {
+	return s.Status == StatusApproved || s.Status == StatusRejected
+}
+
+// HasFile 是否已关联文件（审核通过后）
+func (s *Submission) HasFile() bool {
+	return s.FileID != nil
+}
+
 // SubmissionTag 投稿与标签的关联表
 type SubmissionTag struct {
 	SubmissionID uuid.UUID `gorm:"type:uuid;primaryKey" json:"submission_id"`
