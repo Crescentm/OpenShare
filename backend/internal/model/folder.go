@@ -10,11 +10,11 @@ import (
 // Folder 文件夹表
 type Folder struct {
 	ID        uuid.UUID      `gorm:"type:uuid;primarykey" json:"id"`
-	Name      string         `gorm:"type:varchar(255);not null" json:"name"`
-	ParentID  *uuid.UUID     `gorm:"type:uuid;index" json:"parent_id,omitempty"`    // 父文件夹ID，根目录为 NULL
-	Path      string         `gorm:"type:varchar(1000);not null;index" json:"path"` // 完整路径，如 /课程资料/数学
-	Status    string         `gorm:"type:varchar(20);not null;default:'active'" json:"status"`
-	CreatedAt time.Time      `json:"created_at"`
+	Name      string         `gorm:"type:varchar(255);not null;index:idx_folders_parent_name,unique,priority:2" json:"name"` // 文件夹名，同级目录下唯一
+	ParentID  *uuid.UUID     `gorm:"type:uuid;index:idx_folders_parent_name,unique,priority:1" json:"parent_id,omitempty"`   // 父文件夹ID，与 Name 组成联合唯一索引
+	Path      string         `gorm:"type:varchar(1000);not null;uniqueIndex" json:"path"`                                    // 完整路径，全局唯一
+	Status    string         `gorm:"type:varchar(20);not null;default:'active';index" json:"status"`
+	CreatedAt time.Time      `gorm:"index" json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 

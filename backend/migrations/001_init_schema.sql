@@ -39,17 +39,21 @@ CREATE TABLE IF NOT EXISTS folders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     parent_id UUID REFERENCES folders(id) ON DELETE CASCADE,
-    path VARCHAR(1000) NOT NULL,               -- 完整路径，如 /课程资料/数学
+    path VARCHAR(1000) NOT NULL UNIQUE,        -- 完整路径，全局唯一
     status VARCHAR(20) NOT NULL DEFAULT 'active',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id);
-CREATE INDEX IF NOT EXISTS idx_folders_path ON folders(path);
+-- 同级目录下文件夹名唯一
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_parent_name ON folders(parent_id, name) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_folders_parent_status ON folders(parent_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_folders_created_at ON folders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_folders_deleted_at ON folders(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_folders_name_trgm ON folders USING gin (name gin_trgm_ops);
+-- 全文搜索索引
+CREATE INDEX IF NOT EXISTS idx_folders_fulltext ON folders USING gin (to_tsvector('simple', coalesce(name, '')));
 
 -- ============================================================
 -- 文件表
@@ -73,12 +77,22 @@ CREATE TABLE IF NOT EXISTS files (
     deleted_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_files_folder_id ON files(folder_id);
+-- 同目录下文件名唯一
+CREATE UNIQUE INDEX IF NOT EXISTS idx_files_folder_name ON files(folder_id, name) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_files_status ON files(status);
+CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);
+CREATE INDEX IF NOT EXISTS idx_files_downloads ON files(downloads DESC);
 CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash);
+CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_deleted_at ON files(deleted_at);
+-- 复合索引用于列表查询
+CREATE INDEX IF NOT EXISTS idx_files_status_created ON files(status, created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_files_status_downloads ON files(status, downloads DESC) WHERE deleted_at IS NULL;
+-- 模糊搜索索引
 CREATE INDEX IF NOT EXISTS idx_files_name_trgm ON files USING gin (name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_files_title_trgm ON files USING gin (title gin_trgm_ops);
+-- 全文搜索索引
+CREATE INDEX IF NOT EXISTS idx_files_fulltext ON files USING gin (to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(name, '') || ' ' || coalesce(description, '')));
 
 -- ============================================================
 -- 标签表
@@ -138,7 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_tag_submissions_deleted_at ON tag_submissions(del
 -- ============================================================
 CREATE TABLE IF NOT EXISTS submissions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    receipt_code VARCHAR(50) NOT NULL UNIQUE,   -- 回执码
+    receipt_code VARCHAR(50) NOT NULL UNIQUE,   -- 回执码，全局唯一
     title VARCHAR(255) NOT NULL,
     description TEXT,
     file_name VARCHAR(255) NOT NULL,
@@ -158,8 +172,15 @@ CREATE TABLE IF NOT EXISTS submissions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
+CREATE INDEX IF NOT EXISTS idx_submissions_folder_id ON submissions(folder_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_reviewer_id ON submissions(reviewer_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_reviewed_at ON submissions(reviewed_at);
+CREATE INDEX IF NOT EXISTS idx_submissions_file_id ON submissions(file_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_upload_ip ON submissions(upload_ip);
+CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_submissions_deleted_at ON submissions(deleted_at);
+-- 复合索引用于审核列表
+CREATE INDEX IF NOT EXISTS idx_submissions_status_created ON submissions(status, created_at DESC) WHERE deleted_at IS NULL;
 
 -- 投稿-标签关联表
 CREATE TABLE IF NOT EXISTS submission_tags (
@@ -235,7 +256,13 @@ CREATE TABLE IF NOT EXISTS operation_logs (
 
 CREATE INDEX IF NOT EXISTS idx_operation_logs_operator_id ON operation_logs(operator_id);
 CREATE INDEX IF NOT EXISTS idx_operation_logs_action ON operation_logs(action);
-CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at ON operation_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_operation_logs_target_type ON operation_logs(target_type);
+CREATE INDEX IF NOT EXISTS idx_operation_logs_ip ON operation_logs(ip);
+CREATE INDEX IF NOT EXISTS idx_operation_logs_result ON operation_logs(result);
+CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at ON operation_logs(created_at DESC);
+-- 复合索引用于审计查询
+CREATE INDEX IF NOT EXISTS idx_operation_logs_operator_time ON operation_logs(operator_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_operation_logs_action_time ON operation_logs(action, created_at DESC);
 
 -- ============================================================
 -- 注释说明
