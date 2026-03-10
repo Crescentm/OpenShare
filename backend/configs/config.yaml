@@ -1,0 +1,25 @@
+# OpenShare 配置文件
+
+server:
+  port: 8080
+  mode: debug  # debug, release, test
+
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  dbname: openshare
+  sslmode: disable
+  timezone: Asia/Shanghai
+
+log:
+  level: info    # debug, info, warn, error
+  format: console  # json, console
+
+storage:
+  base_path: /data/openshare
+
+jwt:
+  secret: openshare-secret-key-change-in-production
+  expire_hour: 24

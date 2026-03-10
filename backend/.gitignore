@@ -1,0 +1,32 @@
+# 后端编译输出
+/backend/bin/
+/backend/tmp/
+
+# 依赖
+/backend/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 环境配置（包含敏感信息）
+/backend/configs/config.local.yaml
+.env
+.env.local
+
+# 日志文件
+*.log
+/backend/logs/
+
+# 测试覆盖率
+coverage.out
+coverage.html
+
+# macOS
+.DS_Store
+
+# 临时文件
+*.tmp
+*.temp
