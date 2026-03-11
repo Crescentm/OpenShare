@@ -3,8 +3,11 @@ package main
 import (
 	"log"
 
+	"openshare/backend/internal/bootstrap"
 	"openshare/backend/internal/config"
+	"openshare/backend/internal/repository"
 	"openshare/backend/internal/router"
+	"openshare/backend/internal/service"
 	"openshare/backend/internal/storage"
 	"openshare/backend/pkg/database"
 )
@@ -27,6 +30,15 @@ func main() {
 
 	if err := storage.EnsureLayout(cfg.Storage); err != nil {
 		log.Fatalf("init storage layout: %v", err)
+	}
+
+	if err := bootstrap.EnsureSchema(db); err != nil {
+		log.Fatalf("init schema: %v", err)
+	}
+
+	adminBootstrap := service.NewAdminBootstrapService(db, repository.NewAdminRepository(db))
+	if err := adminBootstrap.EnsureDefaultSuperAdmin(); err != nil {
+		log.Fatalf("init default super admin: %v", err)
 	}
 
 	engine := router.New(db)

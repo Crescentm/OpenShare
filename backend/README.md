@@ -17,5 +17,6 @@ The backend resolves configuration in the following order:
 
 ## Notes
 
-- SQLite migrations are not driven by `AutoMigrate`; SQL migrations should stay under `migrations/`.
+- The current startup flow initializes the baseline schema before serving requests. Dedicated SQL migrations should still live under `migrations/` as the project evolves.
 - Storage bootstrap verifies directory existence and read/write access for `repository`, `staging`, and `trash`.
+- On the first successful startup with an empty `admins` table for `super_admin`, the server creates a default `superadmin` account and prints the generated password once in the backend log.
