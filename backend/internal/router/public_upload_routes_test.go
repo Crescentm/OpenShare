@@ -190,7 +190,7 @@ func buildUploadRequestBody(t *testing.T, input uploadRequestBody) (*bytes.Buffe
 	return body, writer.FormDataContentType()
 }
 
-func createPendingSubmissionForTest(t *testing.T, db *gorm.DB, receiptCode string) {
+func createPendingSubmissionForTest(t *testing.T, db *gorm.DB, receiptCode string) *model.Submission {
 	t.Helper()
 
 	submissionID := mustNewID(t)
@@ -204,4 +204,6 @@ func createPendingSubmissionForTest(t *testing.T, db *gorm.DB, receiptCode strin
 	if err := db.Create(submission).Error; err != nil {
 		t.Fatalf("create pending submission failed: %v", err)
 	}
+
+	return submission
 }

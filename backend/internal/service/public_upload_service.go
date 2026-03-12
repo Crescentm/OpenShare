@@ -27,6 +27,7 @@ var (
 	ErrUploadEmptyFile      = errors.New("upload file is empty")
 	ErrInvalidFileExtension = errors.New("invalid file extension")
 	ErrInvalidFileMIMEType  = errors.New("invalid file mime type")
+	ErrReceiptCodeGenerate  = errors.New("failed to generate receipt code")
 )
 
 const maxGeneratedReceiptAttempts = 5
@@ -36,6 +37,7 @@ type PublicUploadService struct {
 	repository *repository.UploadRepository
 	storage    *storage.Service
 	nowFunc    func() time.Time
+	codeGen    func(int) (string, error)
 }
 
 type PublicUploadInput struct {
@@ -66,6 +68,7 @@ func NewPublicUploadService(
 		repository: repository,
 		storage:    storageService,
 		nowFunc:    func() time.Time { return time.Now().UTC() },
+		codeGen:    generateReceiptCode,
 	}
 }
 
@@ -252,9 +255,9 @@ func (s *PublicUploadService) resolveReceiptCode(ctx context.Context, receiptCod
 	}
 
 	for i := 0; i < maxGeneratedReceiptAttempts; i++ {
-		candidate, err := generateReceiptCode(s.config.ReceiptCodeLength)
+		candidate, err := s.codeGen(s.config.ReceiptCodeLength)
 		if err != nil {
-			return "", fmt.Errorf("generate receipt code: %w", err)
+			return "", fmt.Errorf("%w: %v", ErrReceiptCodeGenerate, err)
 		}
 
 		exists, err := s.repository.ReceiptCodeExists(ctx, candidate)
@@ -266,14 +269,14 @@ func (s *PublicUploadService) resolveReceiptCode(ctx context.Context, receiptCod
 		}
 	}
 
-	return "", fmt.Errorf("generate unique receipt code: %w", ErrInvalidUploadInput)
+	return "", ErrReceiptCodeGenerate
 }
 
 func (s *PublicUploadService) retryCreateWithGeneratedReceipt(ctx context.Context, submission *model.Submission, file *model.File) (*PublicUploadResult, error) {
 	for i := 0; i < maxGeneratedReceiptAttempts; i++ {
-		candidate, err := generateReceiptCode(s.config.ReceiptCodeLength)
+		candidate, err := s.codeGen(s.config.ReceiptCodeLength)
 		if err != nil {
-			return nil, fmt.Errorf("generate retry receipt code: %w", err)
+			return nil, fmt.Errorf("%w: %v", ErrReceiptCodeGenerate, err)
 		}
 
 		submission.ReceiptCode = candidate
@@ -292,7 +295,7 @@ func (s *PublicUploadService) retryCreateWithGeneratedReceipt(ctx context.Contex
 		}, nil
 	}
 
-	return nil, ErrUploadReceiptExists
+	return nil, ErrReceiptCodeGenerate
 }
 
 func (s *PublicUploadService) isAllowedExtension(extension string) bool {

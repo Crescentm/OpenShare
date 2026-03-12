@@ -61,6 +61,8 @@ func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "file extension is not allowed"})
 		case errors.Is(err, service.ErrInvalidFileMIMEType):
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "file type is not allowed"})
+		case errors.Is(err, service.ErrReceiptCodeGenerate):
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate receipt code"})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create submission"})
 		}
