@@ -18,7 +18,11 @@ type PublicSubmissionService struct {
 }
 
 type PublicSubmissionLookupResult struct {
-	ReceiptCode   string                 `json:"receipt_code"`
+	ReceiptCode string                   `json:"receipt_code"`
+	Items       []PublicSubmissionItem    `json:"items"`
+}
+
+type PublicSubmissionItem struct {
 	Title         string                 `json:"title"`
 	Status        model.SubmissionStatus `json:"status"`
 	UploadedAt    time.Time              `json:"uploaded_at"`
@@ -39,20 +43,27 @@ func (s *PublicSubmissionService) LookupByReceiptCode(ctx context.Context, recei
 		return nil, ErrInvalidUploadInput
 	}
 
-	row, err := s.repository.FindByReceiptCode(ctx, normalized)
+	rows, err := s.repository.FindAllByReceiptCode(ctx, normalized)
 	if err != nil {
 		return nil, fmt.Errorf("lookup submission by receipt code: %w", err)
 	}
-	if row == nil {
+	if len(rows) == 0 {
 		return nil, ErrSubmissionNotFound
 	}
 
+	items := make([]PublicSubmissionItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, PublicSubmissionItem{
+			Title:         row.TitleSnapshot,
+			Status:        row.Status,
+			UploadedAt:    row.CreatedAt.UTC(),
+			DownloadCount: row.DownloadCount,
+			RejectReason:  row.RejectReason,
+		})
+	}
+
 	return &PublicSubmissionLookupResult{
-		ReceiptCode:   row.ReceiptCode,
-		Title:         row.TitleSnapshot,
-		Status:        row.Status,
-		UploadedAt:    row.CreatedAt.UTC(),
-		DownloadCount: row.DownloadCount,
-		RejectReason:  row.RejectReason,
+		ReceiptCode: normalized,
+		Items:       items,
 	}, nil
 }

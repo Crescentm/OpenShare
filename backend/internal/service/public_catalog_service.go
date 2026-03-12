@@ -26,26 +26,32 @@ type PublicCatalogService struct {
 }
 
 type PublicFileListInput struct {
-	FolderID string
-	Page     int
-	PageSize int
-	Sort     string
+	FolderID       string
+	FilterByFolder bool // true when the caller explicitly wants to browse within a folder
+	Page           int
+	PageSize       int
+	Sort           string
 }
 
 type PublicFileListResult struct {
-	Items    []PublicFileItem
-	Page     int
-	PageSize int
-	Total    int64
+	Items    []PublicFileItem `json:"items"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"page_size"`
+	Total    int64           `json:"total"`
 }
 
 type PublicFileItem struct {
-	ID            string
-	Title         string
-	Tags          []string
-	UploadedAt    time.Time
-	DownloadCount int64
-	Size          int64
+	ID            string    `json:"id"`
+	Title         string    `json:"title"`
+	Tags          []string  `json:"tags"`
+	UploadedAt    time.Time `json:"uploaded_at"`
+	DownloadCount int64     `json:"download_count"`
+	Size          int64     `json:"size"`
+}
+
+type PublicFolderItem struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 func NewPublicCatalogService(repository *repository.PublicCatalogRepository) *PublicCatalogService {
@@ -69,10 +75,11 @@ func (s *PublicCatalogService) ListPublicFiles(ctx context.Context, input Public
 	}
 
 	files, total, err := s.repository.ListPublicFiles(ctx, repository.PublicFileListQuery{
-		FolderID: normalized.FolderID,
-		Offset:   (normalized.Page - 1) * normalized.PageSize,
-		Limit:    normalized.PageSize,
-		OrderBy:  normalized.OrderBy,
+		FolderID:       normalized.FolderID,
+		FilterByFolder: normalized.FilterByFolder,
+		Offset:         (normalized.Page - 1) * normalized.PageSize,
+		Limit:          normalized.PageSize,
+		OrderBy:        normalized.OrderBy,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list public files: %w", err)
@@ -95,10 +102,14 @@ func (s *PublicCatalogService) ListPublicFiles(ctx context.Context, input Public
 
 	items := make([]PublicFileItem, 0, len(files))
 	for _, file := range files {
+		tags := tagsByFileID[file.ID]
+		if tags == nil {
+			tags = []string{}
+		}
 		items = append(items, PublicFileItem{
 			ID:            file.ID,
 			Title:         file.Title,
-			Tags:          tagsByFileID[file.ID],
+			Tags:          tags,
 			UploadedAt:    file.CreatedAt,
 			DownloadCount: file.DownloadCount,
 			Size:          file.Size,
@@ -113,11 +124,41 @@ func (s *PublicCatalogService) ListPublicFiles(ctx context.Context, input Public
 	}, nil
 }
 
+func (s *PublicCatalogService) ListPublicFolders(ctx context.Context, parentID string) ([]PublicFolderItem, error) {
+	var parentPtr *string
+	if trimmed := strings.TrimSpace(parentID); trimmed != "" {
+		exists, err := s.repository.FolderExists(ctx, trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("validate parent folder: %w", err)
+		}
+		if !exists {
+			return nil, ErrFolderNotFound
+		}
+		parentPtr = &trimmed
+	}
+
+	rows, err := s.repository.ListPublicFolders(ctx, parentPtr)
+	if err != nil {
+		return nil, fmt.Errorf("list public folders: %w", err)
+	}
+
+	items := make([]PublicFolderItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, PublicFolderItem{
+			ID:   row.ID,
+			Name: row.Name,
+		})
+	}
+
+	return items, nil
+}
+
 type normalizedPublicFileListInput struct {
-	FolderID *string
-	Page     int
-	PageSize int
-	OrderBy  []string
+	FolderID       *string
+	FilterByFolder bool
+	Page           int
+	PageSize       int
+	OrderBy        []string
 }
 
 func normalizePublicFileListInput(input PublicFileListInput) (*normalizedPublicFileListInput, error) {
@@ -143,15 +184,18 @@ func normalizePublicFileListInput(input PublicFileListInput) (*normalizedPublicF
 	}
 
 	var folderID *string
+	filterByFolder := input.FilterByFolder
 	if trimmed := strings.TrimSpace(input.FolderID); trimmed != "" {
 		folderID = &trimmed
+		filterByFolder = true
 	}
 
 	return &normalizedPublicFileListInput{
-		FolderID: folderID,
-		Page:     page,
-		PageSize: pageSize,
-		OrderBy:  orderBy,
+		FolderID:       folderID,
+		FilterByFolder: filterByFolder,
+		Page:           page,
+		PageSize:       pageSize,
+		OrderBy:        orderBy,
 	}, nil
 }
 

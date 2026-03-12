@@ -17,6 +17,8 @@ var (
 	ErrSubmissionMissing    = errors.New("submission not found")
 	ErrStagedFileMissing    = errors.New("staged file not found")
 	ErrRejectReasonRequired = errors.New("reject reason is required")
+	ErrApproveNoFolder      = errors.New("cannot approve: file has no target folder")
+	ErrApproveFolderMissing = errors.New("cannot approve: target folder not found or has no source path")
 )
 
 type ModerationService struct {
@@ -100,18 +102,30 @@ func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID 
 		return nil, ErrStagedFileMissing
 	}
 
-	repositoryPath, err := s.storage.MoveStagedFileToRepository(record.File.DiskPath, record.File.StoredName)
+	// Resolve the target folder's disk directory.
+	if record.File.FolderID == nil {
+		return nil, ErrApproveNoFolder
+	}
+	folder, err := s.repository.FindFolderByID(ctx, *record.File.FolderID)
 	if err != nil {
-		return nil, fmt.Errorf("move staged file to repository: %w", err)
+		return nil, fmt.Errorf("find target folder: %w", err)
+	}
+	if folder == nil || folder.SourcePath == nil {
+		return nil, ErrApproveFolderMissing
+	}
+
+	// Move staged file into the folder's physical directory.
+	finalPath, finalName, err := s.storage.MoveStagedFileToFolder(record.File.DiskPath, *folder.SourcePath, record.File.OriginalName)
+	if err != nil {
+		return nil, fmt.Errorf("move staged file to folder: %w", err)
 	}
 
 	reviewedAt := s.nowFunc()
-	if err := s.repository.ApproveSubmission(ctx, record.Submission.ID, adminID, operatorIP, reviewedAt, repositoryPath); err != nil {
-		rollbackPath, rollbackErr := s.storage.MoveRepositoryFileToStaging(repositoryPath, record.File.StoredName)
-		if rollbackErr != nil {
-			return nil, fmt.Errorf("approve submission failed after move (%v); rollback failed: %w", err, rollbackErr)
+	if err := s.repository.ApproveSubmission(ctx, record.Submission.ID, adminID, operatorIP, reviewedAt, finalPath, finalName); err != nil {
+		// Rollback: move the file back to staging.
+		if _, rollbackErr := s.storage.MoveFileBackToStaging(finalPath, record.File.StoredName); rollbackErr != nil {
+			return nil, fmt.Errorf("approve submission failed (%v); rollback failed: %w", err, rollbackErr)
 		}
-		_ = rollbackPath
 		return nil, fmt.Errorf("approve submission: %w", err)
 	}
 

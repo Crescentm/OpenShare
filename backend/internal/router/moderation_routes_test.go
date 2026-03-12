@@ -108,8 +108,11 @@ func TestApproveSubmissionMovesFileAndUpdatesStatus(t *testing.T) {
 	if updatedFile.Status != model.ResourceStatusActive {
 		t.Fatalf("expected active file status, got %q", updatedFile.Status)
 	}
+	if updatedFile.StoredName != "math.pdf" {
+		t.Fatalf("expected stored name %q, got %q", "math.pdf", updatedFile.StoredName)
+	}
 	if _, err := os.Stat(updatedFile.DiskPath); err != nil {
-		t.Fatalf("expected repository file to exist: %v", err)
+		t.Fatalf("expected file to exist in folder directory: %v", err)
 	}
 	if _, err := os.Stat(file.DiskPath); !os.IsNotExist(err) {
 		t.Fatalf("expected staged file to be moved, stat err=%v", err)
@@ -198,6 +201,25 @@ func createPendingModerationRecord(t *testing.T, cfg config.Config, db *gorm.DB,
 		t.Fatalf("write staged file failed: %v", err)
 	}
 
+	// Create a target folder with a real directory on disk.
+	folderID := mustNewID(t)
+	folderDir := filepath.Join(t.TempDir(), "test-folder-"+receiptCode)
+	if err := os.MkdirAll(folderDir, 0o755); err != nil {
+		t.Fatalf("create folder dir failed: %v", err)
+	}
+	sourcePath := folderDir
+	folder := &model.Folder{
+		ID:         folderID,
+		Name:       "test-folder",
+		SourcePath: &sourcePath,
+		Status:     model.ResourceStatusActive,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := db.Create(folder).Error; err != nil {
+		t.Fatalf("create folder failed: %v", err)
+	}
+
 	submission := &model.Submission{
 		ID:                  submissionID,
 		ReceiptCode:         receiptCode,
@@ -215,6 +237,7 @@ func createPendingModerationRecord(t *testing.T, cfg config.Config, db *gorm.DB,
 
 	file := &model.File{
 		ID:            mustNewID(t),
+		FolderID:      &folderID,
 		SubmissionID:  &submissionID,
 		Title:         submission.TitleSnapshot,
 		OriginalName:  "math.pdf",

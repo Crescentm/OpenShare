@@ -42,6 +42,7 @@ func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
 		Description:  ctx.PostForm("description"),
 		Tags:         append(ctx.PostFormArray("tag"), ctx.PostFormArray("tags")...),
 		ReceiptCode:  ctx.PostForm("receipt_code"),
+		FolderID:     ctx.PostForm("folder_id"),
 		OriginalName: fileHeader.Filename,
 		DeclaredMIME: fileHeader.Header.Get("Content-Type"),
 		UploaderIP:   ctx.ClientIP(),
@@ -51,6 +52,8 @@ func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrInvalidUploadInput):
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid upload form"})
+		case errors.Is(err, service.ErrUploadFolderNotFound):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "target folder not found"})
 		case errors.Is(err, service.ErrUploadReceiptExists):
 			ctx.JSON(http.StatusConflict, gin.H{"error": "receipt code already exists"})
 		case errors.Is(err, service.ErrUploadFileTooLarge):

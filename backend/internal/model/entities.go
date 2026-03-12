@@ -131,7 +131,7 @@ type File struct {
 // Submission tracks an upload request from staging through moderation.
 type Submission struct {
 	ID                  EntityID         `gorm:"column:id;type:text;primaryKey"`
-	ReceiptCode         string           `gorm:"column:receipt_code;type:text;not null;uniqueIndex:ux_submissions_receipt_code"`
+	ReceiptCode         string           `gorm:"column:receipt_code;type:text;not null;index:idx_submissions_receipt_code"`
 	TitleSnapshot       string           `gorm:"column:title_snapshot;type:text;not null"`
 	DescriptionSnapshot string           `gorm:"column:description_snapshot;type:text;not null;default:''"`
 	TagsSnapshot        string           `gorm:"column:tags_snapshot;type:text;not null;default:''"`

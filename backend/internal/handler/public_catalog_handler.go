@@ -32,10 +32,11 @@ func (h *PublicCatalogHandler) ListPublicFiles(ctx *gin.Context) {
 	}
 
 	result, err := h.service.ListPublicFiles(ctx.Request.Context(), service.PublicFileListInput{
-		FolderID: ctx.Query("folder_id"),
-		Page:     page,
-		PageSize: pageSize,
-		Sort:     ctx.Query("sort"),
+		FolderID:       ctx.Query("folder_id"),
+		FilterByFolder: ctx.Query("folder_id") != "",
+		Page:           page,
+		PageSize:       pageSize,
+		Sort:           ctx.Query("sort"),
 	})
 	if err != nil {
 		switch {
@@ -49,12 +50,22 @@ func (h *PublicCatalogHandler) ListPublicFiles(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"items":     result.Items,
-		"page":      result.Page,
-		"page_size": result.PageSize,
-		"total":     result.Total,
-	})
+	ctx.JSON(http.StatusOK, result)
+}
+
+func (h *PublicCatalogHandler) ListPublicFolders(ctx *gin.Context) {
+	items, err := h.service.ListPublicFolders(ctx.Request.Context(), ctx.Query("parent_id"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrFolderNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "folder not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list folders"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 func parseIntQuery(raw string) (int, error) {

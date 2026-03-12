@@ -74,6 +74,7 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	public := api.Group("/public")
 	public.GET("/files", publicCatalogHandler.ListPublicFiles)
 	public.GET("/files/:fileID/download", publicDownloadHandler.DownloadFile)
+	public.GET("/folders", publicCatalogHandler.ListPublicFolders)
 	public.POST("/submissions", publicUploadHandler.CreateSubmission)
 	public.GET("/submissions/:receiptCode", publicSubmissionHandler.LookupByReceiptCode)
 

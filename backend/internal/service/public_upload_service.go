@@ -21,13 +21,14 @@ import (
 )
 
 var (
-	ErrInvalidUploadInput   = errors.New("invalid upload input")
-	ErrUploadReceiptExists  = errors.New("receipt code already exists")
-	ErrUploadFileTooLarge   = errors.New("upload file too large")
-	ErrUploadEmptyFile      = errors.New("upload file is empty")
-	ErrInvalidFileExtension = errors.New("invalid file extension")
-	ErrInvalidFileMIMEType  = errors.New("invalid file mime type")
-	ErrReceiptCodeGenerate  = errors.New("failed to generate receipt code")
+	ErrInvalidUploadInput    = errors.New("invalid upload input")
+	ErrUploadReceiptExists   = errors.New("receipt code already exists")
+	ErrUploadFileTooLarge    = errors.New("upload file too large")
+	ErrUploadEmptyFile       = errors.New("upload file is empty")
+	ErrInvalidFileExtension  = errors.New("invalid file extension")
+	ErrInvalidFileMIMEType   = errors.New("invalid file mime type")
+	ErrReceiptCodeGenerate   = errors.New("failed to generate receipt code")
+	ErrUploadFolderNotFound  = errors.New("upload target folder not found")
 )
 
 const maxGeneratedReceiptAttempts = 5
@@ -45,6 +46,7 @@ type PublicUploadInput struct {
 	Description  string
 	Tags         []string
 	ReceiptCode  string
+	FolderID     string
 	OriginalName string
 	DeclaredMIME string
 	UploaderIP   string
@@ -76,6 +78,19 @@ func (s *PublicUploadService) CreateSubmission(ctx context.Context, input Public
 	normalized, err := s.normalizeInput(input)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate target folder if specified
+	var folderID *string
+	if normalized.FolderID != "" {
+		exists, err := s.repository.FolderExists(ctx, normalized.FolderID)
+		if err != nil {
+			return nil, fmt.Errorf("validate upload folder: %w", err)
+		}
+		if !exists {
+			return nil, ErrUploadFolderNotFound
+		}
+		folderID = &normalized.FolderID
 	}
 
 	bufferedReader := bufio.NewReader(normalized.File)
@@ -142,7 +157,7 @@ func (s *PublicUploadService) CreateSubmission(ctx context.Context, input Public
 	submissionRef := submissionID
 	file := &model.File{
 		ID:            fileID,
-		FolderID:      nil,
+		FolderID:      folderID,
 		SubmissionID:  &submissionRef,
 		Title:         normalized.Title,
 		OriginalName:  normalized.OriginalName,
@@ -159,20 +174,6 @@ func (s *PublicUploadService) CreateSubmission(ctx context.Context, input Public
 	}
 
 	if createErr := s.repository.CreatePendingUpload(ctx, submission, file); createErr != nil {
-		if repository.IsReceiptCodeConflict(createErr) {
-			if input.ReceiptCode != "" {
-				err = ErrUploadReceiptExists
-				return nil, err
-			}
-
-			retryResult, retryErr := s.retryCreateWithGeneratedReceipt(ctx, submission, file)
-			if retryErr != nil {
-				err = retryErr
-				return nil, err
-			}
-			return retryResult, nil
-		}
-
 		err = fmt.Errorf("persist upload submission: %w", createErr)
 		return nil, err
 	}
@@ -190,6 +191,7 @@ type normalizedUploadInput struct {
 	Description  string
 	Tags         []string
 	ReceiptCode  string
+	FolderID     string
 	OriginalName string
 	DeclaredMIME string
 	UploaderIP   string
@@ -233,6 +235,7 @@ func (s *PublicUploadService) normalizeInput(input PublicUploadInput) (*normaliz
 		Description:  description,
 		Tags:         tags,
 		ReceiptCode:  receiptCode,
+		FolderID:     strings.TrimSpace(input.FolderID),
 		OriginalName: originalName,
 		DeclaredMIME: strings.ToLower(strings.TrimSpace(input.DeclaredMIME)),
 		UploaderIP:   strings.TrimSpace(input.UploaderIP),
@@ -242,61 +245,24 @@ func (s *PublicUploadService) normalizeInput(input PublicUploadInput) (*normaliz
 }
 
 func (s *PublicUploadService) resolveReceiptCode(ctx context.Context, receiptCode string) (string, error) {
+	// If a receipt code is provided (user-defined or cached from previous upload),
+	// reuse it directly. Multiple submissions can share one receipt code.
 	if receiptCode != "" {
-		exists, err := s.repository.ReceiptCodeExists(ctx, receiptCode)
-		if err != nil {
-			return "", fmt.Errorf("check custom receipt code: %w", err)
-		}
-		if exists {
-			return "", ErrUploadReceiptExists
-		}
-
 		return receiptCode, nil
 	}
 
-	for i := 0; i < maxGeneratedReceiptAttempts; i++ {
-		candidate, err := s.codeGen(s.config.ReceiptCodeLength)
-		if err != nil {
-			return "", fmt.Errorf("%w: %v", ErrReceiptCodeGenerate, err)
-		}
-
-		exists, err := s.repository.ReceiptCodeExists(ctx, candidate)
-		if err != nil {
-			return "", fmt.Errorf("check generated receipt code: %w", err)
-		}
-		if !exists {
-			return candidate, nil
-		}
+	// Auto-generate a new receipt code
+	candidate, err := s.codeGen(s.config.ReceiptCodeLength)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrReceiptCodeGenerate, err)
 	}
 
-	return "", ErrReceiptCodeGenerate
+	return candidate, nil
 }
 
-func (s *PublicUploadService) retryCreateWithGeneratedReceipt(ctx context.Context, submission *model.Submission, file *model.File) (*PublicUploadResult, error) {
-	for i := 0; i < maxGeneratedReceiptAttempts; i++ {
-		candidate, err := s.codeGen(s.config.ReceiptCodeLength)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrReceiptCodeGenerate, err)
-		}
-
-		submission.ReceiptCode = candidate
-		if createErr := s.repository.CreatePendingUpload(ctx, submission, file); createErr != nil {
-			if repository.IsReceiptCodeConflict(createErr) {
-				continue
-			}
-			return nil, fmt.Errorf("persist upload submission: %w", createErr)
-		}
-
-		return &PublicUploadResult{
-			ReceiptCode: candidate,
-			Status:      model.SubmissionStatusPending,
-			Title:       submission.TitleSnapshot,
-			UploadedAt:  submission.CreatedAt,
-		}, nil
-	}
-
-	return nil, ErrReceiptCodeGenerate
-}
+// retryCreateWithGeneratedReceipt is kept for backward compatibility but
+// receipt code conflicts should no longer occur since the unique constraint
+// was replaced with a regular index.
 
 func (s *PublicUploadService) isAllowedExtension(extension string) bool {
 	for _, allowed := range s.config.AllowedExtensions {

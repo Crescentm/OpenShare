@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import { HttpError, httpClient } from "../../lib/http/client";
 
@@ -19,13 +19,26 @@ interface PublicFileListResponse {
   total: number;
 }
 
-interface SubmissionLookupResult {
-  receipt_code: string;
+interface PublicFolderItem {
+  id: string;
+  name: string;
+}
+
+interface PublicFolderListResponse {
+  items: PublicFolderItem[];
+}
+
+interface PublicSubmissionItem {
   title: string;
   status: "pending" | "approved" | "rejected";
   uploaded_at: string;
   download_count: number;
   reject_reason: string;
+}
+
+interface SubmissionLookupResult {
+  receipt_code: string;
+  items: PublicSubmissionItem[];
 }
 
 interface UploadResponse {
@@ -41,6 +54,7 @@ const uploadTitle = ref("");
 const uploadDescription = ref("");
 const uploadTags = ref("");
 const uploadReceiptCode = ref("");
+const uploadFolderID = ref("");
 const uploadFile = ref<File | null>(null);
 const uploadMessage = ref("");
 const uploadError = ref("");
@@ -51,15 +65,23 @@ const listLoading = ref(false);
 const listError = ref("");
 const listSort = ref<"created_at_desc" | "download_count_desc" | "title_asc">("created_at_desc");
 
+// Folder navigation
+const folders = ref<PublicFolderItem[]>([]);
+const currentFolderID = ref<string | null>(null);
+const breadcrumbs = ref<{ id: string | null; name: string }[]>([]);
+
+// Upload folder selector
+const allFolders = ref<{ id: string; name: string; depth: number }[]>([]);
+
 const receiptCode = ref("");
-const record = ref<SubmissionLookupResult | null>(null);
+const records = ref<PublicSubmissionItem[]>([]);
 const lookupLoading = ref(false);
 const lookupError = ref("");
 
 const totalFiles = computed(() => files.value.length);
 
-onMounted(() => {
-  void loadFiles();
+onMounted(async () => {
+  await Promise.all([loadFiles(), loadFolders(), loadAllFoldersForUpload()]);
 
   const cached = window.localStorage.getItem(cachedReceiptCodeKey);
   if (!cached) {
@@ -67,6 +89,8 @@ onMounted(() => {
   }
 
   receiptCode.value = cached;
+  // Auto-fill cached receipt code for next upload
+  uploadReceiptCode.value = cached;
   void lookupSubmission();
 });
 
@@ -75,13 +99,71 @@ async function loadFiles() {
   listError.value = "";
 
   try {
-    const response = await httpClient.get<PublicFileListResponse>(`/public/files?sort=${listSort.value}&page=1&page_size=20`);
-    files.value = response.items;
+    let url = `/public/files?sort=${listSort.value}&page=1&page_size=50`;
+    if (currentFolderID.value) {
+      url += `&folder_id=${encodeURIComponent(currentFolderID.value)}`;
+    }
+    const response = await httpClient.get<PublicFileListResponse>(url);
+    files.value = response.items ?? [];
   } catch {
     listError.value = "加载公开资料失败，请稍后重试。";
   } finally {
     listLoading.value = false;
   }
+}
+
+async function loadFolders() {
+  try {
+    let url = "/public/folders";
+    if (currentFolderID.value) {
+      url += `?parent_id=${encodeURIComponent(currentFolderID.value)}`;
+    }
+    const response = await httpClient.get<PublicFolderListResponse>(url);
+    folders.value = response.items ?? [];
+  } catch {
+    folders.value = [];
+  }
+}
+
+async function loadAllFoldersForUpload() {
+  try {
+    // Load root folders, then recursively load subfolders for a flat select list
+    const result: { id: string; name: string; depth: number }[] = [];
+    async function loadLevel(parentId: string | null, depth: number, prefix: string) {
+      let url = "/public/folders";
+      if (parentId) {
+        url += `?parent_id=${encodeURIComponent(parentId)}`;
+      }
+      const response = await httpClient.get<PublicFolderListResponse>(url);
+      const items = response.items ?? [];
+      for (const item of items) {
+        const displayName = prefix ? `${prefix} / ${item.name}` : item.name;
+        result.push({ id: item.id, name: displayName, depth });
+        await loadLevel(item.id, depth + 1, displayName);
+      }
+    }
+    await loadLevel(null, 0, "");
+    allFolders.value = result;
+  } catch {
+    allFolders.value = [];
+  }
+}
+
+async function navigateToFolder(folderId: string | null, folderName?: string) {
+  if (folderId === null) {
+    currentFolderID.value = null;
+    breadcrumbs.value = [];
+  } else {
+    currentFolderID.value = folderId;
+    // Check if we're going back in breadcrumbs
+    const existingIndex = breadcrumbs.value.findIndex(b => b.id === folderId);
+    if (existingIndex >= 0) {
+      breadcrumbs.value = breadcrumbs.value.slice(0, existingIndex + 1);
+    } else {
+      breadcrumbs.value.push({ id: folderId, name: folderName ?? folderId });
+    }
+  }
+  await Promise.all([loadFiles(), loadFolders()]);
 }
 
 async function submitUpload() {
@@ -105,8 +187,20 @@ async function submitUpload() {
     formData.append("tag", tag);
   }
 
-  if (uploadReceiptCode.value.trim()) {
-    formData.set("receipt_code", uploadReceiptCode.value.trim());
+  // Auto-fill receipt code from cache if empty
+  let effectiveReceiptCode = uploadReceiptCode.value.trim();
+  if (!effectiveReceiptCode) {
+    const cached = window.localStorage.getItem(cachedReceiptCodeKey);
+    if (cached) {
+      effectiveReceiptCode = cached;
+    }
+  }
+  if (effectiveReceiptCode) {
+    formData.set("receipt_code", effectiveReceiptCode);
+  }
+
+  if (uploadFolderID.value) {
+    formData.set("folder_id", uploadFolderID.value);
   }
 
   uploading.value = true;
@@ -117,12 +211,13 @@ async function submitUpload() {
     const response = await httpClient.post<UploadResponse>("/public/submissions", formData);
     uploadMessage.value = `上传成功，回执码：${response.receipt_code}`;
     receiptCode.value = response.receipt_code;
+    uploadReceiptCode.value = response.receipt_code;
     window.localStorage.setItem(cachedReceiptCodeKey, response.receipt_code);
     uploadTitle.value = "";
     uploadDescription.value = "";
     uploadTags.value = "";
-    uploadReceiptCode.value = "";
     uploadFile.value = null;
+    // Keep uploadFolderID and uploadReceiptCode for convenience
     await lookupSubmission();
   } catch (error: unknown) {
     if (error instanceof HttpError && typeof error.payload === "object" && error.payload && "error" in error.payload) {
@@ -139,7 +234,7 @@ async function lookupSubmission() {
   const normalized = receiptCode.value.trim();
   if (!normalized) {
     lookupError.value = "请输入回执码。";
-    record.value = null;
+    records.value = [];
     return;
   }
 
@@ -148,11 +243,12 @@ async function lookupSubmission() {
 
   try {
     const response = await httpClient.get<SubmissionLookupResult>(`/public/submissions/${encodeURIComponent(normalized)}`);
-    record.value = response;
+    records.value = response.items ?? [];
     receiptCode.value = response.receipt_code;
+    uploadReceiptCode.value = response.receipt_code;
     window.localStorage.setItem(cachedReceiptCodeKey, response.receipt_code);
   } catch (error: unknown) {
-    record.value = null;
+    records.value = [];
     if (error instanceof HttpError && error.status === 404) {
       lookupError.value = "未找到对应回执码，请检查输入是否正确。";
     } else if (error instanceof HttpError && error.status === 400) {
@@ -170,7 +266,7 @@ function onFileSelected(event: Event) {
   uploadFile.value = target.files?.[0] ?? null;
 }
 
-function statusLabel(status: SubmissionLookupResult["status"]) {
+function statusLabel(status: PublicSubmissionItem["status"]) {
   switch (status) {
     case "approved":
       return "已通过";
@@ -181,7 +277,7 @@ function statusLabel(status: SubmissionLookupResult["status"]) {
   }
 }
 
-function statusClass(status: SubmissionLookupResult["status"]) {
+function statusClass(status: PublicSubmissionItem["status"]) {
   switch (status) {
     case "approved":
       return "bg-emerald-100 text-emerald-800";
@@ -215,10 +311,10 @@ function formatSize(size: number) {
     <header class="rounded-[32px] bg-slate-950 px-8 py-10 text-white">
       <p class="text-sm font-semibold uppercase tracking-[0.28em] text-blue-300">Public Portal</p>
       <h2 class="mt-4 max-w-3xl text-4xl font-semibold leading-tight">
-        最小测试界面已经接上上传、回执码查询、公开列表和下载。
+        OpenShare 学习资料共享平台
       </h2>
       <p class="mt-4 max-w-3xl text-base text-slate-300">
-        这个页面不是最终设计稿，目标是让你现在就能在浏览器里把主链路点通，而不是继续手工调接口。
+        浏览、下载和上传学习资料。上传的资料会经过管理员审核后公开。
       </p>
     </header>
 
@@ -240,7 +336,17 @@ function formatSize(size: number) {
 
           <label class="block">
             <span class="mb-2 block text-sm font-medium text-slate-700">描述</span>
-            <textarea v-model="uploadDescription" rows="4" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:bg-white" />
+            <textarea v-model="uploadDescription" rows="3" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:bg-white" />
+          </label>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-700">上传到文件夹</span>
+            <select v-model="uploadFolderID" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:bg-white">
+              <option value="">根目录（不选择文件夹）</option>
+              <option v-for="folder in allFolders" :key="folder.id" :value="folder.id">
+                {{ folder.name }}
+              </option>
+            </select>
           </label>
 
           <div class="grid gap-4 sm:grid-cols-2">
@@ -250,8 +356,8 @@ function formatSize(size: number) {
             </label>
 
             <label class="block">
-              <span class="mb-2 block text-sm font-medium text-slate-700">自定义回执码</span>
-              <input v-model="uploadReceiptCode" placeholder="可选" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:bg-white" />
+              <span class="mb-2 block text-sm font-medium text-slate-700">回执码</span>
+              <input v-model="uploadReceiptCode" placeholder="自动复用上次的回执码" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:bg-white" />
             </label>
           </div>
 
@@ -275,7 +381,7 @@ function formatSize(size: number) {
             <p class="text-sm font-semibold uppercase tracking-[0.22em] text-blue-700">Receipt Lookup</p>
             <h3 class="mt-2 text-2xl font-semibold text-slate-900">我的上传</h3>
           </div>
-          <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">最近回执码自动缓存</span>
+          <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">回执码自动缓存复用</span>
         </div>
 
         <form class="mt-6 space-y-4" @submit.prevent="lookupSubmission">
@@ -291,35 +397,34 @@ function formatSize(size: number) {
 
         <p v-if="lookupError" class="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ lookupError }}</p>
 
-        <div v-if="record" class="mt-5 rounded-[24px] bg-slate-50 p-5">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p class="text-xs uppercase tracking-[0.2em] text-slate-500">投稿标题</p>
-              <h4 class="mt-2 text-lg font-semibold text-slate-900">{{ record.title }}</h4>
-            </div>
-            <span class="rounded-full px-3 py-1 text-xs font-semibold" :class="statusClass(record.status)">
-              {{ statusLabel(record.status) }}
-            </span>
-          </div>
+        <div v-if="records.length > 0" class="mt-5 space-y-3">
+          <p class="text-xs uppercase tracking-[0.2em] text-slate-500">回执码：{{ receiptCode }}（共 {{ records.length }} 条投稿）</p>
 
-          <dl class="mt-5 grid gap-4 sm:grid-cols-2">
-            <div class="rounded-2xl bg-white px-4 py-3">
-              <dt class="text-xs uppercase tracking-[0.18em] text-slate-500">回执码</dt>
-              <dd class="mt-2 text-sm font-medium text-slate-900">{{ record.receipt_code }}</dd>
+          <div v-for="(record, index) in records" :key="index" class="rounded-[24px] bg-slate-50 p-5">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 class="text-lg font-semibold text-slate-900">{{ record.title }}</h4>
+              </div>
+              <span class="rounded-full px-3 py-1 text-xs font-semibold" :class="statusClass(record.status)">
+                {{ statusLabel(record.status) }}
+              </span>
             </div>
-            <div class="rounded-2xl bg-white px-4 py-3">
-              <dt class="text-xs uppercase tracking-[0.18em] text-slate-500">上传时间</dt>
-              <dd class="mt-2 text-sm font-medium text-slate-900">{{ formatDate(record.uploaded_at) }}</dd>
-            </div>
-            <div class="rounded-2xl bg-white px-4 py-3">
-              <dt class="text-xs uppercase tracking-[0.18em] text-slate-500">下载量</dt>
-              <dd class="mt-2 text-sm font-medium text-slate-900">{{ record.download_count }}</dd>
-            </div>
-            <div class="rounded-2xl bg-white px-4 py-3">
-              <dt class="text-xs uppercase tracking-[0.18em] text-slate-500">驳回原因</dt>
-              <dd class="mt-2 text-sm font-medium text-slate-900">{{ record.reject_reason || "暂无" }}</dd>
-            </div>
-          </dl>
+
+            <dl class="mt-4 grid gap-3 sm:grid-cols-3">
+              <div class="rounded-2xl bg-white px-4 py-3">
+                <dt class="text-xs uppercase tracking-[0.18em] text-slate-500">上传时间</dt>
+                <dd class="mt-2 text-sm font-medium text-slate-900">{{ formatDate(record.uploaded_at) }}</dd>
+              </div>
+              <div class="rounded-2xl bg-white px-4 py-3">
+                <dt class="text-xs uppercase tracking-[0.18em] text-slate-500">下载量</dt>
+                <dd class="mt-2 text-sm font-medium text-slate-900">{{ record.download_count }}</dd>
+              </div>
+              <div class="rounded-2xl bg-white px-4 py-3">
+                <dt class="text-xs uppercase tracking-[0.18em] text-slate-500">驳回原因</dt>
+                <dd class="mt-2 text-sm font-medium text-slate-900">{{ record.reject_reason || "暂无" }}</dd>
+              </div>
+            </dl>
+          </div>
         </div>
       </article>
     </div>
@@ -342,6 +447,29 @@ function formatSize(size: number) {
         </div>
       </div>
 
+      <!-- Breadcrumb navigation -->
+      <div class="mt-4 flex flex-wrap items-center gap-1 text-sm">
+        <button class="rounded-xl px-3 py-1 font-medium transition" :class="currentFolderID === null ? 'bg-blue-100 text-blue-800' : 'text-blue-600 hover:bg-blue-50'" @click="navigateToFolder(null)">
+          全部资料
+        </button>
+        <template v-for="(crumb, index) in breadcrumbs" :key="crumb.id">
+          <span class="text-slate-400">/</span>
+          <button class="rounded-xl px-3 py-1 font-medium transition" :class="index === breadcrumbs.length - 1 ? 'bg-blue-100 text-blue-800' : 'text-blue-600 hover:bg-blue-50'" @click="navigateToFolder(crumb.id, crumb.name)">
+            {{ crumb.name }}
+          </button>
+        </template>
+      </div>
+
+      <!-- Subfolders -->
+      <div v-if="folders.length > 0" class="mt-4 flex flex-wrap gap-3">
+        <button v-for="folder in folders" :key="folder.id" class="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:bg-blue-50" @click="navigateToFolder(folder.id, folder.name)">
+          <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+          </svg>
+          {{ folder.name }}
+        </button>
+      </div>
+
       <p class="mt-3 text-sm text-slate-500">当前展示 {{ totalFiles }} 条可下载公开资料。</p>
       <p v-if="listError" class="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ listError }}</p>
       <p v-else-if="listLoading" class="mt-4 text-sm text-slate-500">加载中...</p>
@@ -359,10 +487,10 @@ function formatSize(size: number) {
           </div>
 
           <div class="mt-4 flex flex-wrap gap-2">
-            <span v-for="tag in file.tags" :key="tag" class="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800">
+            <span v-for="tag in (file.tags ?? [])" :key="tag" class="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800">
               {{ tag }}
             </span>
-            <span v-if="file.tags.length === 0" class="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-600">无 Tag</span>
+            <span v-if="(file.tags ?? []).length === 0" class="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-600">无 Tag</span>
           </div>
 
           <dl class="mt-5 grid grid-cols-2 gap-3 text-sm text-slate-600">

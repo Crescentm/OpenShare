@@ -72,7 +72,7 @@ func TestPublicUploadCreatesPendingSubmission(t *testing.T) {
 	}
 }
 
-func TestPublicUploadRejectsDuplicateCustomReceiptCode(t *testing.T) {
+func TestPublicUploadReusesExistingReceiptCode(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	engine := New(db, cfg, newRouterSessionManager(db))
@@ -92,8 +92,24 @@ func TestPublicUploadRejectsDuplicateCustomReceiptCode(t *testing.T) {
 
 	engine.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusConflict {
-		t.Fatalf("expected status 409, got %d, body=%s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		ReceiptCode string `json:"receipt_code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.ReceiptCode != "CUSTOM123" {
+		t.Fatalf("expected reused receipt code CUSTOM123, got %q", response.ReceiptCode)
+	}
+
+	var count int64
+	db.Model(&model.Submission{}).Where("receipt_code = ?", "CUSTOM123").Count(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 submissions sharing receipt code, got %d", count)
 	}
 }
 
@@ -140,11 +156,45 @@ func TestPublicUploadRejectsMissingTitle(t *testing.T) {
 	}
 }
 
+func TestPublicUploadAssignsFileToFolder(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	folderID := createPublicTestFolder(t, db, "课程资料")
+
+	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
+		title:       "概率论笔记",
+		folderID:    folderID,
+		fileName:    "probability.pdf",
+		fileContent: []byte("%PDF-1.4 test document"),
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var file model.File
+	if err := db.Where("title = ?", "概率论笔记").Take(&file).Error; err != nil {
+		t.Fatalf("query file failed: %v", err)
+	}
+	if file.FolderID == nil || *file.FolderID != folderID {
+		t.Fatalf("expected folder_id %q, got %v", folderID, file.FolderID)
+	}
+}
+
 type uploadRequestBody struct {
 	title       string
 	description string
 	tags        []string
 	receiptCode string
+	folderID    string
 	fileName    string
 	fileContent []byte
 }
@@ -168,6 +218,11 @@ func buildUploadRequestBody(t *testing.T, input uploadRequestBody) (*bytes.Buffe
 	if input.receiptCode != "" {
 		if err := writer.WriteField("receipt_code", input.receiptCode); err != nil {
 			t.Fatalf("write receipt code failed: %v", err)
+		}
+	}
+	if input.folderID != "" {
+		if err := writer.WriteField("folder_id", input.folderID); err != nil {
+			t.Fatalf("write folder_id failed: %v", err)
 		}
 	}
 	for _, tag := range input.tags {

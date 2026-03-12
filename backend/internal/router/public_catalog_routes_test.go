@@ -13,9 +13,10 @@ import (
 	"openshare/backend/pkg/identity"
 )
 
-func TestPublicFilesListsOnlyActiveRootFiles(t *testing.T) {
+func TestPublicFilesListsAllActiveFiles(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
+	folderID := createPublicTestFolder(t, db, "导入资料")
 	rootActive := createPublicTestFile(t, db, publicTestFile{
 		title:         "公开文件",
 		status:        model.ResourceStatusActive,
@@ -25,6 +26,12 @@ func TestPublicFilesListsOnlyActiveRootFiles(t *testing.T) {
 	createPublicTestFile(t, db, publicTestFile{
 		title:  "下架文件",
 		status: model.ResourceStatusOffline,
+	})
+	createPublicTestFile(t, db, publicTestFile{
+		title:    "目录内文件",
+		status:   model.ResourceStatusActive,
+		folderID: &folderID,
+		size:     256,
 	})
 	addTagsToFile(t, db, rootActive.ID, "数学", "物理")
 
@@ -49,17 +56,30 @@ func TestPublicFilesListsOnlyActiveRootFiles(t *testing.T) {
 		t.Fatalf("decode response failed: %v", err)
 	}
 
-	if response.Total != 1 {
-		t.Fatalf("expected total 1, got %d", response.Total)
+	// Both root and folder files should appear when no folder_id filter
+	if response.Total != 2 {
+		t.Fatalf("expected total 2 (root + folder), got %d", response.Total)
 	}
-	if len(response.Items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(response.Items))
+	if len(response.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(response.Items))
 	}
-	if response.Items[0].Title != "公开文件" {
-		t.Fatalf("unexpected title %q", response.Items[0].Title)
+
+	// Find the root file to check its tags
+	var rootItem *struct {
+		Title string   `json:"title"`
+		Tags  []string `json:"tags"`
 	}
-	if len(response.Items[0].Tags) != 2 {
-		t.Fatalf("expected 2 tags, got %v", response.Items[0].Tags)
+	for i := range response.Items {
+		if response.Items[i].Title == "公开文件" {
+			rootItem = &response.Items[i]
+			break
+		}
+	}
+	if rootItem == nil {
+		t.Fatal("root file not found in response")
+	}
+	if len(rootItem.Tags) != 2 {
+		t.Fatalf("expected 2 tags on root file, got %v", rootItem.Tags)
 	}
 }
 

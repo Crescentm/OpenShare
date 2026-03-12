@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,31 +18,25 @@ import (
 	"openshare/backend/pkg/identity"
 )
 
-func TestCreateSubmissionCleansStagedFileOnReceiptConflict(t *testing.T) {
+func TestCreateSubmissionReusesExistingReceiptCode(t *testing.T) {
 	cfg, db, storageService := newUploadTestDeps(t)
 	repo := repository.NewUploadRepository(db)
 	service := NewPublicUploadService(cfg.Upload, repo, storageService)
 
 	createExistingSubmission(t, db, "CUSTOM123")
 
-	_, err := service.CreateSubmission(context.Background(), PublicUploadInput{
+	result, err := service.CreateSubmission(context.Background(), PublicUploadInput{
 		Title:        "高等数学",
 		ReceiptCode:  "CUSTOM123",
 		OriginalName: "notes.pdf",
 		DeclaredMIME: "application/pdf",
 		File:         strings.NewReader("%PDF-1.4 test document"),
 	})
-	if !errors.Is(err, ErrUploadReceiptExists) {
-		t.Fatalf("expected receipt conflict, got %v", err)
+	if err != nil {
+		t.Fatalf("expected success when reusing receipt code, got %v", err)
 	}
-
-	stagingDir := filepath.Join(cfg.Storage.Root, cfg.Storage.Staging)
-	entries, readErr := os.ReadDir(stagingDir)
-	if readErr != nil {
-		t.Fatalf("read staging dir failed: %v", readErr)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("expected staging dir to be cleaned, found %d files", len(entries))
+	if result.ReceiptCode != "CUSTOM123" {
+		t.Fatalf("expected receipt code CUSTOM123, got %s", result.ReceiptCode)
 	}
 }
 
