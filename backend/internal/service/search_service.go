@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/repository"
 	"openshare/backend/internal/search"
@@ -42,12 +43,14 @@ const (
 type SearchService struct {
 	searchRepo *repository.SearchRepository
 	tagRepo    *repository.TagRepository
+	settings   *SystemSettingService
 }
 
-func NewSearchService(searchRepo *repository.SearchRepository, tagRepo *repository.TagRepository) *SearchService {
+func NewSearchService(searchRepo *repository.SearchRepository, tagRepo *repository.TagRepository, settings *SystemSettingService) *SearchService {
 	return &SearchService{
 		searchRepo: searchRepo,
 		tagRepo:    tagRepo,
+		settings:   settings,
 	}
 }
 
@@ -74,12 +77,12 @@ type SearchResult struct {
 
 // SearchResultItem represents a single file or folder in the search results.
 type SearchResultItem struct {
-	EntityType    string   `json:"entity_type"` // "file" | "folder"
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Tags          []string `json:"tags"`
-	Size          int64    `json:"size,omitempty"`
-	DownloadCount int64    `json:"download_count,omitempty"`
+	EntityType    string     `json:"entity_type"` // "file" | "folder"
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	Tags          []string   `json:"tags"`
+	Size          int64      `json:"size,omitempty"`
+	DownloadCount int64      `json:"download_count,omitempty"`
 	UploadedAt    *time.Time `json:"uploaded_at,omitempty"`
 }
 
@@ -88,8 +91,10 @@ type SearchResultItem struct {
 // ---------------------------------------------------------------------------
 
 func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchResult, error) {
+	policy := s.searchPolicy(ctx)
+
 	// --- 1. Validate & normalise -----------------------------------------
-	page, pageSize, err := normalizeSearchPagination(input.Page, input.PageSize)
+	page, pageSize, err := normalizeSearchPagination(input.Page, input.PageSize, policy.ResultWindow)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +115,9 @@ func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchR
 			tagFilters = append(tagFilters, normalized)
 		}
 	}
+	if len(tagFilters) > 0 && !policy.EnableTagFilter {
+		return nil, ErrSearchInvalidInput
+	}
 
 	if !hasFTS && len(tagFilters) == 0 {
 		return nil, ErrSearchQueryEmpty
@@ -118,6 +126,9 @@ func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchR
 	// --- 2. Resolve folder scope -----------------------------------------
 	var scopeFolderIDs []string
 	if trimmed := strings.TrimSpace(input.FolderID); trimmed != "" {
+		if !policy.EnableFolderScope {
+			return nil, ErrSearchInvalidInput
+		}
 		ids, err := s.searchRepo.GetDescendantFolderIDs(ctx, trimmed)
 		if err != nil {
 			return nil, fmt.Errorf("resolve folder scope: %w", err)
@@ -148,7 +159,7 @@ func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchR
 	}
 
 	// --- 5. LIKE fallback if FTS5 returned nothing -----------------------
-	if total == 0 && hasFTS {
+	if total == 0 && hasFTS && policy.EnableFuzzyMatch {
 		rows, total, err = s.searchRepo.SearchWithLike(ctx, strings.ToLower(keyword), scopeFolderIDs, offset, pageSize)
 		if err != nil {
 			return nil, fmt.Errorf("like search fallback: %w", err)
@@ -189,6 +200,18 @@ func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchR
 		PageSize: pageSize,
 		Total:    total,
 	}, nil
+}
+
+func (s *SearchService) searchPolicy(ctx context.Context) SearchPolicy {
+	if s.settings == nil {
+		return defaultSystemPolicy(config.UploadConfig{}).Search
+	}
+
+	policy, err := s.settings.GetPolicy(ctx)
+	if err != nil || policy == nil {
+		return defaultSystemPolicy(config.UploadConfig{}).Search
+	}
+	return policy.Search
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +462,7 @@ func (s *SearchService) RebuildAllIndexes(ctx context.Context) error {
 // Helpers
 // ---------------------------------------------------------------------------
 
-func normalizeSearchPagination(page, pageSize int) (int, int, error) {
+func normalizeSearchPagination(page, pageSize, resultWindow int) (int, int, error) {
 	if page == 0 {
 		page = defaultSearchPage
 	}
@@ -450,6 +473,9 @@ func normalizeSearchPagination(page, pageSize int) (int, int, error) {
 		pageSize = defaultSearchPageSize
 	}
 	if pageSize < 1 || pageSize > maxSearchPageSize {
+		return 0, 0, ErrSearchInvalidInput
+	}
+	if resultWindow > 0 && page*pageSize > resultWindow {
 		return 0, 0, ErrSearchInvalidInput
 	}
 	return page, pageSize, nil

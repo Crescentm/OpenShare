@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,12 +22,14 @@ import (
 func TestCreateSubmissionReusesExistingReceiptCode(t *testing.T) {
 	cfg, db, storageService := newUploadTestDeps(t)
 	repo := repository.NewUploadRepository(db)
-	service := NewPublicUploadService(cfg.Upload, repo, storageService)
+	service := NewPublicUploadService(cfg.Upload, repo, storageService, nil)
+	folderID := createUploadTargetFolder(t, db)
 
 	createExistingSubmission(t, db, "CUSTOM123")
 
 	result, err := service.CreateSubmission(context.Background(), PublicUploadInput{
 		ReceiptCode:  "CUSTOM123",
+		FolderID:     folderID,
 		OriginalName: "notes.pdf",
 		DeclaredMIME: "application/pdf",
 		File:         strings.NewReader("%PDF-1.4 test document"),
@@ -42,12 +45,14 @@ func TestCreateSubmissionReusesExistingReceiptCode(t *testing.T) {
 func TestCreateSubmissionReturnsReceiptGenerationError(t *testing.T) {
 	cfg, db, storageService := newUploadTestDeps(t)
 	repo := repository.NewUploadRepository(db)
-	service := NewPublicUploadService(cfg.Upload, repo, storageService)
+	service := NewPublicUploadService(cfg.Upload, repo, storageService, nil)
+	folderID := createUploadTargetFolder(t, db)
 	service.codeGen = func(int) (string, error) {
 		return "", errors.New("entropy unavailable")
 	}
 
 	_, err := service.CreateSubmission(context.Background(), PublicUploadInput{
+		FolderID:     folderID,
 		OriginalName: "notes.pdf",
 		DeclaredMIME: "application/pdf",
 		File:         strings.NewReader("%PDF-1.4 test document"),
@@ -101,6 +106,27 @@ func createExistingSubmission(t *testing.T, db *gorm.DB, receiptCode string) {
 	if err := db.Create(submission).Error; err != nil {
 		t.Fatalf("create existing submission failed: %v", err)
 	}
+}
+
+func createUploadTargetFolder(t *testing.T, db *gorm.DB) string {
+	t.Helper()
+
+	sourcePath := filepath.Join(t.TempDir(), "repository")
+	if err := os.MkdirAll(sourcePath, 0o755); err != nil {
+		t.Fatalf("ensure upload target folder path failed: %v", err)
+	}
+
+	folderID := mustNewUploadID(t)
+	folder := &model.Folder{
+		ID:         folderID,
+		Name:       "upload-target",
+		SourcePath: &sourcePath,
+		Status:     model.ResourceStatusActive,
+	}
+	if err := db.Create(folder).Error; err != nil {
+		t.Fatalf("create upload target folder failed: %v", err)
+	}
+	return folderID
 }
 
 func mustNewUploadID(t *testing.T) string {

@@ -21,9 +21,10 @@ var (
 )
 
 type ResourceManagementService struct {
-	repo    *repository.ResourceManagementRepository
-	storage *storage.Service
-	nowFunc func() time.Time
+	repo     *repository.ResourceManagementRepository
+	storage  *storage.Service
+	settings *SystemSettingService
+	nowFunc  func() time.Time
 }
 
 type ManagedFileItem struct {
@@ -59,6 +60,12 @@ func NewResourceManagementService(repo *repository.ResourceManagementRepository,
 		storage: storageService,
 		nowFunc: func() time.Time { return time.Now().UTC() },
 	}
+}
+
+func NewResourceManagementServiceWithSettings(repo *repository.ResourceManagementRepository, storageService *storage.Service, settings *SystemSettingService) *ResourceManagementService {
+	service := NewResourceManagementService(repo, storageService)
+	service.settings = settings
+	return service
 }
 
 func (s *ResourceManagementService) ListFiles(ctx context.Context, input ListManagedFilesInput) ([]ManagedFileItem, error) {
@@ -172,4 +179,60 @@ func (s *ResourceManagementService) DeleteFile(ctx context.Context, fileID strin
 		return fmt.Errorf("delete managed file: %w", err)
 	}
 	return nil
+}
+
+func (s *ResourceManagementService) PublicUpdateFile(ctx context.Context, fileID string, input UpdateManagedFileInput) error {
+	policy, err := s.guestPolicy(ctx)
+	if err != nil {
+		return err
+	}
+	if !policy.ExtraPermissionsEnabled || !policy.AllowGuestResourceEdit {
+		return ErrInvalidResourceEdit
+	}
+
+	current, err := s.repo.FindFileByID(ctx, strings.TrimSpace(fileID))
+	if err != nil {
+		return err
+	}
+	if current == nil || current.Status != model.ResourceStatusActive {
+		return ErrManagedFileNotFound
+	}
+
+	input.OperatorID = ""
+	return s.UpdateFile(ctx, fileID, input)
+}
+
+func (s *ResourceManagementService) PublicDeleteFile(ctx context.Context, fileID string, operatorIP string) error {
+	policy, err := s.guestPolicy(ctx)
+	if err != nil {
+		return err
+	}
+	if !policy.ExtraPermissionsEnabled || !policy.AllowGuestResourceDelete {
+		return ErrInvalidResourceEdit
+	}
+
+	current, err := s.repo.FindFileByID(ctx, strings.TrimSpace(fileID))
+	if err != nil {
+		return err
+	}
+	if current == nil || current.Status != model.ResourceStatusActive {
+		return ErrManagedFileNotFound
+	}
+
+	return s.DeleteFile(ctx, fileID, "", operatorIP)
+}
+
+func (s *ResourceManagementService) guestPolicy(ctx context.Context) (GuestPolicy, error) {
+	if s.settings == nil {
+		return GuestPolicy{}, nil
+	}
+
+	policy, err := s.settings.GetPolicy(ctx)
+	if err != nil {
+		return GuestPolicy{}, fmt.Errorf("load system policy: %w", err)
+	}
+	if policy == nil {
+		return GuestPolicy{}, nil
+	}
+	return policy.Guest, nil
 }

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 
-import { HttpError, httpClient } from "../../lib/http/client";
+import { httpClient } from "../../lib/http/client";
+import { readApiError } from "../../lib/http/helpers";
+import { useSessionStore } from "../../stores/session";
 
 interface PendingReportItem {
   id: string;
@@ -21,8 +23,14 @@ const reports = ref<PendingReportItem[]>([]);
 const loading = ref(false);
 const error = ref("");
 const actionError = ref("");
+const actionMessage = ref("");
+const sessionStore = useSessionStore();
 
-onMounted(loadReports);
+onMounted(() => {
+  if (sessionStore.hasPermission("review_reports")) {
+    void loadReports();
+  }
+});
 
 async function loadReports() {
   loading.value = true;
@@ -42,17 +50,15 @@ async function approveReport(reportId: string) {
   if (reviewReason === null) return; // cancelled
 
   actionError.value = "";
+  actionMessage.value = "";
   try {
     await httpClient.post(`/admin/reports/${reportId}/approve`, {
       review_reason: reviewReason,
     });
+    actionMessage.value = "举报已处理，目标资源已下架。";
     await loadReports();
   } catch (err: unknown) {
-    if (err instanceof HttpError && typeof err.payload === "object" && err.payload && "error" in err.payload) {
-      actionError.value = String(err.payload.error);
-    } else {
-      actionError.value = "操作失败，请重试。";
-    }
+    actionError.value = readApiError(err, "操作失败，请重试。");
   }
 }
 
@@ -61,17 +67,15 @@ async function rejectReport(reportId: string) {
   if (reviewReason === null) return; // cancelled
 
   actionError.value = "";
+  actionMessage.value = "";
   try {
     await httpClient.post(`/admin/reports/${reportId}/reject`, {
       review_reason: reviewReason,
     });
+    actionMessage.value = "举报已驳回，资源保持公开。";
     await loadReports();
   } catch (err: unknown) {
-    if (err instanceof HttpError && typeof err.payload === "object" && err.payload && "error" in err.payload) {
-      actionError.value = String(err.payload.error);
-    } else {
-      actionError.value = "操作失败，请重试。";
-    }
+    actionError.value = readApiError(err, "操作失败，请重试。");
   }
 }
 
@@ -101,8 +105,18 @@ function formatDate(value: string) {
     <p v-if="actionError" class="rounded-2xl bg-rose-950/50 px-4 py-3 text-sm text-rose-200">
       {{ actionError }}
     </p>
+    <p v-if="actionMessage" class="rounded-2xl bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">
+      {{ actionMessage }}
+    </p>
 
-    <p v-if="error" class="rounded-2xl bg-rose-950/50 px-4 py-3 text-sm text-rose-200">
+    <p
+      v-if="!sessionStore.hasPermission('review_reports')"
+      class="rounded-2xl bg-slate-950/70 px-4 py-3 text-sm text-slate-400"
+    >
+      当前账号没有举报处理权限。
+    </p>
+
+    <p v-else-if="error" class="rounded-2xl bg-rose-950/50 px-4 py-3 text-sm text-rose-200">
       {{ error }}
     </p>
     <p v-else-if="loading" class="text-sm text-slate-400">加载中...</p>

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -18,10 +19,12 @@ func TestPublicUploadCreatesPendingSubmission(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "默认目录")
 
 	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
 		description: "第一章到第四章",
 		tags:        []string{"数学", "考试"},
+		folderID:    folderID,
 		fileName:    "notes.pdf",
 		fileContent: []byte("%PDF-1.4 test document"),
 	})
@@ -75,11 +78,13 @@ func TestPublicUploadReusesExistingReceiptCode(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "默认目录")
 
 	createPendingSubmissionForTest(t, db, "CUSTOM123")
 
 	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
 		receiptCode: "CUSTOM123",
+		folderID:    folderID,
 		fileName:    "os.pdf",
 		fileContent: []byte("%PDF-1.4 test document"),
 	})
@@ -115,8 +120,10 @@ func TestPublicUploadRejectsInvalidExtension(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "默认目录")
 
 	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
+		folderID:    folderID,
 		fileName:    "script.sh",
 		fileContent: []byte("#!/bin/sh\necho test"),
 	})
@@ -136,8 +143,10 @@ func TestPublicUploadDerivesGitleFromFilename(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "默认目录")
 
 	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
+		folderID:    folderID,
 		fileName:    "线性代数讲义.pdf",
 		fileContent: []byte("%PDF-1.4 test document"),
 	})
@@ -190,6 +199,82 @@ func TestPublicUploadAssignsFileToFolder(t *testing.T) {
 	}
 	if file.FolderID == nil || *file.FolderID != folderID {
 		t.Fatalf("expected folder_id %q, got %v", folderID, file.FolderID)
+	}
+}
+
+func TestPublicUploadRequiresFolderSelection(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
+		fileName:    "notes.pdf",
+		fileContent: []byte("%PDF-1.4 test document"),
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPublicUploadSupportsDirectPublishPolicy(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "直发目录")
+
+	setDirectPublishPolicy(t, db)
+
+	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
+		folderID:    folderID,
+		fileName:    "direct.pdf",
+		fileContent: []byte("%PDF-1.4 direct document"),
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		ReceiptCode string `json:"receipt_code"`
+		Status      string `json:"status"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.Status != string(model.SubmissionStatusApproved) {
+		t.Fatalf("expected approved status, got %q", response.Status)
+	}
+
+	var submission model.Submission
+	if err := db.Where("receipt_code = ?", response.ReceiptCode).Take(&submission).Error; err != nil {
+		t.Fatalf("query submission failed: %v", err)
+	}
+	if submission.Status != model.SubmissionStatusApproved {
+		t.Fatalf("expected approved submission, got %q", submission.Status)
+	}
+
+	var file model.File
+	if err := db.Where("submission_id = ?", submission.ID).Take(&file).Error; err != nil {
+		t.Fatalf("query file failed: %v", err)
+	}
+	if file.Status != model.ResourceStatusActive {
+		t.Fatalf("expected active file, got %q", file.Status)
+	}
+	if _, err := os.Stat(file.DiskPath); err != nil {
+		t.Fatalf("expected published file to exist, got %v", err)
 	}
 }
 
@@ -259,4 +344,18 @@ func createPendingSubmissionForTest(t *testing.T, db *gorm.DB, receiptCode strin
 	}
 
 	return submission
+}
+
+func setDirectPublishPolicy(t *testing.T, db *gorm.DB) {
+	t.Helper()
+
+	payload := `{"guest":{"allow_direct_publish":true,"extra_permissions_enabled":false,"allow_guest_resource_edit":false,"allow_guest_resource_delete":false},"upload":{"max_file_size_bytes":10485760,"max_tag_count":10,"allowed_extensions":[".pdf",".zip",".md",".txt"]},"search":{"enable_fuzzy_match":true,"enable_tag_filter":true,"enable_folder_scope":true,"result_window":50}}`
+	if err := db.Create(&model.SystemSetting{
+		Key:       "system_policy",
+		Value:     payload,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatalf("create direct publish system policy failed: %v", err)
+	}
 }

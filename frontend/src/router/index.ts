@@ -8,6 +8,9 @@ import AdminDashboardView from "@/views/admin/AdminDashboardView.vue";
 import AdminReportsView from "@/views/admin/AdminReportsView.vue";
 import AdminResourcesView from "@/views/admin/AdminResourcesView.vue";
 import AdminSettingsView from "@/views/admin/AdminSettingsView.vue";
+import AdminTagsView from "@/views/admin/AdminTagsView.vue";
+import AdminOperationLogsView from "@/views/admin/AdminOperationLogsView.vue";
+import PublicFileDetailView from "@/views/public/PublicFileDetailView.vue";
 import HomeView from "@/views/public/HomeView.vue";
 import SearchView from "@/views/public/SearchView.vue";
 
@@ -25,6 +28,11 @@ const routes: RouteRecordRaw[] = [
         path: "search",
         name: "public-search",
         component: SearchView,
+      },
+      {
+        path: "files/:fileID",
+        name: "public-file-detail",
+        component: PublicFileDetailView,
       },
     ],
   },
@@ -58,9 +66,19 @@ const routes: RouteRecordRaw[] = [
         component: AdminReportsView,
       },
       {
+        path: "tags",
+        name: "admin-tags",
+        component: AdminTagsView,
+      },
+      {
         path: "settings",
         name: "admin-settings",
         component: AdminSettingsView,
+      },
+      {
+        path: "operation-logs",
+        name: "admin-operation-logs",
+        component: AdminOperationLogsView,
       },
     ],
   },

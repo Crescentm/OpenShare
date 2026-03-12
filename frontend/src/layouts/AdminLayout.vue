@@ -29,6 +29,8 @@ const navItems = computed(() => [
   { to: "/admin/announcements", label: "公告", visible: sessionStore.hasPermission("manage_announcements") },
   { to: "/admin/resources", label: "资料", visible: true },
   { to: "/admin/reports", label: "举报", visible: sessionStore.hasPermission("review_reports") },
+  { to: "/admin/operation-logs", label: "审计日志", visible: sessionStore.authenticated },
+  { to: "/admin/tags", label: "标签", visible: sessionStore.hasPermission("manage_tags") },
   { to: "/admin/admins", label: "管理员", visible: sessionStore.isSuperAdmin },
   { to: "/admin/settings", label: "系统设置", visible: sessionStore.isSuperAdmin },
 ]);

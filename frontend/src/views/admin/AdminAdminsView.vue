@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 
-import { HttpError, httpClient } from "../../lib/http/client";
+import { httpClient } from "../../lib/http/client";
+import { readApiError } from "../../lib/http/helpers";
 import { useSessionStore } from "../../stores/session";
 
 interface AdminItem {
@@ -29,6 +30,7 @@ const permissionOptions = [
 const items = ref<AdminItem[]>([]);
 const loading = ref(false);
 const error = ref("");
+const message = ref("");
 const form = reactive({
   username: "",
   password: "",
@@ -44,6 +46,7 @@ onMounted(() => {
 async function loadItems() {
   loading.value = true;
   error.value = "";
+  message.value = "";
   try {
     const response = await httpClient.get<{ items: AdminItem[] }>("/admin/admins");
     items.value = response.items ?? [];
@@ -55,26 +58,36 @@ async function loadItems() {
 }
 
 async function createAdmin() {
+  error.value = "";
+  message.value = "";
   try {
     await httpClient.post("/admin/admins", form);
     form.username = "";
     form.password = "";
     form.permissions = [];
+    message.value = "管理员已创建。";
     await loadItems();
   } catch (err: unknown) {
-    error.value = readApiError(err) ?? "创建管理员失败。";
+    error.value = readApiError(err, "创建管理员失败。");
   }
 }
 
 async function saveAdmin(item: AdminItem) {
-  await httpClient.request(`/admin/admins/${item.id}`, {
-    method: "PUT",
-    body: {
-      status: item.status,
-      permissions: item.permissions,
-    },
-  });
-  await loadItems();
+  error.value = "";
+  message.value = "";
+  try {
+    await httpClient.request(`/admin/admins/${item.id}`, {
+      method: "PUT",
+      body: {
+        status: item.status,
+        permissions: item.permissions,
+      },
+    });
+    message.value = `管理员 ${item.username} 已更新。`;
+    await loadItems();
+  } catch (err: unknown) {
+    error.value = readApiError(err, "更新管理员失败。");
+  }
 }
 
 async function resetPassword(item: AdminItem) {
@@ -82,9 +95,16 @@ async function resetPassword(item: AdminItem) {
   if (!password) {
     return;
   }
-  await httpClient.post(`/admin/admins/${item.id}/reset-password`, {
-    new_password: password,
-  });
+  error.value = "";
+  message.value = "";
+  try {
+    await httpClient.post(`/admin/admins/${item.id}/reset-password`, {
+      new_password: password,
+    });
+    message.value = `管理员 ${item.username} 的密码已重置。`;
+  } catch (err: unknown) {
+    error.value = readApiError(err, "重置密码失败。");
+  }
 }
 
 function togglePermission(item: AdminItem, permission: string) {
@@ -93,14 +113,6 @@ function togglePermission(item: AdminItem, permission: string) {
   } else {
     item.permissions = [...item.permissions, permission];
   }
-}
-
-function readApiError(error: unknown) {
-  if (!(error instanceof HttpError) || typeof error.payload !== "object" || error.payload === null) {
-    return null;
-  }
-  const payload = error.payload as Record<string, unknown>;
-  return typeof payload.error === "string" ? payload.error : null;
 }
 </script>
 
@@ -146,6 +158,7 @@ function readApiError(error: unknown) {
         </form>
       </article>
 
+      <p v-if="message" class="rounded-2xl bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">{{ message }}</p>
       <p v-if="error" class="rounded-2xl bg-rose-950/60 px-4 py-3 text-sm text-rose-200">{{ error }}</p>
 
       <article class="rounded-[28px] border border-slate-800 bg-slate-950/70 p-6">

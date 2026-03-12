@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"archive/zip"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -13,6 +16,10 @@ import (
 
 type PublicDownloadHandler struct {
 	service *service.PublicDownloadService
+}
+
+type batchDownloadRequest struct {
+	FileIDs []string `json:"file_ids"`
 }
 
 func NewPublicDownloadHandler(service *service.PublicDownloadService) *PublicDownloadHandler {
@@ -42,4 +49,125 @@ func (h *PublicDownloadHandler) DownloadFile(ctx *gin.Context) {
 
 	http.ServeContent(ctx.Writer, ctx.Request, download.OriginalName, download.ModTime, download.Content)
 	h.service.RecordDownloadAsync(download.FileID)
+}
+
+func (h *PublicDownloadHandler) PreviewFile(ctx *gin.Context) {
+	preview, kind, err := h.service.PreparePreview(ctx.Request.Context(), ctx.Param("fileID"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrDownloadFileNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		case errors.Is(err, service.ErrDownloadFileUnavailable):
+			ctx.JSON(http.StatusGone, gin.H{"error": "file is unavailable"})
+		case errors.Is(err, service.ErrPreviewUnsupported):
+			ctx.JSON(http.StatusConflict, gin.H{"error": "preview is not supported"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to preview file"})
+		}
+		return
+	}
+	defer preview.Content.Close()
+
+	ctx.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", preview.OriginalName))
+	ctx.Header("Content-Length", strconv.FormatInt(preview.Size, 10))
+	switch kind {
+	case service.FilePreviewPDF:
+		ctx.Header("Content-Type", "application/pdf")
+	case service.FilePreviewImage, service.FilePreviewText:
+		if preview.MimeType != "" {
+			ctx.Header("Content-Type", preview.MimeType)
+		}
+	}
+	http.ServeContent(ctx.Writer, ctx.Request, preview.OriginalName, preview.ModTime, preview.Content)
+}
+
+func (h *PublicDownloadHandler) GetFileDetail(ctx *gin.Context) {
+	detail, err := h.service.GetFileDetail(ctx.Request.Context(), ctx.Param("fileID"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrDownloadFileNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load file detail"})
+		}
+		return
+	}
+	ctx.JSON(http.StatusOK, detail)
+}
+
+func (h *PublicDownloadHandler) DownloadBatch(ctx *gin.Context) {
+	var req batchDownloadRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	files, err := h.service.PrepareBatchDownload(ctx.Request.Context(), req.FileIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBatchDownloadInvalid):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "file_ids is required"})
+		case errors.Is(err, service.ErrDownloadFileNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "one or more files were not found"})
+		case errors.Is(err, service.ErrDownloadFileUnavailable):
+			ctx.JSON(http.StatusGone, gin.H{"error": "one or more files are unavailable"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare batch download"})
+		}
+		return
+	}
+
+	ctx.Header("Content-Type", "application/zip")
+	ctx.Header("Content-Disposition", `attachment; filename="openshare-batch.zip"`)
+	zipWriter := zip.NewWriter(ctx.Writer)
+	usedNames := make(map[string]int, len(files))
+	fileIDs := make([]string, 0, len(files))
+
+	for _, item := range files {
+		opened, openErr := h.service.PrepareDownload(ctx.Request.Context(), item.FileID)
+		if openErr != nil {
+			zipWriter.Close()
+			return
+		}
+
+		entryName := uniqueZipEntryName(item.OriginalName, usedNames)
+		entry, createErr := zipWriter.Create(entryName)
+		if createErr != nil {
+			opened.Content.Close()
+			zipWriter.Close()
+			return
+		}
+		if _, copyErr := io.Copy(entry, opened.Content); copyErr != nil {
+			opened.Content.Close()
+			zipWriter.Close()
+			return
+		}
+		opened.Content.Close()
+		fileIDs = append(fileIDs, item.FileID)
+	}
+
+	if err := zipWriter.Close(); err == nil {
+		h.service.RecordBatchDownloadAsync(fileIDs)
+	}
+}
+
+func uniqueZipEntryName(originalName string, used map[string]int) string {
+	originalName = strings.TrimSpace(originalName)
+	if originalName == "" {
+		originalName = "file"
+	}
+	if _, exists := used[originalName]; !exists {
+		used[originalName] = 1
+		return originalName
+	}
+
+	ext := ""
+	base := originalName
+	if dot := strings.LastIndex(originalName, "."); dot > 0 {
+		base = originalName[:dot]
+		ext = originalName[dot:]
+	}
+	next := used[originalName]
+	used[originalName] = next + 1
+	return fmt.Sprintf("%s_%d%s", base, next, ext)
 }

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -223,12 +225,17 @@ func createPublicTestFolder(t *testing.T, db *gorm.DB, name string) string {
 	t.Helper()
 
 	folderID := mustNewID(t)
+	sourcePath := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(sourcePath, 0o755); err != nil {
+		t.Fatalf("create public test folder path failed: %v", err)
+	}
 	folder := &model.Folder{
-		ID:        folderID,
-		Name:      name,
-		Status:    model.ResourceStatusActive,
-		CreatedAt: time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
+		ID:         folderID,
+		Name:       name,
+		SourcePath: &sourcePath,
+		Status:     model.ResourceStatusActive,
+		CreatedAt:  time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
 	}
 	if err := db.Create(folder).Error; err != nil {
 		t.Fatalf("create public test folder failed: %v", err)

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 
-import { HttpError, httpClient } from "../../lib/http/client";
+import { httpClient } from "../../lib/http/client";
+import { readApiError } from "../../lib/http/helpers";
 import { useSessionStore } from "../../stores/session";
 
 interface SystemPolicy {
@@ -28,6 +29,7 @@ const sessionStore = useSessionStore();
 const loading = ref(false);
 const saving = ref(false);
 const error = ref("");
+const message = ref("");
 const form = reactive<SystemPolicy>({
   guest: {
     allow_direct_publish: false,
@@ -58,6 +60,7 @@ onMounted(() => {
 async function loadPolicy() {
   loading.value = true;
   error.value = "";
+  message.value = "";
   try {
     const response = await httpClient.get<SystemPolicy>("/admin/system/settings");
     Object.assign(form.guest, response.guest);
@@ -74,6 +77,7 @@ async function loadPolicy() {
 async function savePolicy() {
   saving.value = true;
   error.value = "";
+  message.value = "";
   form.upload.allowed_extensions = extensionsInput.value
     .split(",")
     .map((entry) => entry.trim())
@@ -83,19 +87,12 @@ async function savePolicy() {
       method: "PUT",
       body: form,
     });
+    message.value = "系统设置已保存。";
   } catch (err: unknown) {
-    error.value = readApiError(err) ?? "保存系统设置失败。";
+    error.value = readApiError(err, "保存系统设置失败。");
   } finally {
     saving.value = false;
   }
-}
-
-function readApiError(error: unknown) {
-  if (!(error instanceof HttpError) || typeof error.payload !== "object" || error.payload === null) {
-    return null;
-  }
-  const payload = error.payload as Record<string, unknown>;
-  return typeof payload.error === "string" ? payload.error : null;
 }
 </script>
 
@@ -181,6 +178,7 @@ function readApiError(error: unknown) {
         </button>
       </form>
 
+      <p v-if="message" class="mt-4 rounded-2xl bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">{{ message }}</p>
       <p v-if="error" class="mt-4 rounded-2xl bg-rose-950/60 px-4 py-3 text-sm text-rose-200">{{ error }}</p>
     </article>
   </section>

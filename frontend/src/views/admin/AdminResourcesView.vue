@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 
 import { httpClient } from "../../lib/http/client";
+import { readApiError } from "../../lib/http/helpers";
 import { useSessionStore } from "../../stores/session";
 
 interface ManagedFileItem {
@@ -21,6 +22,7 @@ const sessionStore = useSessionStore();
 const items = ref<ManagedFileItem[]>([]);
 const loading = ref(false);
 const error = ref("");
+const message = ref("");
 const query = ref("");
 const status = ref("");
 
@@ -31,6 +33,7 @@ onMounted(() => {
 async function loadItems() {
   loading.value = true;
   error.value = "";
+  message.value = "";
   try {
     const params = new URLSearchParams();
     if (query.value.trim()) {
@@ -50,28 +53,49 @@ async function loadItems() {
 }
 
 async function saveItem(item: ManagedFileItem) {
-  await httpClient.request(`/admin/resources/files/${item.id}`, {
-    method: "PUT",
-    body: {
-      title: item.title,
-      description: item.description,
-      tags: item.tags,
-    },
-  });
-  await loadItems();
+  error.value = "";
+  message.value = "";
+  try {
+    await httpClient.request(`/admin/resources/files/${item.id}`, {
+      method: "PUT",
+      body: {
+        title: item.title,
+        description: item.description,
+        tags: item.tags,
+      },
+    });
+    message.value = `资料《${item.title}》已更新。`;
+    await loadItems();
+  } catch (err: unknown) {
+    error.value = readApiError(err, "保存资料失败。");
+  }
 }
 
 async function offlineItem(item: ManagedFileItem) {
-  await httpClient.post(`/admin/resources/files/${item.id}/offline`);
-  await loadItems();
+  error.value = "";
+  message.value = "";
+  try {
+    await httpClient.post(`/admin/resources/files/${item.id}/offline`);
+    message.value = `资料《${item.title}》已下架。`;
+    await loadItems();
+  } catch (err: unknown) {
+    error.value = readApiError(err, "下架资料失败。");
+  }
 }
 
 async function deleteItem(item: ManagedFileItem) {
   if (!window.confirm(`确认删除资料《${item.title}》吗？`)) {
     return;
   }
-  await httpClient.request(`/admin/resources/files/${item.id}`, { method: "DELETE" });
-  await loadItems();
+  error.value = "";
+  message.value = "";
+  try {
+    await httpClient.request(`/admin/resources/files/${item.id}`, { method: "DELETE" });
+    message.value = `资料《${item.title}》已删除。`;
+    await loadItems();
+  } catch (err: unknown) {
+    error.value = readApiError(err, "删除资料失败。");
+  }
 }
 
 function updateTags(item: ManagedFileItem, raw: string) {
@@ -120,6 +144,7 @@ function formatSize(size: number) {
         </button>
       </div>
 
+      <p v-if="message" class="mt-4 rounded-2xl bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">{{ message }}</p>
       <p v-if="error" class="mt-4 rounded-2xl bg-rose-950/60 px-4 py-3 text-sm text-rose-200">{{ error }}</p>
       <p v-else-if="loading" class="mt-4 text-sm text-slate-400">加载中...</p>
 

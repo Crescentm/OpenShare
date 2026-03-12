@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 
-import { HttpError, httpClient } from "../lib/http/client";
+import { httpClient } from "../lib/http/client";
+import { readApiError } from "../lib/http/helpers";
 
 const props = defineProps<{
   visible: boolean;
@@ -68,17 +69,11 @@ async function submit() {
     await httpClient.post("/public/reports", body);
     successMessage.value = "举报已提交，管理员会尽快处理。";
     emit("submitted");
+    window.setTimeout(() => {
+      close();
+    }, 800);
   } catch (error: unknown) {
-    if (
-      error instanceof HttpError &&
-      typeof error.payload === "object" &&
-      error.payload &&
-      "error" in error.payload
-    ) {
-      errorMessage.value = String(error.payload.error);
-    } else {
-      errorMessage.value = "提交举报失败，请稍后重试。";
-    }
+    errorMessage.value = readApiError(error, "提交举报失败，请稍后重试。");
   } finally {
     submitting.value = false;
   }

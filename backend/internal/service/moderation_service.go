@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -25,6 +27,7 @@ type ModerationService struct {
 	repository *repository.ModerationRepository
 	storage    *storage.Service
 	search     *SearchService
+	tags       *TagService
 	nowFunc    func() time.Time
 }
 
@@ -49,11 +52,12 @@ type ReviewResult struct {
 	RejectReason string                 `json:"reject_reason,omitempty"`
 }
 
-func NewModerationService(repository *repository.ModerationRepository, storageService *storage.Service, searchService *SearchService) *ModerationService {
+func NewModerationService(repository *repository.ModerationRepository, storageService *storage.Service, searchService *SearchService, tagService *TagService) *ModerationService {
 	return &ModerationService{
 		repository: repository,
 		storage:    storageService,
 		search:     searchService,
+		tags:       tagService,
 		nowFunc:    func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -131,6 +135,9 @@ func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID 
 		return nil, fmt.Errorf("approve submission: %w", err)
 	}
 
+	// Apply tags from the submission snapshot to the approved file.
+	s.applySubmissionTags(ctx, record.File.ID, record.Submission.TagsSnapshot, adminID, operatorIP)
+
 	// Update FTS5 search index for the newly approved file.
 	if s.search != nil {
 		_ = s.search.IndexFile(ctx, record.File.ID, record.File.Title)
@@ -141,6 +148,32 @@ func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID 
 		Status:       model.SubmissionStatusApproved,
 		ReviewedAt:   reviewedAt,
 	}, nil
+}
+
+// applySubmissionTags parses the JSON tags snapshot from a submission and
+// binds the tags to the approved file via the tag service.
+func (s *ModerationService) applySubmissionTags(ctx context.Context, fileID, tagsSnapshot, adminID, operatorIP string) {
+	if s.tags == nil || strings.TrimSpace(tagsSnapshot) == "" {
+		return
+	}
+
+	var tagNames []string
+	if err := json.Unmarshal([]byte(tagsSnapshot), &tagNames); err != nil {
+		log.Printf("[WARN] failed to parse tags snapshot for file %s: %v", fileID, err)
+		return
+	}
+	if len(tagNames) == 0 {
+		return
+	}
+
+	if err := s.tags.BindFileTags(ctx, BindFileTagsInput{
+		FileID:     fileID,
+		TagNames:   tagNames,
+		AdminID:    adminID,
+		OperatorIP: operatorIP,
+	}); err != nil {
+		log.Printf("[WARN] failed to bind upload tags for file %s: %v", fileID, err)
+	}
 }
 
 func (s *ModerationService) RejectSubmission(ctx context.Context, submissionID string, adminID string, operatorIP string, rejectReason string) (*ReviewResult, error) {

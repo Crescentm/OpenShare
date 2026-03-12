@@ -23,12 +23,13 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 
 	storageService := storage.NewService(cfg.Storage)
 	adminRepo := repository.NewAdminRepository(db)
+	systemSettingService := service.NewSystemSettingService(repository.NewSystemSettingRepository(db), cfg)
 	adminAuthService := service.NewAdminAuthService(db, adminRepo, sessionManager)
 	adminAuthHandler := handler.NewAdminAuthHandler(adminAuthService, sessionManager)
 
 	searchRepo := repository.NewSearchRepository(db)
 	tagRepo := repository.NewTagRepository(db)
-	searchService := service.NewSearchService(searchRepo, tagRepo)
+	searchService := service.NewSearchService(searchRepo, tagRepo, systemSettingService)
 	searchHandler := handler.NewSearchHandler(searchService)
 	announcementHandler := handler.NewAnnouncementHandler(
 		service.NewAnnouncementService(repository.NewAnnouncementRepository(db)),
@@ -36,21 +37,25 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	adminManagementHandler := handler.NewAdminManagementHandler(
 		service.NewAdminManagementService(adminRepo),
 	)
+	operationLogHandler := handler.NewOperationLogHandler(
+		service.NewOperationLogService(repository.NewOperationLogRepository(db)),
+	)
 
 	importHandler := handler.NewImportHandler(
 		service.NewImportService(repository.NewImportRepository(db), storageService, searchService),
 	)
-	moderationHandler := handler.NewModerationHandler(
-		service.NewModerationService(repository.NewModerationRepository(db), storageService, searchService),
-	)
-	resourceManagementHandler := handler.NewResourceManagementHandler(
-		service.NewResourceManagementService(repository.NewResourceManagementRepository(db), storageService),
-	)
-	systemSettingHandler := handler.NewSystemSettingHandler(
-		service.NewSystemSettingService(repository.NewSystemSettingRepository(db), cfg),
-	)
 	tagService := service.NewTagService(tagRepo, searchService)
 	tagHandler := handler.NewTagHandler(tagService)
+
+	moderationHandler := handler.NewModerationHandler(
+		service.NewModerationService(repository.NewModerationRepository(db), storageService, searchService, tagService),
+	)
+	resourceManagementHandler := handler.NewResourceManagementHandler(
+		service.NewResourceManagementServiceWithSettings(repository.NewResourceManagementRepository(db), storageService, systemSettingService),
+	)
+	systemSettingHandler := handler.NewSystemSettingHandler(
+		systemSettingService,
+	)
 	publicCatalogHandler := handler.NewPublicCatalogHandler(
 		service.NewPublicCatalogService(repository.NewPublicCatalogRepository(db)),
 	)
@@ -65,6 +70,7 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 			cfg.Upload,
 			repository.NewUploadRepository(db),
 			storageService,
+			systemSettingService,
 		),
 		cfg.Upload.MaxFileSizeBytes+(1<<20),
 	)
@@ -97,9 +103,15 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	api := engine.Group("/api")
 	public := api.Group("/public")
 	public.GET("/files", publicCatalogHandler.ListPublicFiles)
+	public.POST("/files/batch-download", publicDownloadHandler.DownloadBatch)
+	public.GET("/files/:fileID", publicDownloadHandler.GetFileDetail)
+	public.PUT("/files/:fileID", resourceManagementHandler.PublicUpdateFile)
+	public.DELETE("/files/:fileID", resourceManagementHandler.PublicDeleteFile)
+	public.GET("/files/:fileID/preview", publicDownloadHandler.PreviewFile)
 	public.GET("/files/:fileID/download", publicDownloadHandler.DownloadFile)
 	public.GET("/folders", publicCatalogHandler.ListPublicFolders)
 	public.GET("/announcements", announcementHandler.ListPublic)
+	public.GET("/system/policy", systemSettingHandler.GetPublicPolicy)
 	public.GET("/search", searchHandler.Search)
 	public.POST("/submissions", publicUploadHandler.CreateSubmission)
 	public.GET("/submissions/:receiptCode", publicSubmissionHandler.LookupByReceiptCode)
@@ -113,6 +125,7 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	adminProtected := admin.Group("")
 	adminProtected.Use(middleware.RequireAdminAuth())
 	adminProtected.GET("/me", adminAuthHandler.Me)
+	adminProtected.GET("/operation-logs", operationLogHandler.List)
 	adminProtected.GET(
 		"/announcements",
 		middleware.RequireAdminPermission(model.AdminPermissionManageAnnouncements),

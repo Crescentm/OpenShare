@@ -28,17 +28,19 @@ var (
 	ErrInvalidFileExtension = errors.New("invalid file extension")
 	ErrInvalidFileMIMEType  = errors.New("invalid file mime type")
 	ErrReceiptCodeGenerate  = errors.New("failed to generate receipt code")
+	ErrUploadFolderRequired = errors.New("upload target folder is required")
 	ErrUploadFolderNotFound = errors.New("upload target folder not found")
 )
 
 const maxGeneratedReceiptAttempts = 5
 
 type PublicUploadService struct {
-	config     config.UploadConfig
-	repository *repository.UploadRepository
-	storage    *storage.Service
-	nowFunc    func() time.Time
-	codeGen    func(int) (string, error)
+	config        config.UploadConfig
+	repository    *repository.UploadRepository
+	storage       *storage.Service
+	systemSetting *SystemSettingService
+	nowFunc       func() time.Time
+	codeGen       func(int) (string, error)
 }
 
 type PublicUploadInput struct {
@@ -63,34 +65,37 @@ func NewPublicUploadService(
 	cfg config.UploadConfig,
 	repository *repository.UploadRepository,
 	storageService *storage.Service,
+	systemSettingService *SystemSettingService,
 ) *PublicUploadService {
 	return &PublicUploadService{
-		config:     cfg,
-		repository: repository,
-		storage:    storageService,
-		nowFunc:    func() time.Time { return time.Now().UTC() },
-		codeGen:    generateReceiptCode,
+		config:        cfg,
+		repository:    repository,
+		storage:       storageService,
+		systemSetting: systemSettingService,
+		nowFunc:       func() time.Time { return time.Now().UTC() },
+		codeGen:       generateReceiptCode,
 	}
 }
 
 func (s *PublicUploadService) CreateSubmission(ctx context.Context, input PublicUploadInput) (*PublicUploadResult, error) {
-	normalized, err := s.normalizeInput(input)
+	policy := s.effectivePolicy(ctx)
+	normalized, err := s.normalizeInput(input, policy)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validate target folder if specified
-	var folderID *string
-	if normalized.FolderID != "" {
-		exists, err := s.repository.FolderExists(ctx, normalized.FolderID)
-		if err != nil {
-			return nil, fmt.Errorf("validate upload folder: %w", err)
-		}
-		if !exists {
-			return nil, ErrUploadFolderNotFound
-		}
-		folderID = &normalized.FolderID
+	if normalized.FolderID == "" {
+		return nil, ErrUploadFolderRequired
 	}
+
+	folder, err := s.repository.FindActiveFolderByID(ctx, normalized.FolderID)
+	if err != nil {
+		return nil, fmt.Errorf("validate upload folder: %w", err)
+	}
+	if folder == nil || folder.SourcePath == nil || strings.TrimSpace(*folder.SourcePath) == "" {
+		return nil, ErrUploadFolderNotFound
+	}
+	folderID := normalized.FolderID
 
 	bufferedReader := bufio.NewReader(normalized.File)
 	head, err := bufferedReader.Peek(512)
@@ -103,7 +108,11 @@ func (s *PublicUploadService) CreateSubmission(ctx context.Context, input Public
 		return nil, ErrInvalidFileMIMEType
 	}
 
-	stagedFile, err := s.storage.SaveToStaging(bufferedReader, normalized.Extension, s.config.MaxFileSizeBytes)
+	maxFileSizeBytes := s.config.MaxFileSizeBytes
+	if policy.Upload.MaxFileSizeBytes > 0 {
+		maxFileSizeBytes = policy.Upload.MaxFileSizeBytes
+	}
+	stagedFile, err := s.storage.SaveToStaging(bufferedReader, normalized.Extension, maxFileSizeBytes)
 	if err != nil {
 		switch {
 		case errors.Is(err, storage.ErrFileTooLarge):
@@ -156,7 +165,7 @@ func (s *PublicUploadService) CreateSubmission(ctx context.Context, input Public
 	submissionRef := submissionID
 	file := &model.File{
 		ID:            fileID,
-		FolderID:      folderID,
+		FolderID:      &folderID,
 		SubmissionID:  &submissionRef,
 		Title:         normalized.Title,
 		Description:   normalized.Description,
@@ -173,7 +182,36 @@ func (s *PublicUploadService) CreateSubmission(ctx context.Context, input Public
 		UpdatedAt:     now,
 	}
 
-	if createErr := s.repository.CreatePendingUpload(ctx, submission, file); createErr != nil {
+	if policy.Guest.AllowDirectPublish {
+		finalPath, finalName, moveErr := s.storage.MoveStagedFileToFolder(stagedFile.DiskPath, *folder.SourcePath, normalized.OriginalName)
+		if moveErr != nil {
+			err = fmt.Errorf("move direct-publish upload: %w", moveErr)
+			return nil, err
+		}
+
+		submission.Status = model.SubmissionStatusApproved
+		submission.ReviewedAt = &now
+		file.Status = model.ResourceStatusActive
+		file.DiskPath = finalPath
+		file.StoredName = finalName
+
+		if createErr := s.repository.CreateUpload(ctx, submission, file); createErr != nil {
+			err = fmt.Errorf("persist direct-publish upload: %w", createErr)
+			if _, rollbackErr := s.storage.MoveFileBackToStaging(finalPath, stagedFile.StoredName); rollbackErr != nil {
+				err = fmt.Errorf("%w; rollback failed: %v", err, rollbackErr)
+			}
+			return nil, err
+		}
+
+		return &PublicUploadResult{
+			ReceiptCode: receiptCode,
+			Status:      model.SubmissionStatusApproved,
+			Title:       normalized.Title,
+			UploadedAt:  now,
+		}, nil
+	}
+
+	if createErr := s.repository.CreateUpload(ctx, submission, file); createErr != nil {
 		err = fmt.Errorf("persist upload submission: %w", createErr)
 		return nil, err
 	}
@@ -199,13 +237,17 @@ type normalizedUploadInput struct {
 	File         io.Reader
 }
 
-func (s *PublicUploadService) normalizeInput(input PublicUploadInput) (*normalizedUploadInput, error) {
+func (s *PublicUploadService) normalizeInput(input PublicUploadInput, policy SystemPolicy) (*normalizedUploadInput, error) {
 	description := strings.TrimSpace(input.Description)
 	if len([]rune(description)) > s.config.MaxDescriptionLength {
 		return nil, ErrInvalidUploadInput
 	}
 
-	tags, err := normalizeTags(input.Tags, s.config.MaxTagCount, s.config.MaxTagLength)
+	maxTagCount := s.config.MaxTagCount
+	if policy.Upload.MaxTagCount > 0 {
+		maxTagCount = policy.Upload.MaxTagCount
+	}
+	tags, err := normalizeTags(input.Tags, maxTagCount, s.config.MaxTagLength)
 	if err != nil {
 		return nil, ErrInvalidUploadInput
 	}
@@ -221,7 +263,7 @@ func (s *PublicUploadService) normalizeInput(input PublicUploadInput) (*normaliz
 	}
 
 	extension := strings.ToLower(strings.TrimSpace(filepath.Ext(originalName)))
-	if !s.isAllowedExtension(extension) {
+	if !isAllowedExtension(extension, policy.Upload.AllowedExtensions) {
 		return nil, ErrInvalidFileExtension
 	}
 
@@ -245,6 +287,19 @@ func (s *PublicUploadService) normalizeInput(input PublicUploadInput) (*normaliz
 	}, nil
 }
 
+func (s *PublicUploadService) effectivePolicy(ctx context.Context) SystemPolicy {
+	if s.systemSetting == nil {
+		return defaultSystemPolicy(s.config)
+	}
+
+	policy, err := s.systemSetting.GetPolicy(ctx)
+	if err != nil || policy == nil {
+		return defaultSystemPolicy(s.config)
+	}
+
+	return *policy
+}
+
 func (s *PublicUploadService) resolveReceiptCode(ctx context.Context, receiptCode string) (string, error) {
 	// If a receipt code is provided (user-defined or cached from previous upload),
 	// reuse it directly. Multiple submissions can share one receipt code.
@@ -265,9 +320,9 @@ func (s *PublicUploadService) resolveReceiptCode(ctx context.Context, receiptCod
 // receipt code conflicts should no longer occur since the unique constraint
 // was replaced with a regular index.
 
-func (s *PublicUploadService) isAllowedExtension(extension string) bool {
-	for _, allowed := range s.config.AllowedExtensions {
-		if extension == allowed {
+func isAllowedExtension(extension string, allowedExtensions []string) bool {
+	for _, allowed := range allowedExtensions {
+		if strings.EqualFold(extension, strings.TrimSpace(allowed)) {
 			return true
 		}
 	}

@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from "vue";
 
 import ReportDialog from "../../components/ReportDialog.vue";
-import { HttpError, httpClient } from "../../lib/http/client";
+import { httpClient } from "../../lib/http/client";
+import { downloadBlobResponse, readApiError } from "../../lib/http/helpers";
 
 interface PublicFileItem {
   id: string;
@@ -70,7 +71,12 @@ const uploading = ref(false);
 const files = ref<PublicFileItem[]>([]);
 const listLoading = ref(false);
 const listError = ref("");
+const listMessage = ref("");
 const listSort = ref<"created_at_desc" | "download_count_desc" | "title_asc">("created_at_desc");
+const selectedFileIDs = ref<string[]>([]);
+const currentPage = ref(1);
+const pageSize = ref(20);
+const totalItems = ref(0);
 
 // Folder navigation
 const folders = ref<PublicFolderItem[]>([]);
@@ -86,7 +92,7 @@ const lookupLoading = ref(false);
 const lookupError = ref("");
 const announcements = ref<AnnouncementItem[]>([]);
 
-const totalFiles = computed(() => files.value.length);
+const totalPages = computed(() => Math.max(1, Math.ceil(totalItems.value / pageSize.value)));
 
 onMounted(async () => {
   await Promise.all([loadAnnouncements(), loadFiles(), loadFolders(), loadAllFoldersForUpload()]);
@@ -105,14 +111,16 @@ onMounted(async () => {
 async function loadFiles() {
   listLoading.value = true;
   listError.value = "";
+  listMessage.value = "";
 
   try {
-    let url = `/public/files?sort=${listSort.value}&page=1&page_size=50`;
+    let url = `/public/files?sort=${listSort.value}&page=${currentPage.value}&page_size=${pageSize.value}`;
     if (currentFolderID.value) {
       url += `&folder_id=${encodeURIComponent(currentFolderID.value)}`;
     }
     const response = await httpClient.get<PublicFileListResponse>(url);
     files.value = response.items ?? [];
+    totalItems.value = response.total ?? 0;
   } catch {
     listError.value = "加载公开资料失败，请稍后重试。";
   } finally {
@@ -180,12 +188,24 @@ async function navigateToFolder(folderId: string | null, folderName?: string) {
       breadcrumbs.value.push({ id: folderId, name: folderName ?? folderId });
     }
   }
+  currentPage.value = 1;
   await Promise.all([loadFiles(), loadFolders()]);
+}
+
+function goToPage(page: number) {
+  if (page < 1 || page > totalPages.value) return;
+  currentPage.value = page;
+  loadFiles();
 }
 
 async function submitUpload() {
   if (!uploadFile.value) {
     uploadError.value = "请选择要上传的文件。";
+    uploadMessage.value = "";
+    return;
+  }
+  if (!uploadFolderID.value) {
+    uploadError.value = "请选择上传目标文件夹。";
     uploadMessage.value = "";
     return;
   }
@@ -215,9 +235,7 @@ async function submitUpload() {
     formData.set("receipt_code", effectiveReceiptCode);
   }
 
-  if (uploadFolderID.value) {
-    formData.set("folder_id", uploadFolderID.value);
-  }
+  formData.set("folder_id", uploadFolderID.value);
 
   uploading.value = true;
   uploadError.value = "";
@@ -235,11 +253,7 @@ async function submitUpload() {
     // Keep uploadFolderID and uploadReceiptCode for convenience
     await lookupSubmission();
   } catch (error: unknown) {
-    if (error instanceof HttpError && typeof error.payload === "object" && error.payload && "error" in error.payload) {
-      uploadError.value = String(error.payload.error);
-    } else {
-      uploadError.value = "上传失败，请稍后重试。";
-    }
+    uploadError.value = readApiError(error, "上传失败，请稍后重试。");
   } finally {
     uploading.value = false;
   }
@@ -264,9 +278,13 @@ async function lookupSubmission() {
     window.localStorage.setItem(cachedReceiptCodeKey, response.receipt_code);
   } catch (error: unknown) {
     records.value = [];
-    if (error instanceof HttpError && error.status === 404) {
+    const status =
+      typeof error === "object" && error !== null && "status" in error
+        ? Number((error as { status?: unknown }).status)
+        : 0;
+    if (status === 404) {
       lookupError.value = "未找到对应回执码，请检查输入是否正确。";
-    } else if (error instanceof HttpError && error.status === 400) {
+    } else if (status === 400) {
       lookupError.value = "回执码格式无效。";
     } else {
       lookupError.value = "查询失败，请稍后重试。";
@@ -320,6 +338,39 @@ function formatSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function toggleFileSelection(fileID: string) {
+  if (selectedFileIDs.value.includes(fileID)) {
+    selectedFileIDs.value = selectedFileIDs.value.filter((entry) => entry !== fileID);
+  } else {
+    selectedFileIDs.value = [...selectedFileIDs.value, fileID];
+  }
+}
+
+async function downloadSelectedFiles() {
+  if (selectedFileIDs.value.length === 0) {
+    return;
+  }
+
+  listError.value = "";
+  listMessage.value = "";
+  const response = await fetch("/api/public/files/batch-download", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/zip",
+    },
+    body: JSON.stringify({ file_ids: selectedFileIDs.value }),
+  });
+  if (!response.ok) {
+    listError.value = "批量下载失败，请稍后重试。";
+    return;
+  }
+
+  await downloadBlobResponse(response, "openshare-batch.zip");
+  listMessage.value = `已开始下载 ${selectedFileIDs.value.length} 个文件的压缩包。`;
+}
+
 // Report dialog
 const reportVisible = ref(false);
 const reportTargetType = ref<"file" | "folder">("file");
@@ -339,6 +390,10 @@ function openFolderReport(folder: PublicFolderItem) {
   reportTargetName.value = folder.name;
   reportVisible.value = true;
 }
+
+function handleReportSubmitted() {
+  listMessage.value = "举报已提交，管理员会尽快处理。";
+}
 </script>
 
 <template>
@@ -349,7 +404,7 @@ function openFolderReport(folder: PublicFolderItem) {
         OpenShare 学习资料共享平台
       </h2>
       <p class="mt-4 max-w-3xl text-base text-slate-300">
-        浏览、下载和上传学习资料。上传的资料会经过管理员审核后公开。
+        浏览、下载和上传学习资料。请选择目标目录后投稿，资料会在审核通过后进入对应目录。
       </p>
     </header>
 
@@ -401,7 +456,7 @@ function openFolderReport(folder: PublicFolderItem) {
           <label class="block">
             <span class="mb-2 block text-sm font-medium text-slate-700">上传到文件夹</span>
             <select v-model="uploadFolderID" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:bg-white">
-              <option value="">根目录（不选择文件夹）</option>
+              <option value="">请选择目标文件夹</option>
               <option v-for="folder in allFolders" :key="folder.id" :value="folder.id">
                 {{ folder.name }}
               </option>
@@ -495,7 +550,15 @@ function openFolderReport(folder: PublicFolderItem) {
           <h3 class="mt-2 text-2xl font-semibold text-slate-900">公开资料列表</h3>
         </div>
         <div class="flex items-center gap-3">
-          <select v-model="listSort" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500" @change="loadFiles">
+          <button
+            type="button"
+            class="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            :disabled="selectedFileIDs.length === 0"
+            @click="downloadSelectedFiles"
+          >
+            批量下载（{{ selectedFileIDs.length }}）
+          </button>
+          <select v-model="listSort" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-blue-500" @change="goToPage(1)">
             <option value="created_at_desc">最新上传</option>
             <option value="download_count_desc">下载量优先</option>
             <option value="title_asc">标题排序</option>
@@ -540,7 +603,8 @@ function openFolderReport(folder: PublicFolderItem) {
         </div>
       </div>
 
-      <p class="mt-3 text-sm text-slate-500">当前展示 {{ totalFiles }} 条可下载公开资料。</p>
+      <p class="mt-3 text-sm text-slate-500">共 {{ totalItems }} 条可下载公开资料，当前第 {{ currentPage }} / {{ totalPages }} 页。</p>
+      <p v-if="listMessage" class="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ listMessage }}</p>
       <p v-if="listError" class="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ listError }}</p>
       <p v-else-if="listLoading" class="mt-4 text-sm text-slate-500">加载中...</p>
 
@@ -548,12 +612,25 @@ function openFolderReport(folder: PublicFolderItem) {
         <article v-for="file in files" :key="file.id" class="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
           <div class="flex items-start justify-between gap-4">
             <div>
+              <label class="flex items-center gap-2 text-xs text-slate-500">
+                <input
+                  type="checkbox"
+                  :checked="selectedFileIDs.includes(file.id)"
+                  @change="toggleFileSelection(file.id)"
+                />
+                选择
+              </label>
               <h4 class="text-lg font-semibold text-slate-900">{{ file.title }}</h4>
               <p class="mt-2 text-sm text-slate-500">上传于 {{ formatDate(file.uploaded_at) }}</p>
             </div>
-            <a :href="`/api/public/files/${file.id}/download`" class="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800">
-              下载
-            </a>
+            <div class="flex flex-col gap-2">
+              <RouterLink :to="`/files/${file.id}`" class="rounded-full border border-slate-300 px-4 py-2 text-center text-xs font-semibold text-slate-700 transition hover:bg-white">
+                详情
+              </RouterLink>
+              <a :href="`/api/public/files/${file.id}/download`" class="rounded-full bg-slate-900 px-4 py-2 text-center text-xs font-semibold text-white transition hover:bg-slate-800">
+                下载
+              </a>
+            </div>
           </div>
 
           <div class="mt-4 flex flex-wrap gap-2">
@@ -584,6 +661,25 @@ function openFolderReport(folder: PublicFolderItem) {
           </div>
         </article>
       </div>
+
+      <!-- Pagination -->
+      <div v-if="totalPages > 1" class="mt-6 flex items-center justify-center gap-2">
+        <button
+          class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300"
+          :disabled="currentPage <= 1"
+          @click="goToPage(currentPage - 1)"
+        >
+          上一页
+        </button>
+        <span class="px-3 text-sm text-slate-600">{{ currentPage }} / {{ totalPages }}</span>
+        <button
+          class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300"
+          :disabled="currentPage >= totalPages"
+          @click="goToPage(currentPage + 1)"
+        >
+          下一页
+        </button>
+      </div>
     </article>
 
     <ReportDialog
@@ -591,6 +687,7 @@ function openFolderReport(folder: PublicFolderItem) {
       :target-type="reportTargetType"
       :target-id="reportTargetId"
       :target-name="reportTargetName"
+      @submitted="handleReportSubmitted"
     />
   </section>
 </template>

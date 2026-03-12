@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 
-import { HttpError, httpClient } from "../../lib/http/client";
+import { httpClient } from "../../lib/http/client";
+import { readApiError } from "../../lib/http/helpers";
 import { useSessionStore } from "../../stores/session";
 
 type AnnouncementStatus = "draft" | "published" | "hidden";
@@ -20,6 +21,7 @@ const sessionStore = useSessionStore();
 const items = ref<AnnouncementItem[]>([]);
 const loading = ref(false);
 const error = ref("");
+const message = ref("");
 const saving = ref(false);
 const editingId = ref("");
 const form = reactive({
@@ -37,6 +39,7 @@ onMounted(() => {
 async function loadItems() {
   loading.value = true;
   error.value = "";
+  message.value = "";
   try {
     const response = await httpClient.get<{ items: AnnouncementItem[] }>("/admin/announcements");
     items.value = response.items ?? [];
@@ -50,7 +53,9 @@ async function loadItems() {
 async function saveAnnouncement() {
   saving.value = true;
   error.value = "";
+  message.value = "";
   try {
+    const isEditing = editingId.value !== "";
     if (editingId.value) {
       await httpClient.request(`/admin/announcements/${editingId.value}`, {
         method: "PUT",
@@ -60,9 +65,10 @@ async function saveAnnouncement() {
       await httpClient.post("/admin/announcements", form);
     }
     resetForm();
+    message.value = isEditing ? "公告已更新。" : "公告已创建。";
     await loadItems();
   } catch (err: unknown) {
-    error.value = readApiError(err) ?? "保存公告失败。";
+    error.value = readApiError(err, "保存公告失败。");
   } finally {
     saving.value = false;
   }
@@ -72,8 +78,15 @@ async function removeAnnouncement(id: string) {
   if (!window.confirm("确认删除这条公告吗？")) {
     return;
   }
-  await httpClient.request(`/admin/announcements/${id}`, { method: "DELETE" });
-  await loadItems();
+  error.value = "";
+  message.value = "";
+  try {
+    await httpClient.request(`/admin/announcements/${id}`, { method: "DELETE" });
+    message.value = "公告已删除。";
+    await loadItems();
+  } catch (err: unknown) {
+    error.value = readApiError(err, "删除公告失败。");
+  }
 }
 
 function editAnnouncement(item: AnnouncementItem) {
@@ -98,14 +111,6 @@ function formatDate(value?: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function readApiError(error: unknown) {
-  if (!(error instanceof HttpError) || typeof error.payload !== "object" || error.payload === null) {
-    return null;
-  }
-  const payload = error.payload as Record<string, unknown>;
-  return typeof payload.error === "string" ? payload.error : null;
 }
 </script>
 
@@ -165,6 +170,7 @@ function readApiError(error: unknown) {
         </form>
       </article>
 
+      <p v-if="message" class="rounded-2xl bg-emerald-950/60 px-4 py-3 text-sm text-emerald-200">{{ message }}</p>
       <p v-if="error" class="rounded-2xl bg-rose-950/60 px-4 py-3 text-sm text-rose-200">{{ error }}</p>
 
       <article class="rounded-[28px] border border-slate-800 bg-slate-950/70 p-6">

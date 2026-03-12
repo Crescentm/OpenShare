@@ -51,6 +51,8 @@ func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrInvalidUploadInput):
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid upload form"})
+		case errors.Is(err, service.ErrUploadFolderRequired):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "target folder is required"})
 		case errors.Is(err, service.ErrUploadFolderNotFound):
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "target folder not found"})
 		case errors.Is(err, service.ErrUploadReceiptExists):

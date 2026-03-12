@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import ReportDialog from "../../components/ReportDialog.vue";
 import { httpClient } from "../../lib/http/client";
+import { downloadBlobResponse } from "../../lib/http/helpers";
 
 interface SearchResultItem {
   entity_type: "file" | "folder";
@@ -45,6 +46,9 @@ const results = ref<SearchResultItem[]>([]);
 const total = ref(0);
 const loading = ref(false);
 const searched = ref(false);
+const error = ref("");
+const message = ref("");
+const selectedFileIDs = ref<string[]>([]);
 
 const allFolders = ref<{ id: string; name: string }[]>([]);
 
@@ -94,6 +98,8 @@ async function doSearch() {
 
   loading.value = true;
   searched.value = true;
+  error.value = "";
+  message.value = "";
 
   try {
     const params = new URLSearchParams();
@@ -109,6 +115,7 @@ async function doSearch() {
   } catch {
     results.value = [];
     total.value = 0;
+    error.value = "搜索失败，请稍后重试。";
   } finally {
     loading.value = false;
     syncURL();
@@ -199,6 +206,9 @@ function clearAll() {
   results.value = [];
   total.value = 0;
   searched.value = false;
+  error.value = "";
+  message.value = "";
+  selectedFileIDs.value = [];
   syncURL();
 }
 
@@ -213,6 +223,43 @@ function openReport(item: SearchResultItem) {
   reportTargetId.value = item.id;
   reportTargetName.value = item.name;
   reportVisible.value = true;
+}
+
+function handleReportSubmitted() {
+  message.value = "举报已提交，管理员会尽快处理。";
+}
+
+function toggleFileSelection(fileID: string) {
+  if (selectedFileIDs.value.includes(fileID)) {
+    selectedFileIDs.value = selectedFileIDs.value.filter((entry) => entry !== fileID);
+  } else {
+    selectedFileIDs.value = [...selectedFileIDs.value, fileID];
+  }
+}
+
+async function downloadSelectedFiles() {
+  if (selectedFileIDs.value.length === 0) {
+    return;
+  }
+
+  error.value = "";
+  message.value = "";
+  const response = await fetch("/api/public/files/batch-download", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/zip",
+    },
+    body: JSON.stringify({ file_ids: selectedFileIDs.value }),
+  });
+  if (!response.ok) {
+    error.value = "批量下载失败，请稍后重试。";
+    return;
+  }
+
+  await downloadBlobResponse(response, "openshare-search-batch.zip");
+  message.value = `已开始下载 ${selectedFileIDs.value.length} 个文件。`;
 }
 </script>
 
@@ -302,7 +349,17 @@ function openReport(item: SearchResultItem) {
           找到 <span class="font-semibold text-slate-900">{{ total }}</span> 条结果
           <template v-if="totalPages > 1">，第 {{ page }} / {{ totalPages }} 页</template>
         </p>
+        <button
+          v-if="selectedFileIDs.length > 0"
+          class="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+          @click="downloadSelectedFiles"
+        >
+          批量下载（{{ selectedFileIDs.length }}）
+        </button>
       </div>
+
+      <p v-if="message" class="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ message }}</p>
+      <p v-if="error" class="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</p>
 
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <article
@@ -314,6 +371,13 @@ function openReport(item: SearchResultItem) {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
+                <label v-if="item.entity_type === 'file'" class="text-xs text-slate-500">
+                  <input
+                    type="checkbox"
+                    :checked="selectedFileIDs.includes(item.id)"
+                    @change="toggleFileSelection(item.id)"
+                  />
+                </label>
                 <span
                   class="shrink-0 rounded-lg px-2 py-0.5 text-xs font-semibold"
                   :class="item.entity_type === 'file' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'"
@@ -328,13 +392,20 @@ function openReport(item: SearchResultItem) {
               </div>
             </div>
 
-            <a
-              v-if="item.entity_type === 'file'"
-              :href="`/api/public/files/${item.id}/download`"
-              class="shrink-0 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
-            >
-              下载
-            </a>
+            <div v-if="item.entity_type === 'file'" class="shrink-0 flex flex-col gap-2">
+              <RouterLink
+                :to="`/files/${item.id}`"
+                class="rounded-full border border-slate-200 px-4 py-2 text-center text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+              >
+                详情
+              </RouterLink>
+              <a
+                :href="`/api/public/files/${item.id}/download`"
+                class="rounded-full bg-slate-900 px-4 py-2 text-center text-xs font-semibold text-white transition hover:bg-slate-800"
+              >
+                下载
+              </a>
+            </div>
             <button
               v-else
               class="shrink-0 rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
@@ -428,6 +499,7 @@ function openReport(item: SearchResultItem) {
       :target-type="reportTargetType"
       :target-id="reportTargetId"
       :target-name="reportTargetName"
+      @submitted="handleReportSubmitted"
     />
   </section>
 </template>

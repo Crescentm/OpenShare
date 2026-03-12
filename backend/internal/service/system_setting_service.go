@@ -22,16 +22,16 @@ type GuestPolicy struct {
 }
 
 type UploadPolicy struct {
-	MaxFileSizeBytes int64    `json:"max_file_size_bytes"`
-	MaxTagCount      int      `json:"max_tag_count"`
+	MaxFileSizeBytes  int64    `json:"max_file_size_bytes"`
+	MaxTagCount       int      `json:"max_tag_count"`
 	AllowedExtensions []string `json:"allowed_extensions"`
 }
 
 type SearchPolicy struct {
-	EnableFuzzyMatch bool `json:"enable_fuzzy_match"`
-	EnableTagFilter  bool `json:"enable_tag_filter"`
+	EnableFuzzyMatch  bool `json:"enable_fuzzy_match"`
+	EnableTagFilter   bool `json:"enable_tag_filter"`
 	EnableFolderScope bool `json:"enable_folder_scope"`
-	ResultWindow     int  `json:"result_window"`
+	ResultWindow      int  `json:"result_window"`
 }
 
 type SystemPolicy struct {
@@ -46,24 +46,28 @@ type SystemSettingService struct {
 	nowFunc       func() time.Time
 }
 
+func defaultSystemPolicy(cfg config.UploadConfig) SystemPolicy {
+	return SystemPolicy{
+		Guest: GuestPolicy{},
+		Upload: UploadPolicy{
+			MaxFileSizeBytes:  cfg.MaxFileSizeBytes,
+			MaxTagCount:       cfg.MaxTagCount,
+			AllowedExtensions: append([]string(nil), cfg.AllowedExtensions...),
+		},
+		Search: SearchPolicy{
+			EnableFuzzyMatch:  true,
+			EnableTagFilter:   true,
+			EnableFolderScope: true,
+			ResultWindow:      50,
+		},
+	}
+}
+
 func NewSystemSettingService(repo *repository.SystemSettingRepository, cfg config.Config) *SystemSettingService {
 	return &SystemSettingService{
-		repo: repo,
-		defaultPolicy: SystemPolicy{
-			Guest: GuestPolicy{},
-			Upload: UploadPolicy{
-				MaxFileSizeBytes: cfg.Upload.MaxFileSizeBytes,
-				MaxTagCount:      cfg.Upload.MaxTagCount,
-				AllowedExtensions: append([]string(nil), cfg.Upload.AllowedExtensions...),
-			},
-			Search: SearchPolicy{
-				EnableFuzzyMatch:  true,
-				EnableTagFilter:   true,
-				EnableFolderScope: true,
-				ResultWindow:      50,
-			},
-		},
-		nowFunc: func() time.Time { return time.Now().UTC() },
+		repo:          repo,
+		defaultPolicy: defaultSystemPolicy(cfg.Upload),
+		nowFunc:       func() time.Time { return time.Now().UTC() },
 	}
 }
 

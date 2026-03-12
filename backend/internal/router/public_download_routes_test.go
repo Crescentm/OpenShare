@@ -1,10 +1,14 @@
 package router
 
 import (
+	"archive/zip"
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +75,120 @@ func TestPublicDownloadReturnsGoneWhenRepositoryFileMissing(t *testing.T) {
 	if recorder.Code != http.StatusGone {
 		t.Fatalf("expected status 410, got %d, body=%s", recorder.Code, recorder.Body.String())
 	}
+}
+
+func TestPublicPreviewServesSupportedFileTypes(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	file := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "lecture.pdf", []byte("%PDF-1.4 preview"))
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/preview", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Disposition"); got == "" || !strings.HasPrefix(got, "inline;") {
+		t.Fatalf("expected inline content disposition, got %q", got)
+	}
+}
+
+func TestPublicPreviewRejectsUnsupportedTypes(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	file := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "slides.pptx", []byte("binary"))
+	file.MimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	if err := db.Save(file).Error; err != nil {
+		t.Fatalf("update mime type failed: %v", err)
+	}
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/preview", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPublicFileDetailReturnsPreviewMetadata(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	file := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "notes.txt", []byte("hello"))
+	file.MimeType = "text/plain"
+	file.Description = "detail"
+	if err := db.Save(file).Error; err != nil {
+		t.Fatalf("save detail file failed: %v", err)
+	}
+	addTagsToFile(t, db, file.ID, "文本")
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID, nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		ID          string   `json:"id"`
+		Description string   `json:"description"`
+		PreviewKind string   `json:"preview_kind"`
+		CanPreview  bool     `json:"can_preview"`
+		Tags        []string `json:"tags"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if response.ID != file.ID || response.Description != "detail" || response.PreviewKind != "text" || !response.CanPreview {
+		t.Fatalf("unexpected detail response: %+v", response)
+	}
+	if len(response.Tags) != 1 || response.Tags[0] != "文本" {
+		t.Fatalf("unexpected detail tags: %+v", response.Tags)
+	}
+}
+
+func TestPublicBatchDownloadStreamsZip(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	first := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "a.txt", []byte("alpha"))
+	first.MimeType = "text/plain"
+	if err := db.Save(first).Error; err != nil {
+		t.Fatalf("save first batch file failed: %v", err)
+	}
+	second := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "b.txt", []byte("beta"))
+	second.MimeType = "text/plain"
+	if err := db.Save(second).Error; err != nil {
+		t.Fatalf("save second batch file failed: %v", err)
+	}
+
+	engine := New(db, cfg, newRouterSessionManager(db))
+	body := bytes.NewBufferString(`{"file_ids":["` + first.ID + `","` + second.ID + `"]}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/public/files/batch-download", body)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/zip" {
+		t.Fatalf("expected zip content type, got %q", got)
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(recorder.Body.Bytes()), int64(recorder.Body.Len()))
+	if err != nil {
+		t.Fatalf("read zip response failed: %v", err)
+	}
+	if len(reader.File) != 2 {
+		t.Fatalf("expected 2 files in zip, got %d", len(reader.File))
+	}
+
+	assertEventuallyDownloadCount(t, db, first.ID, 1)
+	assertEventuallyDownloadCount(t, db, second.ID, 1)
 }
 
 func createRepositoryFileForDownload(t *testing.T, cfg config.Config, db *gorm.DB, status model.ResourceStatus, originalName string, content []byte) *model.File {

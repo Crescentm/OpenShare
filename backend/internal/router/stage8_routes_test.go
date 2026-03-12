@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"openshare/backend/internal/model"
 )
 
@@ -220,4 +222,146 @@ func TestResourceManagementCanUpdateAndDeleteFile(t *testing.T) {
 	if file.Status != model.ResourceStatusDeleted {
 		t.Fatalf("expected file status deleted, got %s", file.Status)
 	}
+}
+
+func TestPublicGuestResourceEditAndDeleteFollowSystemPolicy(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	file := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "guest-edit.txt", []byte("hello"))
+	file.MimeType = "text/plain"
+	if err := db.Save(file).Error; err != nil {
+		t.Fatalf("save guest-edit file failed: %v", err)
+	}
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	updateReq := httptest.NewRequest(
+		http.MethodPut,
+		"/api/public/files/"+file.ID,
+		bytes.NewBufferString(`{"title":"游客修改后的标题","description":"修改描述","tags":["guest","edit"]}`),
+	)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRec := httptest.NewRecorder()
+	engine.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusForbidden {
+		t.Fatalf("expected guest edit forbidden before policy enabled, got %d, body=%s", updateRec.Code, updateRec.Body.String())
+	}
+
+	setGuestResourcePolicy(t, db, true, true)
+
+	updateReq = httptest.NewRequest(
+		http.MethodPut,
+		"/api/public/files/"+file.ID,
+		bytes.NewBufferString(`{"title":"游客修改后的标题","description":"修改描述","tags":["guest","edit"]}`),
+	)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRec = httptest.NewRecorder()
+	engine.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusNoContent {
+		t.Fatalf("expected guest edit success, got %d, body=%s", updateRec.Code, updateRec.Body.String())
+	}
+
+	var updated model.File
+	if err := db.Where("id = ?", file.ID).Take(&updated).Error; err != nil {
+		t.Fatalf("reload updated file failed: %v", err)
+	}
+	if updated.Title != "游客修改后的标题" || updated.Description != "修改描述" {
+		t.Fatalf("unexpected updated file: %+v", updated)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/public/files/"+file.ID, nil)
+	deleteRec := httptest.NewRecorder()
+	engine.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("expected guest delete success, got %d, body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	if err := db.Where("id = ?", file.ID).Take(&updated).Error; err != nil {
+		t.Fatalf("reload deleted file failed: %v", err)
+	}
+	if updated.Status != model.ResourceStatusDeleted {
+		t.Fatalf("expected guest deleted file status deleted, got %s", updated.Status)
+	}
+}
+
+func TestOperationLogsVisibleToNormalAdmin(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	superAdmin := createRouterTestAdmin(t, db, "superadmin", "s3cret-pass")
+	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
+		username: "auditor",
+		password: "s3cret-pass",
+		role:     string(model.AdminRoleAdmin),
+	})
+	manager := newRouterSessionManager(db)
+	engine := New(db, cfg, manager)
+	superCookie := mustCreateSession(t, manager, superAdmin)
+	adminCookie := mustCreateSession(t, manager, admin)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/admin/announcements",
+		bytes.NewBufferString(`{"title":"日志公告","content":"写入一条日志","status":"published"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(superCookie)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create announcement for log setup: expected 201, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/admin/operation-logs?page=1&page_size=20", nil)
+	listReq.AddCookie(adminCookie)
+	listRec := httptest.NewRecorder()
+	engine.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list operation logs: expected 200, got %d, body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	var response struct {
+		Items []struct {
+			Action    string `json:"action"`
+			AdminName string `json:"admin_name"`
+		} `json:"items"`
+		Total int64 `json:"total"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode operation logs response: %v", err)
+	}
+	if response.Total == 0 || len(response.Items) == 0 {
+		t.Fatalf("expected at least one operation log, got %+v", response)
+	}
+	if response.Items[0].Action == "" {
+		t.Fatalf("expected action in operation log, got %+v", response.Items[0])
+	}
+}
+
+func setGuestResourcePolicy(t *testing.T, db *gorm.DB, allowEdit bool, allowDelete bool) {
+	t.Helper()
+
+	payload := `{"guest":{"allow_direct_publish":false,"extra_permissions_enabled":true,"allow_guest_resource_edit":` +
+		boolJSON(allowEdit) + `,"allow_guest_resource_delete":` + boolJSON(allowDelete) +
+		`},"upload":{"max_file_size_bytes":10485760,"max_tag_count":10,"allowed_extensions":[".pdf",".zip",".md",".txt"]},"search":{"enable_fuzzy_match":true,"enable_tag_filter":true,"enable_folder_scope":true,"result_window":50}}`
+
+	var existing model.SystemSetting
+	if err := db.Where("key = ?", "system_policy").Take(&existing).Error; err == nil {
+		if err := db.Model(&model.SystemSetting{}).Where("key = ?", "system_policy").Updates(map[string]any{"value": payload}).Error; err != nil {
+			t.Fatalf("update guest resource policy failed: %v", err)
+		}
+		return
+	}
+
+	if err := db.Create(&model.SystemSetting{
+		Key:   "system_policy",
+		Value: payload,
+	}).Error; err != nil {
+		t.Fatalf("create guest resource policy failed: %v", err)
+	}
+}
+
+func boolJSON(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }

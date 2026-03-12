@@ -70,6 +70,33 @@ func (h *ResourceManagementHandler) UpdateFile(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)
 }
 
+func (h *ResourceManagementHandler) PublicUpdateFile(ctx *gin.Context) {
+	var req updateManagedFileRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	err := h.service.PublicUpdateFile(ctx.Request.Context(), ctx.Param("fileID"), service.UpdateManagedFileInput{
+		Title:       req.Title,
+		Description: req.Description,
+		Tags:        req.Tags,
+		OperatorIP:  ctx.ClientIP(),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidResourceEdit):
+			ctx.JSON(http.StatusForbidden, gin.H{"error": "guest resource edit is disabled"})
+		case errors.Is(err, service.ErrManagedFileNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "resource not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update resource"})
+		}
+		return
+	}
+	ctx.Status(http.StatusNoContent)
+}
+
 func (h *ResourceManagementHandler) OfflineFile(ctx *gin.Context) {
 	identity, ok := session.GetAdminIdentity(ctx)
 	if !ok {
@@ -102,6 +129,22 @@ func (h *ResourceManagementHandler) DeleteFile(ctx *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrManagedFileNotFound):
 			ctx.JSON(http.StatusNotFound, gin.H{"error": "resource not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete resource"})
+		}
+		return
+	}
+	ctx.Status(http.StatusNoContent)
+}
+
+func (h *ResourceManagementHandler) PublicDeleteFile(ctx *gin.Context) {
+	err := h.service.PublicDeleteFile(ctx.Request.Context(), ctx.Param("fileID"), ctx.ClientIP())
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrManagedFileNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "resource not found"})
+		case errors.Is(err, service.ErrInvalidResourceEdit):
+			ctx.JSON(http.StatusForbidden, gin.H{"error": "guest resource delete is disabled"})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete resource"})
 		}
