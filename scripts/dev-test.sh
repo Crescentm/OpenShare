@@ -125,13 +125,35 @@ print_initial_admin_credentials() {
 
 print_summary() {
   echo
-  echo "OpenShare dev test environment is running."
-  echo "public page: http://localhost:5173/"
-  echo "admin page:  http://localhost:5173/admin"
-  echo "backend log: $BACKEND_LOG"
-  echo "frontend log: $FRONTEND_LOG"
+  echo "========================================"
+  echo "OpenShare local test environment is ready"
+  echo "========================================"
+  echo
+  echo "browser entry:"
+  echo "  public page : http://localhost:5173/"
+  echo "  admin page  : http://localhost:5173/admin"
+  echo
+  echo "recommended test flow:"
+  echo "  1. open the public page and upload a file"
+  echo "  2. copy the returned receipt code and verify the submission record"
+  echo "  3. open the admin page and log in with superadmin"
+  echo "  4. review the pending submission and approve or reject it"
+  echo "  5. go back to the public page and verify public list / download behavior"
+  echo "  6. if needed, test local directory import on the admin page"
+  echo
+  echo "what to check:"
+  echo "  - upload success and receipt code generation"
+  echo "  - receipt lookup status / reject reason"
+  echo "  - moderation approve / reject flow"
+  echo "  - public file visibility after approval"
+  echo "  - file download availability and download count"
+  echo "  - local folder import and folder tag editing"
+  echo
+  echo "runtime files:"
+  echo "  backend log  : $BACKEND_LOG"
+  echo "  frontend log : $FRONTEND_LOG"
   if [[ -n "$IMPORT_ROOT" ]]; then
-    echo "local import test directory: $IMPORT_ROOT"
+    echo "  import root   : $IMPORT_ROOT"
   fi
   echo
   echo "this script resets the local database and storage on every startup for clean testing."
