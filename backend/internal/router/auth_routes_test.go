@@ -21,10 +21,11 @@ import (
 )
 
 func TestAdminLoginCreatesSessionAndReturnsProfile(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	admin := createRouterTestAdmin(t, db, "superadmin", "s3cret-pass")
 	manager := newRouterSessionManager(db)
-	engine := New(db, manager)
+	engine := New(db, cfg, manager)
 
 	body := bytes.NewBufferString(`{"username":"superadmin","password":"s3cret-pass"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/session/login", body)
@@ -78,10 +79,11 @@ func TestAdminLoginCreatesSessionAndReturnsProfile(t *testing.T) {
 }
 
 func TestAdminLoginRejectsInvalidCredentials(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	createRouterTestAdmin(t, db, "superadmin", "correct-password")
 	manager := newRouterSessionManager(db)
-	engine := New(db, manager)
+	engine := New(db, cfg, manager)
 
 	body := bytes.NewBufferString(`{"username":"superadmin","password":"wrong-password"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/session/login", body)
@@ -104,10 +106,11 @@ func TestAdminLoginRejectsInvalidCredentials(t *testing.T) {
 }
 
 func TestAdminLogoutDeletesSessionAndClearsCookie(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	admin := createRouterTestAdmin(t, db, "superadmin", "s3cret-pass")
 	manager := newRouterSessionManager(db)
-	engine := New(db, manager)
+	engine := New(db, cfg, manager)
 
 	cookieValue, identity, err := manager.Create(t.Context(), admin)
 	if err != nil {
@@ -149,9 +152,10 @@ func TestAdminLogoutDeletesSessionAndClearsCookie(t *testing.T) {
 }
 
 func TestAdminMeRequiresAuthentication(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	manager := newRouterSessionManager(db)
-	engine := New(db, manager)
+	engine := New(db, cfg, manager)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/me", nil)
 	recorder := httptest.NewRecorder()
@@ -164,6 +168,7 @@ func TestAdminMeRequiresAuthentication(t *testing.T) {
 }
 
 func TestAdminMeReturnsIdentityFromSession(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
 		username: "reviewer",
@@ -175,7 +180,7 @@ func TestAdminMeReturnsIdentityFromSession(t *testing.T) {
 		},
 	})
 	manager := newRouterSessionManager(db)
-	engine := New(db, manager)
+	engine := New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
@@ -216,6 +221,7 @@ func TestAdminMeReturnsIdentityFromSession(t *testing.T) {
 }
 
 func TestPermissionMiddlewareRejectsUnauthorizedPermission(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
 		username: "reviewer",
@@ -226,7 +232,7 @@ func TestPermissionMiddlewareRejectsUnauthorizedPermission(t *testing.T) {
 		},
 	})
 	manager := newRouterSessionManager(db)
-	engine := New(db, manager)
+	engine := New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
@@ -245,6 +251,7 @@ func TestPermissionMiddlewareRejectsUnauthorizedPermission(t *testing.T) {
 }
 
 func TestPermissionMiddlewareAllowsGrantedPermission(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
 		username: "reviewer",
@@ -255,7 +262,7 @@ func TestPermissionMiddlewareAllowsGrantedPermission(t *testing.T) {
 		},
 	})
 	manager := newRouterSessionManager(db)
-	engine := New(db, manager)
+	engine := New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
@@ -274,6 +281,7 @@ func TestPermissionMiddlewareAllowsGrantedPermission(t *testing.T) {
 }
 
 func TestPermissionMiddlewareAllowsSuperAdminBypass(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
 		username:    "superadmin",
@@ -282,7 +290,7 @@ func TestPermissionMiddlewareAllowsSuperAdminBypass(t *testing.T) {
 		permissions: nil,
 	})
 	manager := newRouterSessionManager(db)
-	engine := New(db, manager)
+	engine := New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {

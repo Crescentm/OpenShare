@@ -16,6 +16,7 @@ type Config struct {
 	Server    ServerConfig    `json:"server"`
 	Database  DatabaseConfig  `json:"database"`
 	Storage   StorageConfig   `json:"storage"`
+	Upload    UploadConfig    `json:"upload"`
 	Session   SessionConfig   `json:"session"`
 	RateLimit RateLimitConfig `json:"rate_limit"`
 }
@@ -42,6 +43,17 @@ type StorageConfig struct {
 	Repository string `json:"repository"`
 	Staging    string `json:"staging"`
 	Trash      string `json:"trash"`
+}
+
+type UploadConfig struct {
+	MaxFileSizeBytes     int64    `json:"max_file_size_bytes"`
+	AllowedExtensions    []string `json:"allowed_extensions"`
+	AllowedMIMETypes     []string `json:"allowed_mime_types"`
+	MaxTitleLength       int      `json:"max_title_length"`
+	MaxDescriptionLength int      `json:"max_description_length"`
+	MaxTagCount          int      `json:"max_tag_count"`
+	MaxTagLength         int      `json:"max_tag_length"`
+	ReceiptCodeLength    int      `json:"receipt_code_length"`
 }
 
 type SessionConfig struct {
@@ -86,6 +98,34 @@ func Default() Config {
 			Repository: "repository",
 			Staging:    "staging",
 			Trash:      "trash",
+		},
+		Upload: UploadConfig{
+			MaxFileSizeBytes: 64 << 20,
+			AllowedExtensions: []string{
+				".pdf", ".zip", ".txt", ".md",
+				".doc", ".docx", ".ppt", ".pptx",
+				".xls", ".xlsx", ".jpg", ".jpeg", ".png",
+			},
+			AllowedMIMETypes: []string{
+				"application/pdf",
+				"application/zip",
+				"application/x-zip-compressed",
+				"text/plain",
+				"text/markdown",
+				"application/msword",
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				"application/vnd.ms-powerpoint",
+				"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+				"application/vnd.ms-excel",
+				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+				"image/jpeg",
+				"image/png",
+			},
+			MaxTitleLength:       200,
+			MaxDescriptionLength: 4000,
+			MaxTagCount:          10,
+			MaxTagLength:         32,
+			ReceiptCodeLength:    12,
 		},
 		Session: SessionConfig{
 			Name:            "openshare_session",
@@ -163,6 +203,12 @@ func applyEnv(cfg *Config) error {
 	overrideString("OPENSHARE_STORAGE_REPOSITORY", &cfg.Storage.Repository)
 	overrideString("OPENSHARE_STORAGE_STAGING", &cfg.Storage.Staging)
 	overrideString("OPENSHARE_STORAGE_TRASH", &cfg.Storage.Trash)
+	overrideInt64("OPENSHARE_UPLOAD_MAX_FILE_SIZE_BYTES", &cfg.Upload.MaxFileSizeBytes, &errs)
+	overrideInt("OPENSHARE_UPLOAD_MAX_TITLE_LENGTH", &cfg.Upload.MaxTitleLength, &errs)
+	overrideInt("OPENSHARE_UPLOAD_MAX_DESCRIPTION_LENGTH", &cfg.Upload.MaxDescriptionLength, &errs)
+	overrideInt("OPENSHARE_UPLOAD_MAX_TAG_COUNT", &cfg.Upload.MaxTagCount, &errs)
+	overrideInt("OPENSHARE_UPLOAD_MAX_TAG_LENGTH", &cfg.Upload.MaxTagLength, &errs)
+	overrideInt("OPENSHARE_UPLOAD_RECEIPT_CODE_LENGTH", &cfg.Upload.ReceiptCodeLength, &errs)
 	overrideString("OPENSHARE_SESSION_NAME", &cfg.Session.Name)
 	overrideString("OPENSHARE_SESSION_SECRET", &cfg.Session.Secret)
 	overrideString("OPENSHARE_SESSION_PATH", &cfg.Session.Path)
@@ -209,6 +255,30 @@ func (c Config) Validate() error {
 	}
 	if c.Storage.Trash == "" {
 		return errors.New("storage.trash must not be empty")
+	}
+	if c.Upload.MaxFileSizeBytes <= 0 {
+		return errors.New("upload.max_file_size_bytes must be greater than 0")
+	}
+	if len(c.Upload.AllowedExtensions) == 0 {
+		return errors.New("upload.allowed_extensions must not be empty")
+	}
+	if len(c.Upload.AllowedMIMETypes) == 0 {
+		return errors.New("upload.allowed_mime_types must not be empty")
+	}
+	if c.Upload.MaxTitleLength <= 0 {
+		return errors.New("upload.max_title_length must be greater than 0")
+	}
+	if c.Upload.MaxDescriptionLength <= 0 {
+		return errors.New("upload.max_description_length must be greater than 0")
+	}
+	if c.Upload.MaxTagCount <= 0 {
+		return errors.New("upload.max_tag_count must be greater than 0")
+	}
+	if c.Upload.MaxTagLength <= 0 {
+		return errors.New("upload.max_tag_length must be greater than 0")
+	}
+	if c.Upload.ReceiptCodeLength < 6 || c.Upload.ReceiptCodeLength > 32 {
+		return errors.New("upload.receipt_code_length must be between 6 and 32")
 	}
 
 	if c.Session.Name == "" {
@@ -262,6 +332,8 @@ func (c *Config) normalize() {
 	c.Storage.Repository = strings.TrimSpace(c.Storage.Repository)
 	c.Storage.Staging = strings.TrimSpace(c.Storage.Staging)
 	c.Storage.Trash = strings.TrimSpace(c.Storage.Trash)
+	c.Upload.AllowedExtensions = normalizeStringSlice(c.Upload.AllowedExtensions, true)
+	c.Upload.AllowedMIMETypes = normalizeStringSlice(c.Upload.AllowedMIMETypes, true)
 }
 
 func validateRateLimit(prefix string, rule RateLimitRule) error {
@@ -296,6 +368,19 @@ func overrideInt(env string, target *int, errs *[]error) {
 	*target = parsed
 }
 
+func overrideInt64(env string, target *int64, errs *[]error) {
+	value, ok := os.LookupEnv(env)
+	if !ok {
+		return
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		*errs = append(*errs, fmt.Errorf("parse env %s: %w", env, err))
+		return
+	}
+	*target = parsed
+}
+
 func overrideBool(env string, target *bool, errs *[]error) {
 	value, ok := os.LookupEnv(env)
 	if !ok {
@@ -307,4 +392,25 @@ func overrideBool(env string, target *bool, errs *[]error) {
 		return
 	}
 	*target = parsed
+}
+
+func normalizeStringSlice(values []string, lower bool) []string {
+	normalized := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if lower {
+			value = strings.ToLower(value)
+		}
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+
+	return normalized
 }

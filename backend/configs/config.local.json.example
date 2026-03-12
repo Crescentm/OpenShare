@@ -8,6 +8,9 @@
   "storage": {
     "root": "/data/openshare"
   },
+  "upload": {
+    "max_file_size_bytes": 67108864
+  },
   "session": {
     "secret": "change-me-before-production",
     "path": "/"

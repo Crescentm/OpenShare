@@ -43,7 +43,7 @@ func main() {
 	}
 
 	sessionManager := session.NewManager(db, cfg.Session, repository.NewAdminSessionRepository())
-	engine := router.New(db, sessionManager)
+	engine := router.New(db, cfg, sessionManager)
 
 	log.Printf("OpenShare server listening on :%d", cfg.Server.Port)
 	if err := engine.Run(cfg.Server.Address()); err != nil {

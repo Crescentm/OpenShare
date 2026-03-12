@@ -132,6 +132,7 @@ type Submission struct {
 	ReceiptCode         string           `gorm:"column:receipt_code;type:text;not null;uniqueIndex:ux_submissions_receipt_code"`
 	TitleSnapshot       string           `gorm:"column:title_snapshot;type:text;not null"`
 	DescriptionSnapshot string           `gorm:"column:description_snapshot;type:text;not null;default:''"`
+	TagsSnapshot        string           `gorm:"column:tags_snapshot;type:text;not null;default:''"`
 	Status              SubmissionStatus `gorm:"column:status;type:text;not null;default:'pending';index:idx_submissions_status_created_at"`
 	RejectReason        string           `gorm:"column:reject_reason;type:text;not null;default:''"`
 	UploaderIP          string           `gorm:"column:uploader_ip;type:text;not null;default:''"`

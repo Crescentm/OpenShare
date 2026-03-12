@@ -6,15 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"openshare/backend/internal/config"
 	"openshare/backend/internal/handler"
 	"openshare/backend/internal/middleware"
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/repository"
 	"openshare/backend/internal/service"
 	"openshare/backend/internal/session"
+	"openshare/backend/internal/storage"
 )
 
-func New(db *gorm.DB, sessionManager *session.Manager) *gin.Engine {
+func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.Engine {
 	engine := gin.New()
 	engine.Use(gin.Logger(), gin.Recovery())
 	engine.Use(middleware.SessionLoader(sessionManager))
@@ -24,6 +26,14 @@ func New(db *gorm.DB, sessionManager *session.Manager) *gin.Engine {
 	adminAuthHandler := handler.NewAdminAuthHandler(adminAuthService, sessionManager)
 	publicCatalogHandler := handler.NewPublicCatalogHandler(
 		service.NewPublicCatalogService(repository.NewPublicCatalogRepository(db)),
+	)
+	publicUploadHandler := handler.NewPublicUploadHandler(
+		service.NewPublicUploadService(
+			cfg.Upload,
+			repository.NewUploadRepository(db),
+			storage.NewService(cfg.Storage),
+		),
+		cfg.Upload.MaxFileSizeBytes+(1<<20),
 	)
 
 	engine.GET("/healthz", func(ctx *gin.Context) {
@@ -50,6 +60,7 @@ func New(db *gorm.DB, sessionManager *session.Manager) *gin.Engine {
 	api := engine.Group("/api")
 	public := api.Group("/public")
 	public.GET("/files", publicCatalogHandler.ListPublicFiles)
+	public.POST("/submissions", publicUploadHandler.CreateSubmission)
 
 	admin := api.Group("/admin")
 	admin.POST("/session/login", adminAuthHandler.Login)

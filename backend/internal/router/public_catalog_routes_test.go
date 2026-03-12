@@ -14,6 +14,7 @@ import (
 )
 
 func TestPublicFilesListsOnlyActiveRootFiles(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	rootActive := createPublicTestFile(t, db, publicTestFile{
 		title:         "公开文件",
@@ -27,7 +28,7 @@ func TestPublicFilesListsOnlyActiveRootFiles(t *testing.T) {
 	})
 	addTagsToFile(t, db, rootActive.ID, "数学", "物理")
 
-	engine := New(db, newRouterSessionManager(db))
+	engine := New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files", nil)
 	recorder := httptest.NewRecorder()
 
@@ -63,6 +64,7 @@ func TestPublicFilesListsOnlyActiveRootFiles(t *testing.T) {
 }
 
 func TestPublicFilesSupportsFolderBrowsing(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	folderID := createPublicTestFolder(t, db, "课程资料")
 	createPublicTestFile(t, db, publicTestFile{
@@ -76,7 +78,7 @@ func TestPublicFilesSupportsFolderBrowsing(t *testing.T) {
 		folderID: &folderID,
 	})
 
-	engine := New(db, newRouterSessionManager(db))
+	engine := New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files?folder_id="+folderID, nil)
 	recorder := httptest.NewRecorder()
 
@@ -101,6 +103,7 @@ func TestPublicFilesSupportsFolderBrowsing(t *testing.T) {
 }
 
 func TestPublicFilesSupportsPaginationAndSort(t *testing.T) {
+	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	createPublicTestFile(t, db, publicTestFile{
 		title:         "低下载",
@@ -121,7 +124,7 @@ func TestPublicFilesSupportsPaginationAndSort(t *testing.T) {
 		createdAt:     time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC),
 	})
 
-	engine := New(db, newRouterSessionManager(db))
+	engine := New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files?sort=download_count_desc&page=1&page_size=2", nil)
 	recorder := httptest.NewRecorder()
 
