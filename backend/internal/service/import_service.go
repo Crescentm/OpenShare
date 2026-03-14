@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,6 +60,17 @@ type FolderTreeFile struct {
 	Status        model.ResourceStatus `json:"status"`
 	Size          int64                `json:"size"`
 	DownloadCount int64                `json:"download_count"`
+}
+
+type ImportDirectoryItem struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type ImportDirectoryBrowseResult struct {
+	CurrentPath string                `json:"current_path"`
+	ParentPath  string                `json:"parent_path"`
+	Items       []ImportDirectoryItem `json:"items"`
 }
 
 func NewImportService(repository *repository.ImportRepository, storageService *storage.Service, searchService *SearchService) *ImportService {
@@ -254,6 +267,44 @@ func (s *ImportService) GetFolderTree(ctx context.Context) ([]FolderTreeNode, er
 	return result, nil
 }
 
+func (s *ImportService) ListDirectories(_ context.Context, rootPath string) (*ImportDirectoryBrowseResult, error) {
+	currentPath, err := resolveBrowsePath(rootPath)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(currentPath)
+	if err != nil {
+		return nil, fmt.Errorf("read import directory: %w", err)
+	}
+
+	items := make([]ImportDirectoryItem, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		childPath := filepath.Join(currentPath, entry.Name())
+		items = append(items, ImportDirectoryItem{
+			Name: entry.Name(),
+			Path: childPath,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+	})
+
+	parentPath := filepath.Dir(currentPath)
+	if parentPath == "." || parentPath == currentPath {
+		parentPath = ""
+	}
+
+	return &ImportDirectoryBrowseResult{
+		CurrentPath: currentPath,
+		ParentPath:  parentPath,
+		Items:       items,
+	}, nil
+}
+
 func (s *ImportService) BindFolderTags(ctx context.Context, folderID string, tagNames []string, adminID, operatorIP string) error {
 	folder, err := s.repository.FindFolderByID(ctx, strings.TrimSpace(folderID))
 	if err != nil {
@@ -404,4 +455,28 @@ func shouldSkipEntry(relativePath string, skippedPrefixes map[string]struct{}) b
 		}
 	}
 	return false
+}
+
+func resolveBrowsePath(rootPath string) (string, error) {
+	trimmed := strings.TrimSpace(rootPath)
+	if trimmed == "" {
+		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+			return filepath.Clean(home), nil
+		}
+		return string(os.PathSeparator), nil
+	}
+
+	cleaned := filepath.Clean(trimmed)
+	if !filepath.IsAbs(cleaned) {
+		return "", ErrInvalidImportPath
+	}
+
+	info, err := os.Stat(cleaned)
+	if err != nil {
+		return "", ErrInvalidImportPath
+	}
+	if !info.IsDir() {
+		return "", ErrInvalidImportPath
+	}
+	return cleaned, nil
 }

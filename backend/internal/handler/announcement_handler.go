@@ -120,6 +120,8 @@ func (h *AnnouncementHandler) Delete(ctx *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrAnnouncementNotFound):
 			ctx.JSON(http.StatusNotFound, gin.H{"error": "announcement not found"})
+		case errors.Is(err, service.ErrAnnouncementDeleteDenied):
+			ctx.JSON(http.StatusForbidden, gin.H{"error": "cannot delete this announcement"})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete announcement"})
 		}

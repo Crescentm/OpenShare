@@ -42,6 +42,7 @@ func TestAdminLoginCreatesSessionAndReturnsProfile(t *testing.T) {
 		Admin struct {
 			ID          string   `json:"id"`
 			Username    string   `json:"username"`
+			DisplayName string   `json:"display_name"`
 			Role        string   `json:"role"`
 			Status      string   `json:"status"`
 			Permissions []string `json:"permissions"`
@@ -56,6 +57,9 @@ func TestAdminLoginCreatesSessionAndReturnsProfile(t *testing.T) {
 	}
 	if response.Admin.Username != admin.Username {
 		t.Fatalf("expected username %q, got %q", admin.Username, response.Admin.Username)
+	}
+	if response.Admin.DisplayName != admin.DisplayName {
+		t.Fatalf("expected display name %q, got %q", admin.DisplayName, response.Admin.DisplayName)
 	}
 	if len(response.Admin.Permissions) != 0 {
 		t.Fatalf("expected no explicit permissions for super admin bootstrap test, got %v", response.Admin.Permissions)
@@ -201,6 +205,7 @@ func TestAdminMeReturnsIdentityFromSession(t *testing.T) {
 		Admin struct {
 			ID          string   `json:"id"`
 			Username    string   `json:"username"`
+			DisplayName string   `json:"display_name"`
 			Role        string   `json:"role"`
 			Permissions []string `json:"permissions"`
 		} `json:"admin"`
@@ -215,8 +220,44 @@ func TestAdminMeReturnsIdentityFromSession(t *testing.T) {
 	if response.Admin.Role != string(model.AdminRoleAdmin) {
 		t.Fatalf("expected role %q, got %q", model.AdminRoleAdmin, response.Admin.Role)
 	}
+	if response.Admin.DisplayName != admin.DisplayName {
+		t.Fatalf("expected display name %q, got %q", admin.DisplayName, response.Admin.DisplayName)
+	}
 	if len(response.Admin.Permissions) != 2 {
 		t.Fatalf("expected 2 permissions, got %v", response.Admin.Permissions)
+	}
+}
+
+func TestAdminChangePassword(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	admin := createRouterTestAdmin(t, db, "superadmin", "old-pass-123")
+	manager := newRouterSessionManager(db)
+	engine := New(db, cfg, manager)
+
+	cookieValue, _, err := manager.Create(t.Context(), admin)
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/session/change-password", bytes.NewBufferString(`{"new_password":"new-pass-123"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: manager.CookieName(), Value: cookieValue, Path: "/"})
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/admin/session/login", bytes.NewBufferString(`{"username":"superadmin","password":"new-pass-123"}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(loginRecorder, loginRequest)
+
+	if loginRecorder.Code != http.StatusOK {
+		t.Fatalf("expected login with new password to succeed, got %d body=%s", loginRecorder.Code, loginRecorder.Body.String())
 	}
 }
 
@@ -377,6 +418,7 @@ func createRouterTestAdminWithAccess(t *testing.T, db *gorm.DB, access adminAcce
 	admin := &model.Admin{
 		ID:           adminID,
 		Username:     access.username,
+		DisplayName:  access.username,
 		PasswordHash: string(passwordHash),
 		Role:         access.role,
 		Permissions:  model.NormalizeAdminPermissions(access.permissions),

@@ -35,14 +35,16 @@ type PublicFileListInput struct {
 
 type PublicFileListResult struct {
 	Items    []PublicFileItem `json:"items"`
-	Page     int             `json:"page"`
-	PageSize int             `json:"page_size"`
-	Total    int64           `json:"total"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int64            `json:"total"`
 }
 
 type PublicFileItem struct {
 	ID            string    `json:"id"`
 	Title         string    `json:"title"`
+	OriginalName  string    `json:"original_name"`
+	Extension     string    `json:"extension"`
 	Tags          []string  `json:"tags"`
 	UploadedAt    time.Time `json:"uploaded_at"`
 	DownloadCount int64     `json:"download_count"`
@@ -109,6 +111,8 @@ func (s *PublicCatalogService) ListPublicFiles(ctx context.Context, input Public
 		items = append(items, PublicFileItem{
 			ID:            file.ID,
 			Title:         file.Title,
+			OriginalName:  file.OriginalName,
+			Extension:     file.Extension,
 			Tags:          tags,
 			UploadedAt:    file.CreatedAt,
 			DownloadCount: file.DownloadCount,

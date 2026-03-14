@@ -17,6 +17,8 @@ type AdminPermission string
 
 const (
 	AdminPermissionReviewSubmissions   AdminPermission = "review_submissions"
+	AdminPermissionReviewTags          AdminPermission = "review_tags"
+	AdminPermissionDirectUpload        AdminPermission = "direct_upload"
 	AdminPermissionManageAnnouncements AdminPermission = "manage_announcements"
 	AdminPermissionEditResources       AdminPermission = "edit_resources"
 	AdminPermissionDeleteResources     AdminPermission = "delete_resources"
@@ -28,6 +30,8 @@ const (
 
 var validAdminPermissions = map[AdminPermission]struct{}{
 	AdminPermissionReviewSubmissions:   {},
+	AdminPermissionReviewTags:          {},
+	AdminPermissionDirectUpload:        {},
 	AdminPermissionManageAnnouncements: {},
 	AdminPermissionEditResources:       {},
 	AdminPermissionDeleteResources:     {},

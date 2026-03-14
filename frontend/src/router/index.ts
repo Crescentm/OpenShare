@@ -4,15 +4,14 @@ import AdminLayout from "@/layouts/AdminLayout.vue";
 import AdminAdminsView from "@/views/admin/AdminAdminsView.vue";
 import AdminAnnouncementsView from "@/views/admin/AdminAnnouncementsView.vue";
 import PublicLayout from "@/layouts/PublicLayout.vue";
-import AdminDashboardView from "@/views/admin/AdminDashboardView.vue";
-import AdminReportsView from "@/views/admin/AdminReportsView.vue";
-import AdminResourcesView from "@/views/admin/AdminResourcesView.vue";
-import AdminSettingsView from "@/views/admin/AdminSettingsView.vue";
+import AdminAuditView from "@/views/admin/AdminAuditView.vue";
+import AdminAccountSettingsView from "@/views/admin/AdminAccountSettingsView.vue";
+import AdminDashboard from "@/views/admin/AdminDashboard.vue";
 import AdminTagsView from "@/views/admin/AdminTagsView.vue";
 import AdminOperationLogsView from "@/views/admin/AdminOperationLogsView.vue";
 import PublicFileDetailView from "@/views/public/PublicFileDetailView.vue";
-import HomeView from "@/views/public/HomeView.vue";
-import SearchView from "@/views/public/SearchView.vue";
+import HomeView from "@/views/public/Home.vue";
+import UploadView from "@/views/public/UploadView.vue";
 
 const routes: RouteRecordRaw[] = [
   {
@@ -25,9 +24,9 @@ const routes: RouteRecordRaw[] = [
         component: HomeView,
       },
       {
-        path: "search",
-        name: "public-search",
-        component: SearchView,
+        path: "upload",
+        name: "public-upload",
+        component: UploadView,
       },
       {
         path: "files/:fileID",
@@ -43,7 +42,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: "",
         name: "admin-dashboard",
-        component: AdminDashboardView,
+        component: AdminDashboard,
       },
       {
         path: "announcements",
@@ -52,18 +51,17 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: "admins",
-        name: "admin-admins",
+        redirect: "/admin/permissions",
+      },
+      {
+        path: "permissions",
+        name: "admin-permissions",
         component: AdminAdminsView,
       },
       {
-        path: "resources",
-        name: "admin-resources",
-        component: AdminResourcesView,
-      },
-      {
-        path: "reports",
-        name: "admin-reports",
-        component: AdminReportsView,
+        path: "audit",
+        name: "admin-audit",
+        component: AdminAuditView,
       },
       {
         path: "tags",
@@ -71,14 +69,14 @@ const routes: RouteRecordRaw[] = [
         component: AdminTagsView,
       },
       {
-        path: "settings",
-        name: "admin-settings",
-        component: AdminSettingsView,
+        path: "logs",
+        name: "admin-logs",
+        component: AdminOperationLogsView,
       },
       {
-        path: "operation-logs",
-        name: "admin-operation-logs",
-        component: AdminOperationLogsView,
+        path: "account",
+        name: "admin-account",
+        component: AdminAccountSettingsView,
       },
     ],
   },

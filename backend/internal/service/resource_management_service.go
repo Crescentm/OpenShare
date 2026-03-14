@@ -186,7 +186,7 @@ func (s *ResourceManagementService) PublicUpdateFile(ctx context.Context, fileID
 	if err != nil {
 		return err
 	}
-	if !policy.ExtraPermissionsEnabled || !policy.AllowGuestResourceEdit {
+	if !policy.AllowGuestResourceEdit {
 		return ErrInvalidResourceEdit
 	}
 
@@ -207,7 +207,7 @@ func (s *ResourceManagementService) PublicDeleteFile(ctx context.Context, fileID
 	if err != nil {
 		return err
 	}
-	if !policy.ExtraPermissionsEnabled || !policy.AllowGuestResourceDelete {
+	if !policy.AllowGuestResourceDelete {
 		return ErrInvalidResourceEdit
 	}
 

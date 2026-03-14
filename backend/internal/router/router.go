@@ -26,13 +26,16 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	systemSettingService := service.NewSystemSettingService(repository.NewSystemSettingRepository(db), cfg)
 	adminAuthService := service.NewAdminAuthService(db, adminRepo, sessionManager)
 	adminAuthHandler := handler.NewAdminAuthHandler(adminAuthService, sessionManager)
+	adminDashboardHandler := handler.NewAdminDashboardHandler(
+		service.NewAdminDashboardService(repository.NewAdminDashboardRepository(db)),
+	)
 
 	searchRepo := repository.NewSearchRepository(db)
 	tagRepo := repository.NewTagRepository(db)
 	searchService := service.NewSearchService(searchRepo, tagRepo, systemSettingService)
 	searchHandler := handler.NewSearchHandler(searchService)
 	announcementHandler := handler.NewAnnouncementHandler(
-		service.NewAnnouncementService(repository.NewAnnouncementRepository(db)),
+		service.NewAnnouncementService(repository.NewAnnouncementRepository(db), adminRepo),
 	)
 	adminManagementHandler := handler.NewAdminManagementHandler(
 		service.NewAdminManagementService(adminRepo),
@@ -72,11 +75,12 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 			storageService,
 			systemSettingService,
 		),
+		systemSettingService,
 		cfg.Upload.MaxFileSizeBytes+(1<<20),
 	)
 
 	reportRepo := repository.NewReportRepository(db)
-	reportService := service.NewReportService(reportRepo, searchService)
+	reportService := service.NewReportService(reportRepo, searchService, storageService)
 	reportHandler := handler.NewReportHandler(reportService)
 
 	engine.GET("/healthz", func(ctx *gin.Context) {
@@ -125,6 +129,9 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	adminProtected := admin.Group("")
 	adminProtected.Use(middleware.RequireAdminAuth())
 	adminProtected.GET("/me", adminAuthHandler.Me)
+	adminProtected.GET("/dashboard/stats", adminDashboardHandler.GetStats)
+	adminProtected.POST("/session/change-password", adminAuthHandler.ChangePassword)
+	adminProtected.PATCH("/account/profile", adminAuthHandler.UpdateProfile)
 	adminProtected.GET("/operation-logs", operationLogHandler.List)
 	adminProtected.GET(
 		"/announcements",
@@ -165,6 +172,11 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 		"/imports/local",
 		middleware.RequireAdminPermission(model.AdminPermissionManageSystem),
 		importHandler.ImportLocalDirectory,
+	)
+	adminProtected.GET(
+		"/imports/directories",
+		middleware.RequireAdminPermission(model.AdminPermissionManageSystem),
+		importHandler.ListDirectories,
 	)
 	adminProtected.POST(
 		"/search/rebuild-index",
@@ -272,12 +284,33 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 		reportHandler.RejectReport,
 	)
 
+	adminProtected.GET(
+		"/admins",
+		middleware.RequireAdminPermission(model.AdminPermissionManageAdmins),
+		adminManagementHandler.ListAdmins,
+	)
+	adminProtected.POST(
+		"/admins",
+		middleware.RequireAdminPermission(model.AdminPermissionManageAdmins),
+		adminManagementHandler.CreateAdmin,
+	)
+	adminProtected.PUT(
+		"/admins/:adminID",
+		middleware.RequireAdminPermission(model.AdminPermissionManageAdmins),
+		adminManagementHandler.UpdateAdmin,
+	)
+	adminProtected.POST(
+		"/admins/:adminID/reset-password",
+		middleware.RequireAdminPermission(model.AdminPermissionManageAdmins),
+		adminManagementHandler.ResetPassword,
+	)
+	adminProtected.DELETE(
+		"/admins/:adminID",
+		middleware.RequireAdminPermission(model.AdminPermissionManageAdmins),
+		adminManagementHandler.DeleteAdmin,
+	)
 	superAdminOnly := adminProtected.Group("")
 	superAdminOnly.Use(middleware.RequireSuperAdmin())
-	superAdminOnly.GET("/admins", adminManagementHandler.ListAdmins)
-	superAdminOnly.POST("/admins", adminManagementHandler.CreateAdmin)
-	superAdminOnly.PUT("/admins/:adminID", adminManagementHandler.UpdateAdmin)
-	superAdminOnly.POST("/admins/:adminID/reset-password", adminManagementHandler.ResetPassword)
 	superAdminOnly.GET("/system/settings", systemSettingHandler.GetPolicy)
 	superAdminOnly.PUT("/system/settings", systemSettingHandler.SavePolicy)
 

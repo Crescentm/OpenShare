@@ -116,7 +116,7 @@ func TestPublicUploadReusesExistingReceiptCode(t *testing.T) {
 	}
 }
 
-func TestPublicUploadRejectsInvalidExtension(t *testing.T) {
+func TestPublicUploadAcceptsAnyExtension(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	engine := New(db, cfg, newRouterSessionManager(db))
@@ -134,8 +134,8 @@ func TestPublicUploadRejectsInvalidExtension(t *testing.T) {
 
 	engine.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("expected status 400, got %d, body=%s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -349,7 +349,7 @@ func createPendingSubmissionForTest(t *testing.T, db *gorm.DB, receiptCode strin
 func setDirectPublishPolicy(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
-	payload := `{"guest":{"allow_direct_publish":true,"extra_permissions_enabled":false,"allow_guest_resource_edit":false,"allow_guest_resource_delete":false},"upload":{"max_file_size_bytes":10485760,"max_tag_count":10,"allowed_extensions":[".pdf",".zip",".md",".txt"]},"search":{"enable_fuzzy_match":true,"enable_tag_filter":true,"enable_folder_scope":true,"result_window":50}}`
+	payload := `{"guest":{"allow_direct_publish":true,"extra_permissions_enabled":false,"allow_guest_resource_edit":false,"allow_guest_resource_delete":false},"upload":{"max_file_size_bytes":10485760,"max_tag_count":0,"allowed_extensions":[]},"search":{"enable_fuzzy_match":true,"enable_tag_filter":true,"enable_folder_scope":true,"result_window":50}}`
 	if err := db.Create(&model.SystemSetting{
 		Key:       "system_policy",
 		Value:     payload,

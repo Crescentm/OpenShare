@@ -244,7 +244,7 @@ func (s *PublicUploadService) normalizeInput(input PublicUploadInput, policy Sys
 	}
 
 	maxTagCount := s.config.MaxTagCount
-	if policy.Upload.MaxTagCount > 0 {
+	if policy.Upload.MaxTagCount >= 0 {
 		maxTagCount = policy.Upload.MaxTagCount
 	}
 	tags, err := normalizeTags(input.Tags, maxTagCount, s.config.MaxTagLength)
@@ -321,6 +321,9 @@ func (s *PublicUploadService) resolveReceiptCode(ctx context.Context, receiptCod
 // was replaced with a regular index.
 
 func isAllowedExtension(extension string, allowedExtensions []string) bool {
+	if len(allowedExtensions) == 0 {
+		return true
+	}
 	for _, allowed := range allowedExtensions {
 		if strings.EqualFold(extension, strings.TrimSpace(allowed)) {
 			return true
@@ -330,6 +333,9 @@ func isAllowedExtension(extension string, allowedExtensions []string) bool {
 }
 
 func (s *PublicUploadService) isAllowedMIME(detectedMIME, declaredMIME string) bool {
+	if len(s.config.AllowedMIMETypes) == 0 {
+		return true
+	}
 	for _, allowed := range s.config.AllowedMIMETypes {
 		if detectedMIME == allowed || declaredMIME == allowed {
 			return true
@@ -356,7 +362,7 @@ func normalizeTags(tags []string, maxCount, maxLength int) ([]string, error) {
 			}
 			seen[key] = struct{}{}
 			normalized = append(normalized, tag)
-			if len(normalized) > maxCount {
+			if maxCount > 0 && len(normalized) > maxCount {
 				return nil, ErrInvalidUploadInput
 			}
 		}

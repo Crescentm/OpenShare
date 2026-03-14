@@ -5,15 +5,26 @@
 @layer base {
   :root {
     color: #0f172a;
-    background:
-      radial-gradient(circle at top, rgba(96, 165, 250, 0.24), transparent 36%),
-      linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
-    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    background: #fafafa;
+    font-family:
+      "SF Pro Display",
+      "SF Pro Text",
+      "Segoe UI",
+      "PingFang SC",
+      "Hiragino Sans GB",
+      "Microsoft YaHei",
+      sans-serif;
     line-height: 1.5;
     font-weight: 400;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  html {
+    background: #fafafa;
+    color-scheme: light;
+    scrollbar-gutter: stable;
   }
 
   * {
@@ -24,9 +35,81 @@
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
+    background: #fafafa;
+    color: #0f172a;
   }
 
   #app {
     min-height: 100vh;
+  }
+
+  ::selection {
+    background: rgba(37, 99, 235, 0.14);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    html {
+      background: #020617;
+      color-scheme: dark;
+    }
+
+    body {
+      background: #020617;
+      color: #e2e8f0;
+    }
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply min-h-screen bg-[#fafafa] text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+  }
+
+  .app-container {
+    @apply mx-auto w-full max-w-[1360px] px-4 sm:px-6 lg:px-8;
+  }
+
+  .panel {
+    @apply rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-950/[0.03] dark:border-slate-800 dark:bg-slate-900 dark:shadow-none;
+  }
+
+  .panel-muted {
+    @apply rounded-xl border border-slate-200 bg-[#fafafa] dark:border-slate-800 dark:bg-slate-900/60;
+  }
+
+  .field {
+    @apply h-11 w-full rounded-lg border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-500 dark:focus:ring-slate-800;
+  }
+
+  .field-area {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-500 dark:focus:ring-slate-800;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/60;
+  }
+
+  .data-table {
+    @apply w-full border-separate border-spacing-0;
+  }
+
+  .data-table thead th {
+    @apply border-b border-slate-200 px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.08em] text-slate-500 dark:border-slate-800 dark:text-slate-400;
+  }
+
+  .data-table tbody td {
+    @apply border-b border-slate-100 px-4 py-4 align-top text-sm text-slate-600 dark:border-slate-800 dark:text-slate-300;
+  }
+
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
   }
 }

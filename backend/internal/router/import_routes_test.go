@@ -203,6 +203,53 @@ func TestFolderTreeAndBindTags(t *testing.T) {
 	}
 }
 
+func TestImportDirectoryBrowser(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
+		username: "sysadmin",
+		password: "s3cret-pass",
+		role:     string(model.AdminRoleAdmin),
+		permissions: []model.AdminPermission{
+			model.AdminPermissionManageSystem,
+		},
+	})
+	importRoot := createImportFixture(t)
+	manager := newRouterSessionManager(db)
+	engine := New(db, cfg, manager)
+
+	cookieValue, _, err := manager.Create(t.Context(), admin)
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/imports/directories?path="+importRoot, nil)
+	request.AddCookie(&http.Cookie{Name: manager.CookieName(), Value: cookieValue, Path: "/"})
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		CurrentPath string `json:"current_path"`
+		Items       []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.CurrentPath != importRoot {
+		t.Fatalf("expected current path %q, got %q", importRoot, response.CurrentPath)
+	}
+	if len(response.Items) != 1 || response.Items[0].Name != "nested" {
+		t.Fatalf("expected nested directory listing, got %+v", response.Items)
+	}
+}
+
 func createImportFixture(t *testing.T) string {
 	t.Helper()
 

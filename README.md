@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.svg" alt="OpenShare Banner" width="100%">
+</p>
+
 # OpenShare
 
 OpenShare 是一个面向校园网、实验室和组织内部网络的轻量级、自托管资料共享平台，用于支持学习资料与组织内部资料的统一沉淀、检索、分发和治理。

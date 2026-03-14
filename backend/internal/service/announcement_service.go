@@ -17,11 +17,13 @@ import (
 var (
 	ErrAnnouncementNotFound     = errors.New("announcement not found")
 	ErrAnnouncementInvalidInput = errors.New("invalid announcement input")
+	ErrAnnouncementDeleteDenied = errors.New("announcement delete denied")
 )
 
 type AnnouncementService struct {
-	repo    *repository.AnnouncementRepository
-	nowFunc func() time.Time
+	repo      *repository.AnnouncementRepository
+	adminRepo *repository.AdminRepository
+	nowFunc   func() time.Time
 }
 
 type AnnouncementItem struct {
@@ -29,6 +31,7 @@ type AnnouncementItem struct {
 	Title       string                     `json:"title"`
 	Content     string                     `json:"content"`
 	Status      model.AnnouncementStatus   `json:"status"`
+	CreatedByID string                     `json:"created_by_id"`
 	PublishedAt *time.Time                 `json:"published_at,omitempty"`
 	CreatedAt   time.Time                  `json:"created_at"`
 	UpdatedAt   time.Time                  `json:"updated_at"`
@@ -42,10 +45,11 @@ type SaveAnnouncementInput struct {
 	OperatorIP string
 }
 
-func NewAnnouncementService(repo *repository.AnnouncementRepository) *AnnouncementService {
+func NewAnnouncementService(repo *repository.AnnouncementRepository, adminRepo *repository.AdminRepository) *AnnouncementService {
 	return &AnnouncementService{
-		repo:    repo,
-		nowFunc: func() time.Time { return time.Now().UTC() },
+		repo:      repo,
+		adminRepo: adminRepo,
+		nowFunc:   func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -166,6 +170,9 @@ func (s *AnnouncementService) Delete(ctx context.Context, id string, operatorID 
 	if current == nil {
 		return ErrAnnouncementNotFound
 	}
+	if err := s.canDeleteAnnouncement(ctx, current, operatorID); err != nil {
+		return err
+	}
 	logID, err := identity.NewID()
 	if err != nil {
 		return fmt.Errorf("generate announcement log id: %w", err)
@@ -177,6 +184,37 @@ func (s *AnnouncementService) Delete(ctx context.Context, id string, operatorID 
 		}
 		return fmt.Errorf("delete announcement: %w", err)
 	}
+	return nil
+}
+
+func (s *AnnouncementService) canDeleteAnnouncement(ctx context.Context, current *model.Announcement, operatorID string) error {
+	if s.adminRepo == nil {
+		return nil
+	}
+
+	operator, err := s.adminRepo.FindByID(ctx, operatorID)
+	if err != nil {
+		return fmt.Errorf("find operator admin: %w", err)
+	}
+	if operator == nil {
+		return ErrAnnouncementDeleteDenied
+	}
+
+	if operator.Role == string(model.AdminRoleSuperAdmin) {
+		creator, err := s.adminRepo.FindByID(ctx, current.CreatedByID)
+		if err != nil {
+			return fmt.Errorf("find announcement creator: %w", err)
+		}
+		if creator != nil && creator.Role == string(model.AdminRoleSuperAdmin) && creator.ID != operator.ID {
+			return ErrAnnouncementDeleteDenied
+		}
+		return nil
+	}
+
+	if current.CreatedByID != operator.ID {
+		return ErrAnnouncementDeleteDenied
+	}
+
 	return nil
 }
 
@@ -202,6 +240,7 @@ func mapAnnouncements(items []model.Announcement) []AnnouncementItem {
 			Title:       item.Title,
 			Content:     item.Content,
 			Status:      item.Status,
+			CreatedByID: item.CreatedByID,
 			PublishedAt: item.PublishedAt,
 			CreatedAt:   item.CreatedAt,
 			UpdatedAt:   item.UpdatedAt,

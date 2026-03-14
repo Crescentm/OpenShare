@@ -98,30 +98,12 @@ func Default() Config {
 			Trash:   "trash",
 		},
 		Upload: UploadConfig{
-			MaxFileSizeBytes: 64 << 20,
-			AllowedExtensions: []string{
-				".pdf", ".zip", ".txt", ".md",
-				".doc", ".docx", ".ppt", ".pptx",
-				".xls", ".xlsx", ".jpg", ".jpeg", ".png",
-			},
-			AllowedMIMETypes: []string{
-				"application/pdf",
-				"application/zip",
-				"application/x-zip-compressed",
-				"text/plain",
-				"text/markdown",
-				"application/msword",
-				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-				"application/vnd.ms-powerpoint",
-				"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-				"application/vnd.ms-excel",
-				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-				"image/jpeg",
-				"image/png",
-			},
+			MaxFileSizeBytes:     5 << 30,
+			AllowedExtensions:    []string{},
+			AllowedMIMETypes:     []string{},
 			MaxTitleLength:       200,
 			MaxDescriptionLength: 4000,
-			MaxTagCount:          10,
+			MaxTagCount:          0,
 			MaxTagLength:         32,
 			ReceiptCodeLength:    12,
 		},
@@ -253,20 +235,14 @@ func (c Config) Validate() error {
 	if c.Upload.MaxFileSizeBytes <= 0 {
 		return errors.New("upload.max_file_size_bytes must be greater than 0")
 	}
-	if len(c.Upload.AllowedExtensions) == 0 {
-		return errors.New("upload.allowed_extensions must not be empty")
-	}
-	if len(c.Upload.AllowedMIMETypes) == 0 {
-		return errors.New("upload.allowed_mime_types must not be empty")
-	}
 	if c.Upload.MaxTitleLength <= 0 {
 		return errors.New("upload.max_title_length must be greater than 0")
 	}
 	if c.Upload.MaxDescriptionLength <= 0 {
 		return errors.New("upload.max_description_length must be greater than 0")
 	}
-	if c.Upload.MaxTagCount <= 0 {
-		return errors.New("upload.max_tag_count must be greater than 0")
+	if c.Upload.MaxTagCount < 0 {
+		return errors.New("upload.max_tag_count must be greater than or equal to 0")
 	}
 	if c.Upload.MaxTagLength <= 0 {
 		return errors.New("upload.max_tag_length must be greater than 0")

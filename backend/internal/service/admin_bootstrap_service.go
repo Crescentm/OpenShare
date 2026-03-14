@@ -91,6 +91,7 @@ func (s *AdminBootstrapService) ensureDefaultSuperAdmin() (*bootstrapResult, err
 		admin := &model.Admin{
 			ID:           adminID,
 			Username:     defaultSuperAdminUsername,
+			DisplayName:  "Superadmin",
 			PasswordHash: string(passwordHash),
 			Role:         string(model.AdminRoleSuperAdmin),
 			Status:       model.AdminStatusActive,

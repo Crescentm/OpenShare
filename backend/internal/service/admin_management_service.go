@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -18,8 +20,8 @@ import (
 var (
 	ErrAdminNotFound        = errors.New("admin not found")
 	ErrAdminInvalidInput    = errors.New("invalid admin input")
-	ErrAdminUsernameTaken   = errors.New("admin username already exists")
 	ErrAdminImmutableTarget = errors.New("admin target cannot be modified")
+	ErrAdminDeleteDenied    = errors.New("admin cannot be deleted")
 )
 
 type AdminManagementService struct {
@@ -30,6 +32,7 @@ type AdminManagementService struct {
 type ManagedAdminItem struct {
 	ID          string                  `json:"id"`
 	Username    string                  `json:"username"`
+	DisplayName string                  `json:"display_name"`
 	Role        string                  `json:"role"`
 	Status      model.AdminStatus       `json:"status"`
 	Permissions []model.AdminPermission `json:"permissions"`
@@ -38,11 +41,16 @@ type ManagedAdminItem struct {
 }
 
 type CreateAdminInput struct {
-	Username    string
-	Password    string
 	Permissions []model.AdminPermission
 	OperatorID  string
 	OperatorIP  string
+}
+
+type CreatedAdminResult struct {
+	Item        ManagedAdminItem `json:"item"`
+	LoginID     string           `json:"login_id"`
+	Password    string           `json:"password"`
+	DisplayName string           `json:"display_name"`
 }
 
 type UpdateAdminInput struct {
@@ -77,21 +85,21 @@ func (s *AdminManagementService) ListAdmins(ctx context.Context) ([]ManagedAdmin
 	return items, nil
 }
 
-func (s *AdminManagementService) CreateAdmin(ctx context.Context, input CreateAdminInput) (*ManagedAdminItem, error) {
-	username := strings.TrimSpace(input.Username)
-	if username == "" || len(input.Password) < 8 {
+func (s *AdminManagementService) CreateAdmin(ctx context.Context, input CreateAdminInput) (*CreatedAdminResult, error) {
+	if len(input.Permissions) == 0 {
 		return nil, ErrAdminInvalidInput
 	}
 
-	exists, err := s.repo.UsernameExists(ctx, username)
+	loginID, err := s.generateUniqueLoginID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if exists {
-		return nil, ErrAdminUsernameTaken
+	password, err := generateAdminPassword()
+	if err != nil {
+		return nil, fmt.Errorf("generate admin password: %w", err)
 	}
 
-	hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("hash admin password: %w", err)
 	}
@@ -106,7 +114,8 @@ func (s *AdminManagementService) CreateAdmin(ctx context.Context, input CreateAd
 	now := s.nowFunc()
 	admin := &model.Admin{
 		ID:           id,
-		Username:     username,
+		Username:     loginID,
+		DisplayName:  loginID,
 		PasswordHash: string(hashed),
 		Role:         string(model.AdminRoleAdmin),
 		Permissions:  model.NormalizeAdminPermissions(input.Permissions),
@@ -114,11 +123,16 @@ func (s *AdminManagementService) CreateAdmin(ctx context.Context, input CreateAd
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if err := s.repo.CreateWithLog(ctx, admin, input.OperatorID, input.OperatorIP, "admin_created", username, logID, now); err != nil {
+	if err := s.repo.CreateWithLog(ctx, admin, input.OperatorID, input.OperatorIP, "admin_created", loginID, logID, now); err != nil {
 		return nil, fmt.Errorf("create admin: %w", err)
 	}
 	item := mapManagedAdmin(*admin)
-	return &item, nil
+	return &CreatedAdminResult{
+		Item:        item,
+		LoginID:     loginID,
+		Password:    password,
+		DisplayName: loginID,
+	}, nil
 }
 
 func (s *AdminManagementService) UpdateAdmin(ctx context.Context, adminID string, input UpdateAdminInput) (*ManagedAdminItem, error) {
@@ -196,10 +210,89 @@ func (s *AdminManagementService) ResetPassword(ctx context.Context, adminID stri
 	return nil
 }
 
+func (s *AdminManagementService) DeleteAdmin(ctx context.Context, adminID, operatorID, operatorIP string) error {
+	target, err := s.repo.FindByID(ctx, strings.TrimSpace(adminID))
+	if err != nil {
+		return err
+	}
+	if target == nil {
+		return ErrAdminNotFound
+	}
+	if target.Role == string(model.AdminRoleSuperAdmin) {
+		return ErrAdminImmutableTarget
+	}
+	if strings.TrimSpace(target.ID) == strings.TrimSpace(operatorID) {
+		return ErrAdminDeleteDenied
+	}
+
+	now := s.nowFunc()
+	logID, err := identity.NewID()
+	if err != nil {
+		return fmt.Errorf("generate admin delete log id: %w", err)
+	}
+	if err := s.repo.DeleteAdminWithLog(ctx, target.ID, operatorID, operatorIP, "admin_deleted", target.Username, logID, now); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrAdminNotFound
+		}
+		return fmt.Errorf("delete admin: %w", err)
+	}
+	return nil
+}
+
+func (s *AdminManagementService) generateUniqueLoginID(ctx context.Context) (string, error) {
+	for range 200 {
+		loginID, err := generateAdminLoginID()
+		if err != nil {
+			return "", fmt.Errorf("generate login id: %w", err)
+		}
+		exists, err := s.repo.UsernameExists(ctx, loginID)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return loginID, nil
+		}
+	}
+	return "", ErrAdminInvalidInput
+}
+
+func generateAdminLoginID() (string, error) {
+	value, err := randomInt(10000)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("1%04d", value), nil
+}
+
+func generateAdminPassword() (string, error) {
+	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	buffer := make([]byte, 8)
+	for index := range buffer {
+		offset, err := randomInt(len(alphabet))
+		if err != nil {
+			return "", err
+		}
+		buffer[index] = alphabet[offset]
+	}
+	return string(buffer), nil
+}
+
+func randomInt(max int) (int, error) {
+	if max <= 0 {
+		return 0, ErrAdminInvalidInput
+	}
+	value, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		return 0, err
+	}
+	return int(value.Int64()), nil
+}
+
 func mapManagedAdmin(admin model.Admin) ManagedAdminItem {
 	return ManagedAdminItem{
 		ID:          admin.ID,
 		Username:    admin.Username,
+		DisplayName: admin.DisplayName,
 		Role:        admin.Role,
 		Status:      admin.Status,
 		Permissions: admin.PermissionList(),

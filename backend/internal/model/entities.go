@@ -74,6 +74,8 @@ const (
 type Admin struct {
 	ID           EntityID    `gorm:"column:id;type:text;primaryKey"`
 	Username     string      `gorm:"column:username;type:text;not null;uniqueIndex:ux_admins_username"`
+	DisplayName  string      `gorm:"column:display_name;type:text;not null;default:''"`
+	AvatarURL    string      `gorm:"column:avatar_url;type:text;not null;default:''"`
 	PasswordHash string      `gorm:"column:password_hash;type:text;not null"`
 	Role         string      `gorm:"column:role;type:text;not null"` // super_admin | admin
 	Permissions  string      `gorm:"column:permissions;type:text;not null;default:''"`
@@ -258,6 +260,15 @@ type AdminSession struct {
 	Admin Admin `gorm:"foreignKey:AdminID"`
 }
 
+// DownloadEvent records each successful public download for time-based metrics.
+type DownloadEvent struct {
+	ID        EntityID  `gorm:"column:id;type:text;primaryKey"`
+	FileID    EntityID  `gorm:"column:file_id;type:text;not null;index:idx_download_events_file_id_created_at"`
+	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime;index:idx_download_events_file_id_created_at,sort:desc;index:idx_download_events_created_at,sort:desc"`
+
+	File File `gorm:"foreignKey:FileID"`
+}
+
 // TagSubmission keeps the optional workflow where users propose new tags for review.
 type TagSubmission struct {
 	ID           EntityID            `gorm:"column:id;type:text;primaryKey"`
@@ -301,5 +312,6 @@ func (Report) TableName() string        { return "reports" }
 func (Announcement) TableName() string  { return "announcements" }
 func (OperationLog) TableName() string  { return "operation_logs" }
 func (AdminSession) TableName() string  { return "admin_sessions" }
+func (DownloadEvent) TableName() string { return "download_events" }
 func (TagSubmission) TableName() string { return "tag_submissions" }
 func (SystemSetting) TableName() string { return "system_settings" }

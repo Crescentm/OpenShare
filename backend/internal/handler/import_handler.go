@@ -22,6 +22,21 @@ type bindFolderTagsRequest struct {
 	Tags []string `json:"tags"`
 }
 
+func (h *ImportHandler) ListDirectories(ctx *gin.Context) {
+	result, err := h.service.ListDirectories(ctx.Request.Context(), ctx.Query("path"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidImportPath):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid import path"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to browse import directories"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, result)
+}
+
 func NewImportHandler(service *service.ImportService) *ImportHandler {
 	return &ImportHandler{service: service}
 }

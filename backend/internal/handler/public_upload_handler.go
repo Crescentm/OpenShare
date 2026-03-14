@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -11,18 +12,20 @@ import (
 
 type PublicUploadHandler struct {
 	service         *service.PublicUploadService
+	systemSetting   *service.SystemSettingService
 	maxRequestBytes int64
 }
 
-func NewPublicUploadHandler(service *service.PublicUploadService, maxRequestBytes int64) *PublicUploadHandler {
+func NewPublicUploadHandler(service *service.PublicUploadService, systemSetting *service.SystemSettingService, maxRequestBytes int64) *PublicUploadHandler {
 	return &PublicUploadHandler{
 		service:         service,
+		systemSetting:   systemSetting,
 		maxRequestBytes: maxRequestBytes,
 	}
 }
 
 func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, h.maxRequestBytes)
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, h.currentMaxRequestBytes(ctx.Request.Context()))
 
 	fileHeader, err := ctx.FormFile("file")
 	if err != nil {
@@ -74,4 +77,18 @@ func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusCreated, result)
+}
+
+func (h *PublicUploadHandler) currentMaxRequestBytes(ctx context.Context) int64 {
+	limit := h.maxRequestBytes
+	if h.systemSetting == nil {
+		return limit
+	}
+
+	policy, err := h.systemSetting.GetPolicy(ctx)
+	if err != nil || policy == nil || policy.Upload.MaxFileSizeBytes <= 0 {
+		return limit
+	}
+
+	return policy.Upload.MaxFileSizeBytes + (1 << 20)
 }

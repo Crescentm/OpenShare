@@ -9,6 +9,7 @@ import (
 
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/repository"
+	"openshare/backend/internal/storage"
 	"openshare/backend/pkg/identity"
 )
 
@@ -41,13 +42,15 @@ var validReportReasons = map[string]string{
 type ReportService struct {
 	repo    *repository.ReportRepository
 	search  *SearchService
+	storage *storage.Service
 	nowFunc func() time.Time
 }
 
-func NewReportService(repo *repository.ReportRepository, search *SearchService) *ReportService {
+func NewReportService(repo *repository.ReportRepository, search *SearchService, storageService *storage.Service) *ReportService {
 	return &ReportService{
 		repo:    repo,
 		search:  search,
+		storage: storageService,
 		nowFunc: func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -211,8 +214,22 @@ func (s *ReportService) ApproveReport(ctx context.Context, reportID, adminID, op
 		return nil, ErrReportNotPending
 	}
 
+	movedFiles := make(map[string]string)
+	targetFiles, err := s.repo.ListTargetFiles(ctx, report)
+	if err != nil {
+		return nil, fmt.Errorf("list report target files: %w", err)
+	}
+	for _, file := range targetFiles {
+		newPath, moveErr := s.storage.MoveManagedFileToTrash(file.DiskPath)
+		if moveErr != nil {
+			return nil, fmt.Errorf("move reported file to trash: %w", moveErr)
+		}
+		movedFiles[file.ID] = newPath
+	}
+
 	reviewedAt := s.nowFunc()
-	if err := s.repo.ApproveReport(ctx, report.ID, adminID, operatorIP, reviewedAt, strings.TrimSpace(reviewReason)); err != nil {
+	logDetail := fmt.Sprintf("举报原因=%s，处理说明=%s，已处理文件=%d", report.Reason, strings.TrimSpace(reviewReason), len(movedFiles))
+	if err := s.repo.ApproveReport(ctx, report.ID, adminID, operatorIP, reviewedAt, logDetail, movedFiles); err != nil {
 		return nil, fmt.Errorf("approve report: %w", err)
 	}
 
@@ -249,7 +266,8 @@ func (s *ReportService) RejectReport(ctx context.Context, reportID, adminID, ope
 	}
 
 	reviewedAt := s.nowFunc()
-	if err := s.repo.RejectReport(ctx, report.ID, adminID, operatorIP, reviewedAt, strings.TrimSpace(reviewReason)); err != nil {
+	logDetail := fmt.Sprintf("举报原因=%s，驳回说明=%s", report.Reason, strings.TrimSpace(reviewReason))
+	if err := s.repo.RejectReport(ctx, report.ID, adminID, operatorIP, reviewedAt, logDetail); err != nil {
 		return nil, fmt.Errorf("reject report: %w", err)
 	}
 

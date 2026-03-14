@@ -102,7 +102,7 @@ func TestSuperAdminCanManageAdminsAndNormalAdminCannot(t *testing.T) {
 	createReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/admin/admins",
-		bytes.NewBufferString(`{"username":"ops","password":"password123","permissions":["manage_tags"]}`),
+		bytes.NewBufferString(`{"permissions":["manage_tags"]}`),
 	)
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq.AddCookie(superCookie)
@@ -341,7 +341,7 @@ func setGuestResourcePolicy(t *testing.T, db *gorm.DB, allowEdit bool, allowDele
 
 	payload := `{"guest":{"allow_direct_publish":false,"extra_permissions_enabled":true,"allow_guest_resource_edit":` +
 		boolJSON(allowEdit) + `,"allow_guest_resource_delete":` + boolJSON(allowDelete) +
-		`},"upload":{"max_file_size_bytes":10485760,"max_tag_count":10,"allowed_extensions":[".pdf",".zip",".md",".txt"]},"search":{"enable_fuzzy_match":true,"enable_tag_filter":true,"enable_folder_scope":true,"result_window":50}}`
+		`},"upload":{"max_file_size_bytes":10485760,"max_tag_count":0,"allowed_extensions":[]},"search":{"enable_fuzzy_match":true,"enable_tag_filter":true,"enable_folder_scope":true,"result_window":50}}`
 
 	var existing model.SystemSetting
 	if err := db.Where("key = ?", "system_policy").Take(&existing).Error; err == nil {

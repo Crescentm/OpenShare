@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
+import { LayoutDashboard, Inbox, ScrollText, Shield, UserRound } from "lucide-vue-next";
 
+import AdminSidebar, { type AdminSidebarItem } from "../components/AdminSidebar.vue";
 import { HttpError, httpClient } from "../lib/http/client";
 import { useSessionStore } from "../stores/session";
 
@@ -9,6 +11,8 @@ interface AdminMeResponse {
   admin: {
     id: string;
     username: string;
+    display_name: string;
+    avatar_url: string;
     role: string;
     status: string;
     permissions: string[];
@@ -18,21 +22,16 @@ interface AdminMeResponse {
 const sessionStore = useSessionStore();
 const route = useRoute();
 
-const username = ref("superadmin");
+const username = ref("");
 const password = ref("");
 const loading = ref(true);
 const loginLoading = ref(false);
 const loginError = ref("");
 
-const navItems = computed(() => [
-  { to: "/admin", label: "控制台", visible: true },
-  { to: "/admin/announcements", label: "公告", visible: sessionStore.hasPermission("manage_announcements") },
-  { to: "/admin/resources", label: "资料", visible: true },
-  { to: "/admin/reports", label: "举报", visible: sessionStore.hasPermission("review_reports") },
-  { to: "/admin/operation-logs", label: "审计日志", visible: sessionStore.authenticated },
-  { to: "/admin/tags", label: "标签", visible: sessionStore.hasPermission("manage_tags") },
-  { to: "/admin/admins", label: "管理员", visible: sessionStore.isSuperAdmin },
-  { to: "/admin/settings", label: "系统设置", visible: sessionStore.isSuperAdmin },
+const navItems = computed<AdminSidebarItem[]>(() => [
+  { to: "/admin/audit", label: "审核", icon: Inbox },
+  { to: "/admin/logs", label: "操作记录", icon: ScrollText },
+  { to: "/admin/permissions", label: "权限管理", icon: Shield },
 ]);
 
 onMounted(async () => {
@@ -75,16 +74,14 @@ async function logout() {
 }
 
 function applySession(response: AdminMeResponse) {
-  sessionStore.setAuthenticated(true, response.admin.username, {
+  sessionStore.setAuthenticated(true, response.admin.display_name || response.admin.username, {
+    username: response.admin.username,
     adminId: response.admin.id,
+    avatarUrl: response.admin.avatar_url,
     role: response.admin.role,
     status: response.admin.status,
     permissions: response.admin.permissions,
   });
-}
-
-function isActive(path: string) {
-  return route.path === path || route.path.startsWith(`${path}/`);
 }
 
 function readApiError(error: unknown) {
@@ -97,83 +94,73 @@ function readApiError(error: unknown) {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-950 px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
-    <div class="mx-auto max-w-7xl">
-      <div v-if="loading" class="rounded-[32px] border border-slate-800 bg-slate-900 px-8 py-12 text-sm text-slate-300">
-        正在恢复管理会话...
-      </div>
+  <div class="app-shell">
+    <div v-if="loading" class="flex min-h-screen items-center justify-center">
+      <p class="text-sm text-slate-500">正在加载管理后台…</p>
+    </div>
 
-      <div
-        v-else-if="!sessionStore.authenticated"
-        class="mx-auto max-w-xl rounded-[32px] border border-slate-800 bg-slate-900 px-8 py-10 shadow-panel"
-      >
-        <p class="text-xs font-semibold uppercase tracking-[0.3em] text-blue-300">OpenShare Admin</p>
-        <h1 class="mt-3 text-3xl font-semibold text-white">管理后台登录</h1>
-        <p class="mt-3 text-sm text-slate-400">阶段八开始需要稳定的后台运营入口，先登录后再进入具体页面。</p>
+    <div v-else-if="!sessionStore.authenticated" class="app-container flex min-h-screen items-center justify-center py-16">
+      <section class="panel w-full max-w-[420px] p-8">
+        <div class="space-y-2">
+          <p class="text-sm font-semibold text-slate-600 dark:text-slate-400">OpenShare Admin</p>
+          <h2 class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">管理员登录</h2>
+        </div>
 
         <form class="mt-8 space-y-4" @submit.prevent="login">
-          <label class="block">
-            <span class="mb-2 block text-sm font-medium text-slate-300">用户名</span>
-            <input
-              v-model="username"
-              class="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-400"
-            />
-          </label>
-          <label class="block">
-            <span class="mb-2 block text-sm font-medium text-slate-300">密码</span>
-            <input
-              v-model="password"
-              type="password"
-              class="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-400"
-            />
-          </label>
-          <button
-            type="submit"
-            class="rounded-2xl bg-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:bg-slate-600"
-            :disabled="loginLoading"
-          >
-            {{ loginLoading ? "登录中..." : "登录" }}
-          </button>
-        </form>
+            <div class="space-y-2">
+              <label class="text-sm font-medium text-slate-700 dark:text-slate-300">标示ID</label>
+              <input v-model="username" class="field" placeholder="请输入标示ID" />
+            </div>
+            <div class="space-y-2">
+              <label class="text-sm font-medium text-slate-700 dark:text-slate-300">密码</label>
+              <input v-model="password" type="password" class="field" placeholder="请输入密码" />
+            </div>
 
-        <p v-if="loginError" class="mt-4 rounded-2xl bg-rose-950/60 px-4 py-3 text-sm text-rose-200">
-          {{ loginError }}
-        </p>
-      </div>
+            <button type="submit" class="btn-primary h-11 w-full" :disabled="loginLoading">
+              {{ loginLoading ? "登录中…" : "登录后台" }}
+            </button>
 
-      <div
-        v-else
-        class="grid min-h-[calc(100vh-3rem)] overflow-hidden rounded-[32px] border border-slate-800 bg-slate-900 shadow-panel lg:grid-cols-[260px_1fr]"
-      >
-        <aside class="border-b border-slate-800 px-6 py-6 lg:border-b-0 lg:border-r">
-          <p class="text-xs font-semibold uppercase tracking-[0.3em] text-blue-300">OpenShare Admin</p>
-          <h1 class="mt-2 text-2xl font-semibold text-white">管理后台</h1>
-          <p class="mt-3 text-sm text-slate-400">{{ sessionStore.displayName }} · {{ sessionStore.role }}</p>
-
-          <nav class="mt-8 flex flex-col gap-2 text-sm">
             <RouterLink
-              v-for="item in navItems.filter((entry) => entry.visible)"
-              :key="item.to"
-              :to="item.to"
-              class="rounded-2xl px-4 py-3 transition"
-              :class="isActive(item.to) ? 'bg-blue-500 text-slate-950' : 'text-slate-300 hover:bg-slate-800 hover:text-white'"
+              to="/"
+              class="flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-900 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-800"
             >
-              {{ item.label }}
+              返回前台
             </RouterLink>
-            <RouterLink class="rounded-2xl px-4 py-3 text-slate-300 transition hover:bg-slate-800 hover:text-white" to="/">
-              返回用户端
+          </form>
+
+        <p v-if="loginError" class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {{ loginError }}
+        </p>
+
+      </section>
+    </div>
+
+    <div v-else class="flex min-h-screen bg-[#fafafa] dark:bg-slate-950">
+      <aside class="fixed inset-y-0 left-0 z-20 w-[240px]">
+        <AdminSidebar
+          :current-path="route.path"
+          :items="[{ label: '控制台', to: '/admin', icon: LayoutDashboard }, ...navItems]"
+          :title="sessionStore.displayName"
+          subtitle=""
+          :avatar-url="sessionStore.avatarUrl"
+          :avatar-fallback="sessionStore.displayName.slice(0, 1).toUpperCase() || 'A'"
+          @logout="logout"
+        >
+          <template #footer-actions>
+            <RouterLink
+              to="/admin/account"
+              class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition"
+              :class="route.path.startsWith('/admin/account') ? 'bg-slate-200/70 text-slate-900 dark:bg-slate-800 dark:text-slate-100' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100'"
+            >
+              <UserRound class="h-4 w-4 shrink-0" />
+              <span>账号设置</span>
             </RouterLink>
-          </nav>
+          </template>
+        </AdminSidebar>
+      </aside>
 
-          <button
-            class="mt-8 rounded-2xl border border-slate-700 px-4 py-3 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
-            @click="logout"
-          >
-            退出登录
-          </button>
-        </aside>
-
-        <main class="px-6 py-8">
+      <div class="min-w-0 flex-1 pl-[240px]">
+        <main class="mx-auto w-full max-w-[1240px] px-6 py-8 lg:px-8">
           <RouterView />
         </main>
       </div>

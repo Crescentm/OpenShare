@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
+import PageHeader from "../../components/ui/PageHeader.vue";
+import SurfaceCard from "../../components/ui/SurfaceCard.vue";
 import { HttpError, httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
 
@@ -23,7 +25,6 @@ interface FileDetailResponse {
 
 interface PublicPolicyResponse {
   guest: {
-    extra_permissions_enabled: boolean;
     allow_guest_resource_edit: boolean;
     allow_guest_resource_delete: boolean;
   };
@@ -40,6 +41,9 @@ const guestPolicy = ref<PublicPolicyResponse["guest"] | null>(null);
 const editTitle = ref("");
 const editDescription = ref("");
 const editTags = ref("");
+const textPreview = ref("");
+const textPreviewLoading = ref(false);
+const textPreviewError = ref("");
 
 const fileID = computed(() => String(route.params.fileID ?? ""));
 const previewURL = computed(() => `/api/public/files/${encodeURIComponent(fileID.value)}/preview`);
@@ -49,15 +53,22 @@ onMounted(() => {
   void Promise.all([loadDetail(), loadPolicy()]);
 });
 
+watch(fileID, () => {
+  void Promise.all([loadDetail(), loadPolicy()]);
+});
+
 async function loadDetail() {
   loading.value = true;
   error.value = "";
+  textPreview.value = "";
+  textPreviewError.value = "";
   try {
     detail.value = await httpClient.get<FileDetailResponse>(`/public/files/${encodeURIComponent(fileID.value)}`);
     if (detail.value) {
       editTitle.value = detail.value.title;
       editDescription.value = detail.value.description;
       editTags.value = detail.value.tags.join(", ");
+      await loadTextPreview(detail.value.preview_kind);
     }
   } catch (err: unknown) {
     if (err instanceof HttpError && err.status === 404) {
@@ -70,6 +81,25 @@ async function loadDetail() {
   }
 }
 
+async function loadTextPreview(kind: PreviewKind) {
+  if (kind !== "text") {
+    return;
+  }
+
+  textPreviewLoading.value = true;
+  try {
+    const response = await fetch(previewURL.value, { credentials: "include" });
+    if (!response.ok) {
+      throw new Error("preview request failed");
+    }
+    textPreview.value = await response.text();
+  } catch {
+    textPreviewError.value = "文本预览加载失败，请直接下载文件。";
+  } finally {
+    textPreviewLoading.value = false;
+  }
+}
+
 async function loadPolicy() {
   try {
     const response = await httpClient.get<PublicPolicyResponse>("/public/system/policy");
@@ -79,8 +109,8 @@ async function loadPolicy() {
   }
 }
 
-const canEdit = computed(() => !!guestPolicy.value?.extra_permissions_enabled && !!guestPolicy.value?.allow_guest_resource_edit);
-const canDelete = computed(() => !!guestPolicy.value?.extra_permissions_enabled && !!guestPolicy.value?.allow_guest_resource_delete);
+const canEdit = computed(() => !!guestPolicy.value?.allow_guest_resource_edit);
+const canDelete = computed(() => !!guestPolicy.value?.allow_guest_resource_delete);
 
 async function savePublicEdit() {
   if (!detail.value) return;
@@ -136,18 +166,15 @@ function formatSize(size: number) {
 </script>
 
 <template>
-  <section class="space-y-6">
-    <header>
-      <p class="text-sm font-semibold uppercase tracking-[0.22em] text-blue-700">File Detail</p>
-      <h2 class="mt-2 text-3xl font-semibold text-slate-900">文件详情</h2>
-    </header>
+  <section class="app-container space-y-6 py-8 sm:py-10">
+    <PageHeader eyebrow="File Detail" title="文件详情" description="展示资料基本信息、在线预览和访客可用的公开维护能力。" />
 
-    <p v-if="loading" class="rounded-2xl bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">加载中...</p>
-    <p v-else-if="error" class="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">{{ error }}</p>
-    <p v-if="message" class="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-sm">{{ message }}</p>
+    <p v-if="loading" class="panel px-4 py-3 text-sm text-slate-500">加载中…</p>
+    <p v-else-if="error" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</p>
+    <p v-if="message" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ message }}</p>
 
     <template v-else-if="detail">
-      <article class="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+      <SurfaceCard>
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h3 class="text-2xl font-semibold text-slate-900">{{ detail.title }}</h3>
@@ -155,7 +182,7 @@ function formatSize(size: number) {
           </div>
           <a
             :href="downloadURL"
-            class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            class="btn-primary"
           >
             下载文件
           </a>
@@ -192,9 +219,9 @@ function formatSize(size: number) {
             <dd class="mt-2 text-sm font-semibold text-slate-900">{{ detail.original_name }}</dd>
           </div>
         </dl>
-      </article>
+      </SurfaceCard>
 
-      <article class="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+      <SurfaceCard>
         <div class="flex items-center justify-between gap-4">
           <div>
             <p class="text-sm font-semibold uppercase tracking-[0.22em] text-blue-700">Preview</p>
@@ -207,23 +234,31 @@ function formatSize(size: number) {
 
         <div class="mt-6">
           <iframe
-            v-if="detail.preview_kind === 'pdf' || detail.preview_kind === 'text'"
+            v-if="detail.preview_kind === 'pdf'"
             :src="previewURL"
-            class="h-[70vh] w-full rounded-[24px] border border-slate-200"
+            class="h-[70vh] w-full rounded-2xl border border-slate-200"
           />
           <img
             v-else-if="detail.preview_kind === 'image'"
             :src="previewURL"
             :alt="detail.title"
-            class="max-h-[70vh] w-full rounded-[24px] border border-slate-200 object-contain"
+            class="max-h-[70vh] w-full rounded-2xl border border-slate-200 object-contain"
           />
-          <div v-else class="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-sm text-slate-600">
+          <div
+            v-else-if="detail.preview_kind === 'text'"
+            class="min-h-[50vh] rounded-2xl border border-slate-200 bg-slate-50 p-5"
+          >
+            <p v-if="textPreviewLoading" class="text-sm text-slate-500">正在加载文本预览…</p>
+            <p v-else-if="textPreviewError" class="text-sm text-rose-600">{{ textPreviewError }}</p>
+            <pre v-else class="overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{{ textPreview }}</pre>
+          </div>
+          <div v-else class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-sm text-slate-600">
             当前格式不支持在线预览，请直接下载文件。
           </div>
         </div>
-      </article>
+      </SurfaceCard>
 
-      <article v-if="canEdit || canDelete" class="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+      <SurfaceCard v-if="canEdit || canDelete">
         <div class="flex items-center justify-between gap-4">
           <div>
             <p class="text-sm font-semibold uppercase tracking-[0.22em] text-blue-700">Guest Controls</p>
@@ -232,24 +267,24 @@ function formatSize(size: number) {
           <div class="flex gap-2">
             <button
               v-if="canDelete"
-              class="rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white"
+              class="btn-danger"
               :disabled="deleting"
               @click="deletePublicFile"
             >
-              {{ deleting ? "删除中..." : "删除资料" }}
+              {{ deleting ? "删除中…" : "删除资料" }}
             </button>
           </div>
         </div>
 
         <form v-if="canEdit" class="mt-6 space-y-4" @submit.prevent="savePublicEdit">
-          <input v-model="editTitle" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:bg-white" />
-          <textarea v-model="editDescription" rows="4" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:bg-white" />
-          <input v-model="editTags" placeholder="Tag, 用逗号分隔" class="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:bg-white" />
-          <button type="submit" class="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white" :disabled="saving">
-            {{ saving ? "保存中..." : "保存修改" }}
+          <input v-model="editTitle" class="field" />
+          <textarea v-model="editDescription" rows="4" class="field-area" />
+          <input v-model="editTags" placeholder="Tag, 用逗号分隔" class="field" />
+          <button type="submit" class="btn-primary" :disabled="saving">
+            {{ saving ? "保存中…" : "保存修改" }}
           </button>
         </form>
-      </article>
+      </SurfaceCard>
     </template>
   </section>
 </template>

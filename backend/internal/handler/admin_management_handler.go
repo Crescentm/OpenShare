@@ -16,8 +16,6 @@ type AdminManagementHandler struct {
 }
 
 type createAdminRequest struct {
-	Username    string                  `json:"username"`
-	Password    string                  `json:"password"`
 	Permissions []model.AdminPermission `json:"permissions"`
 }
 
@@ -57,8 +55,6 @@ func (h *AdminManagementHandler) CreateAdmin(ctx *gin.Context) {
 	}
 
 	item, err := h.service.CreateAdmin(ctx.Request.Context(), service.CreateAdminInput{
-		Username:    req.Username,
-		Password:    req.Password,
 		Permissions: req.Permissions,
 		OperatorID:  identity.AdminID,
 		OperatorIP:  ctx.ClientIP(),
@@ -67,8 +63,6 @@ func (h *AdminManagementHandler) CreateAdmin(ctx *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrAdminInvalidInput):
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid admin input"})
-		case errors.Is(err, service.ErrAdminUsernameTaken):
-			ctx.JSON(http.StatusConflict, gin.H{"error": "admin username already exists"})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create admin"})
 		}
@@ -140,6 +134,30 @@ func (h *AdminManagementHandler) ResetPassword(ctx *gin.Context) {
 			ctx.JSON(http.StatusConflict, gin.H{"error": "cannot modify this admin"})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password"})
+		}
+		return
+	}
+	ctx.Status(http.StatusNoContent)
+}
+
+func (h *AdminManagementHandler) DeleteAdmin(ctx *gin.Context) {
+	identity, ok := session.GetAdminIdentity(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+
+	err := h.service.DeleteAdmin(ctx.Request.Context(), ctx.Param("adminID"), identity.AdminID, ctx.ClientIP())
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrAdminNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "admin not found"})
+		case errors.Is(err, service.ErrAdminImmutableTarget):
+			ctx.JSON(http.StatusConflict, gin.H{"error": "cannot delete this admin"})
+		case errors.Is(err, service.ErrAdminDeleteDenied):
+			ctx.JSON(http.StatusConflict, gin.H{"error": "cannot delete current admin"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete admin"})
 		}
 		return
 	}

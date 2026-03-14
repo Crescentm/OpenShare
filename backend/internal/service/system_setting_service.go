@@ -54,12 +54,7 @@ func defaultSystemPolicy(cfg config.UploadConfig) SystemPolicy {
 			MaxTagCount:       cfg.MaxTagCount,
 			AllowedExtensions: append([]string(nil), cfg.AllowedExtensions...),
 		},
-		Search: SearchPolicy{
-			EnableFuzzyMatch:  true,
-			EnableTagFilter:   true,
-			EnableFolderScope: true,
-			ResultWindow:      50,
-		},
+		Search: defaultSearchPolicy(),
 	}
 }
 
@@ -85,16 +80,15 @@ func (s *SystemSettingService) GetPolicy(ctx context.Context) (*SystemPolicy, er
 	if err := json.Unmarshal([]byte(item.Value), &policy); err != nil {
 		return nil, fmt.Errorf("decode system policy: %w", err)
 	}
+	policy.Search = defaultSearchPolicy()
 	return &policy, nil
 }
 
 func (s *SystemSettingService) SavePolicy(ctx context.Context, policy SystemPolicy, operatorID string, operatorIP string) (*SystemPolicy, error) {
-	if policy.Upload.MaxFileSizeBytes <= 0 || policy.Upload.MaxTagCount <= 0 || policy.Search.ResultWindow <= 0 {
+	if policy.Upload.MaxFileSizeBytes <= 0 || policy.Upload.MaxTagCount < 0 || policy.Search.ResultWindow <= 0 {
 		return nil, ErrInvalidUploadInput
 	}
-	if len(policy.Upload.AllowedExtensions) == 0 {
-		return nil, ErrInvalidUploadInput
-	}
+	policy.Search = defaultSearchPolicy()
 
 	payload, err := json.Marshal(policy)
 	if err != nil {
@@ -108,4 +102,13 @@ func (s *SystemSettingService) SavePolicy(ctx context.Context, policy SystemPoli
 		return nil, fmt.Errorf("save system policy: %w", err)
 	}
 	return &policy, nil
+}
+
+func defaultSearchPolicy() SearchPolicy {
+	return SearchPolicy{
+		EnableFuzzyMatch:  true,
+		EnableTagFilter:   true,
+		EnableFolderScope: true,
+		ResultWindow:      100,
+	}
 }
