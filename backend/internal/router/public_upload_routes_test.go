@@ -429,6 +429,78 @@ func TestPublicUploadAcceptsManifestBatchWithRelativePaths(t *testing.T) {
 	}
 }
 
+func TestPublicUploadRejectsInvalidManifest(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "批量目录")
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	if err := writer.WriteField("folder_id", folderID); err != nil {
+		t.Fatalf("write folder_id failed: %v", err)
+	}
+	if err := writer.WriteField("manifest", `{invalid`); err != nil {
+		t.Fatalf("write manifest failed: %v", err)
+	}
+	part, err := writer.CreateFormFile("files", "notes.pdf")
+	if err != nil {
+		t.Fatalf("create file failed: %v", err)
+	}
+	if _, err := part.Write([]byte("%PDF-1.4 batch document")); err != nil {
+		t.Fatalf("write file failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPublicUploadRejectsManifestFileMismatch(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "批量目录")
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	if err := writer.WriteField("folder_id", folderID); err != nil {
+		t.Fatalf("write folder_id failed: %v", err)
+	}
+	if err := writer.WriteField("manifest", `[{"relative_path":"课程资料/高数/notes.pdf"},{"relative_path":"课程资料/高数/习题.docx"}]`); err != nil {
+		t.Fatalf("write manifest failed: %v", err)
+	}
+	part, err := writer.CreateFormFile("files", "notes.pdf")
+	if err != nil {
+		t.Fatalf("create file failed: %v", err)
+	}
+	if _, err := part.Write([]byte("%PDF-1.4 batch document")); err != nil {
+		t.Fatalf("write file failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPublicSubmissionLookupStillWorksAfterFileDeletion(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)

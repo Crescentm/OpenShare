@@ -2,15 +2,12 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
-	"openshare/backend/internal/model"
 	"openshare/backend/internal/service"
-	"openshare/backend/internal/session"
 )
 
 type PublicUploadHandler struct {
@@ -28,75 +25,27 @@ func NewPublicUploadHandler(service *service.PublicUploadService, systemSetting 
 }
 
 func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, h.currentMaxRequestBytes(ctx.Request.Context()))
-
-	form, err := ctx.MultipartForm()
+	request, err := h.parseSubmissionRequest(ctx)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse upload form"})
+		switch {
+		case errors.Is(err, errUploadFormParse):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse upload form"})
+		case errors.Is(err, errUploadManifestInvalid):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid upload manifest"})
+		case errors.Is(err, errUploadManifestMismatch):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "upload files do not match manifest"})
+		case errors.Is(err, errUploadFileRequired):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		case errors.Is(err, errUploadFileRead):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to read uploaded file"})
+		default:
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse upload form"})
+		}
 		return
 	}
+	defer request.Close()
 
-	var manifest []struct {
-		RelativePath string `json:"relative_path"`
-	}
-	fileHeaders := form.File["files"]
-	manifestRaw := ctx.PostForm("manifest")
-	if manifestRaw != "" {
-		if err := json.Unmarshal([]byte(manifestRaw), &manifest); err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid upload manifest"})
-			return
-		}
-		if len(fileHeaders) == 0 || len(fileHeaders) != len(manifest) {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "upload files do not match manifest"})
-			return
-		}
-	} else {
-		fileHeaders = form.File["file"]
-		if len(fileHeaders) == 0 {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
-			return
-		}
-		manifest = make([]struct {
-			RelativePath string `json:"relative_path"`
-		}, len(fileHeaders))
-		for index, fileHeader := range fileHeaders {
-			manifest[index].RelativePath = fileHeader.Filename
-		}
-	}
-
-	files := make([]service.PublicUploadFileInput, 0, len(fileHeaders))
-	closers := make([]func(), 0, len(fileHeaders))
-	for index, fileHeader := range fileHeaders {
-		file, openErr := fileHeader.Open()
-		if openErr != nil {
-			for _, closer := range closers {
-				closer()
-			}
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to read uploaded file"})
-			return
-		}
-		closers = append(closers, func() { _ = file.Close() })
-		files = append(files, service.PublicUploadFileInput{
-			OriginalName: fileHeader.Filename,
-			RelativePath: manifest[index].RelativePath,
-			DeclaredMIME: fileHeader.Header.Get("Content-Type"),
-			File:         file,
-		})
-	}
-	defer func() {
-		for _, closer := range closers {
-			closer()
-		}
-	}()
-
-	result, err := h.service.CreateSubmission(ctx.Request.Context(), service.PublicUploadInput{
-		Description:   ctx.PostForm("description"),
-		ReceiptCode:   readPublicReceiptCode(ctx),
-		FolderID:      ctx.PostForm("folder_id"),
-		UploaderIP:    ctx.ClientIP(),
-		DirectPublish: canDirectPublish(ctx),
-		Files:         files,
-	})
+	result, err := h.service.CreateSubmission(ctx.Request.Context(), request.input)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidUploadInput):
@@ -125,14 +74,6 @@ func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
 
 	writePublicReceiptCode(ctx, result.ReceiptCode)
 	ctx.JSON(http.StatusCreated, result)
-}
-
-func canDirectPublish(ctx *gin.Context) bool {
-	identity, ok := session.GetAdminIdentity(ctx)
-	if !ok {
-		return false
-	}
-	return identity.HasPermission(model.AdminPermissionSubmissionModeration)
 }
 
 func (h *PublicUploadHandler) currentMaxRequestBytes(ctx context.Context) int64 {
