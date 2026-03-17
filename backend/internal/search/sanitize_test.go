@@ -31,28 +31,3 @@ func TestSanitizeQuery(t *testing.T) {
 		})
 	}
 }
-
-func TestSanitizeTagName(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		want   string
-		wantOK bool
-	}{
-		{name: "empty", input: "", want: "", wantOK: false},
-		{name: "spaces", input: "  ", want: "", wantOK: false},
-		{name: "normal", input: "  Math  ", want: "math", wantOK: true},
-		{name: "CJK", input: "数学", want: "数学", wantOK: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := SanitizeTagName(tt.input)
-			if ok != tt.wantOK {
-				t.Errorf("SanitizeTagName(%q) ok = %v, want %v", tt.input, ok, tt.wantOK)
-			}
-			if got != tt.want {
-				t.Errorf("SanitizeTagName(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}

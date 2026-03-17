@@ -29,8 +29,6 @@
     "allowed_mime_types": [],
     "max_title_length": 200,
     "max_description_length": 4000,
-    "max_tag_count": 0,
-    "max_tag_length": 32,
     "receipt_code_length": 12
   },
   "session": {

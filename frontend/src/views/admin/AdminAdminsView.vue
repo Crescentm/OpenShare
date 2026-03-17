@@ -41,20 +41,18 @@ const sessionStore = useSessionStore();
 const canManageAdmins = computed(() => sessionStore.hasPermission("manage_admins"));
 
 const permissionOptions = [
-  { value: "audit", label: "审核（上传、举报）" },
-  { value: "direct_upload", label: "上传资料（免审核上传）" },
-  { value: "edit_resources", label: "编辑资料" },
-  { value: "delete_resources", label: "删除资料" },
+  { value: "submission_moderation", label: "上传审核 / 免审上传" },
+  { value: "resource_moderation", label: "反馈处理 / 编辑资料 / 删除资料" },
+  { value: "announcements", label: "公告" },
 ];
 
 const permissionMap: Record<string, string[]> = {
-  audit: ["review_submissions", "review_reports", "review_tags"],
-  direct_upload: ["direct_upload"],
-  edit_resources: ["edit_resources"],
-  delete_resources: ["delete_resources"],
+  submission_moderation: ["submission_moderation"],
+  resource_moderation: ["resource_moderation"],
+  announcements: ["announcements"],
 };
 
-const hiddenPermissions = ["manage_admins", "manage_system", "manage_tags", "manage_announcements"];
+const hiddenPermissions = ["manage_admins", "manage_system"];
 
 const items = ref<AdminItem[]>([]);
 const loading = ref(false);

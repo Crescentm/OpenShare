@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -17,8 +15,8 @@ import (
 
 var (
 	ErrDownloadFileNotFound    = errors.New("download file not found")
+	ErrDownloadFolderNotFound  = errors.New("download folder not found")
 	ErrDownloadFileUnavailable = errors.New("download file unavailable")
-	ErrPreviewUnsupported      = errors.New("preview is not supported for this file")
 	ErrBatchDownloadInvalid    = errors.New("invalid batch download request")
 )
 
@@ -36,33 +34,28 @@ type DownloadableFile struct {
 	Content      *os.File
 }
 
-type FilePreviewKind string
-
-const (
-	FilePreviewNone  FilePreviewKind = "none"
-	FilePreviewPDF   FilePreviewKind = "pdf"
-	FilePreviewImage FilePreviewKind = "image"
-	FilePreviewText  FilePreviewKind = "text"
-)
-
 type PublicFileDetail struct {
-	ID            string          `json:"id"`
-	Title         string          `json:"title"`
-	Description   string          `json:"description"`
-	OriginalName  string          `json:"original_name"`
-	MimeType      string          `json:"mime_type"`
-	Size          int64           `json:"size"`
-	Tags          []string        `json:"tags"`
-	UploadedAt    time.Time       `json:"uploaded_at"`
-	DownloadCount int64           `json:"download_count"`
-	PreviewKind   FilePreviewKind `json:"preview_kind"`
-	CanPreview    bool            `json:"can_preview"`
+	ID            string    `json:"id"`
+	Title         string    `json:"title"`
+	Description   string    `json:"description"`
+	OriginalName  string    `json:"original_name"`
+	MimeType      string    `json:"mime_type"`
+	Size          int64     `json:"size"`
+	UploadedAt    time.Time `json:"uploaded_at"`
+	DownloadCount int64     `json:"download_count"`
 }
 
 type BatchDownloadFile struct {
 	FileID       string
 	OriginalName string
 	DiskPath     string
+	ZipPath      string
+}
+
+type FolderDownload struct {
+	FolderID   string
+	FolderName string
+	Items      []BatchDownloadFile
 }
 
 func NewPublicDownloadService(repository *repository.PublicDownloadRepository, storageService *storage.Service) *PublicDownloadService {
@@ -104,19 +97,6 @@ func (s *PublicDownloadService) PrepareDownload(ctx context.Context, fileID stri
 	}, nil
 }
 
-func (s *PublicDownloadService) PreparePreview(ctx context.Context, fileID string) (*DownloadableFile, FilePreviewKind, error) {
-	download, err := s.PrepareDownload(ctx, fileID)
-	if err != nil {
-		return nil, FilePreviewNone, err
-	}
-	kind := previewKind(download.OriginalName, download.MimeType)
-	if kind == FilePreviewNone {
-		download.Content.Close()
-		return nil, FilePreviewNone, ErrPreviewUnsupported
-	}
-	return download, kind, nil
-}
-
 func (s *PublicDownloadService) GetFileDetail(ctx context.Context, fileID string) (*PublicFileDetail, error) {
 	fileID = strings.TrimSpace(fileID)
 	if fileID == "" {
@@ -130,11 +110,6 @@ func (s *PublicDownloadService) GetFileDetail(ctx context.Context, fileID string
 		return nil, ErrDownloadFileNotFound
 	}
 
-	tagsByFile, err := s.repository.ListTagsByFileIDs(ctx, []string{file.ID})
-	if err != nil {
-		return nil, fmt.Errorf("list file detail tags: %w", err)
-	}
-	kind := previewKind(file.OriginalName, file.MimeType)
 	return &PublicFileDetail{
 		ID:            file.ID,
 		Title:         file.Title,
@@ -142,11 +117,8 @@ func (s *PublicDownloadService) GetFileDetail(ctx context.Context, fileID string
 		OriginalName:  file.OriginalName,
 		MimeType:      file.MimeType,
 		Size:          file.Size,
-		Tags:          tagsByFile[file.ID],
 		UploadedAt:    file.CreatedAt,
 		DownloadCount: file.DownloadCount,
-		PreviewKind:   kind,
-		CanPreview:    kind != FilePreviewNone,
 	}, nil
 }
 
@@ -179,49 +151,90 @@ func (s *PublicDownloadService) PrepareBatchDownload(ctx context.Context, fileID
 			FileID:       file.ID,
 			OriginalName: file.OriginalName,
 			DiskPath:     file.DiskPath,
+			ZipPath:      file.OriginalName,
 		})
 	}
 	return items, nil
 }
 
-func (s *PublicDownloadService) RecordDownloadAsync(fileID string) {
-	go func() {
-		if err := s.repository.IncrementDownloadCount(context.Background(), fileID); err != nil {
-			log.Printf("increment download count for file %s: %v", fileID, err)
+func (s *PublicDownloadService) PrepareFolderDownload(ctx context.Context, folderID string) (*FolderDownload, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return nil, ErrDownloadFolderNotFound
+	}
+
+	root, err := s.repository.FindActiveFolderByID(ctx, folderID)
+	if err != nil {
+		return nil, fmt.Errorf("find downloadable folder: %w", err)
+	}
+	if root == nil {
+		return nil, ErrDownloadFolderNotFound
+	}
+
+	parentByFolder := map[string]string{root.ID: ""}
+	nameByFolder := map[string]string{root.ID: root.Name}
+	allFolderIDs := []string{root.ID}
+	currentLevel := []string{root.ID}
+
+	for len(currentLevel) > 0 {
+		children, err := s.repository.ListActiveFoldersByParentIDs(ctx, currentLevel)
+		if err != nil {
+			return nil, fmt.Errorf("list descendant folders: %w", err)
 		}
-	}()
+
+		nextLevel := make([]string, 0, len(children))
+		for _, child := range children {
+			nameByFolder[child.ID] = child.Name
+			if child.ParentID != nil {
+				parentByFolder[child.ID] = *child.ParentID
+			}
+			allFolderIDs = append(allFolderIDs, child.ID)
+			nextLevel = append(nextLevel, child.ID)
+		}
+		currentLevel = nextLevel
+	}
+
+	files, err := s.repository.ListActiveFilesByFolderIDs(ctx, allFolderIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list folder download files: %w", err)
+	}
+
+	items := make([]BatchDownloadFile, 0, len(files))
+	for _, file := range files {
+		opened, err := s.storage.OpenManagedFile(file.DiskPath)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, ErrDownloadFileUnavailable
+			}
+			return nil, fmt.Errorf("validate folder download file: %w", err)
+		}
+		opened.File.Close()
+
+		items = append(items, BatchDownloadFile{
+			FileID:       file.ID,
+			OriginalName: file.OriginalName,
+			DiskPath:     file.DiskPath,
+			ZipPath:      buildFolderZipPath(file.OriginalName, file.FolderID, parentByFolder, nameByFolder),
+		})
+	}
+
+	return &FolderDownload{
+		FolderID:   root.ID,
+		FolderName: root.Name,
+		Items:      items,
+	}, nil
 }
 
-func (s *PublicDownloadService) RecordBatchDownloadAsync(fileIDs []string) {
+func (s *PublicDownloadService) RecordDownload(ctx context.Context, fileID string) error {
+	return s.repository.IncrementDownloadCount(ctx, fileID)
+}
+
+func (s *PublicDownloadService) RecordBatchDownload(ctx context.Context, fileIDs []string) error {
 	normalized := normalizeBatchFileIDs(fileIDs)
 	if len(normalized) == 0 {
-		return
+		return nil
 	}
-
-	go func() {
-		if err := s.repository.IncrementDownloadCounts(context.Background(), normalized); err != nil {
-			log.Printf("increment download counts for files %v: %v", normalized, err)
-		}
-	}()
-}
-
-func previewKind(originalName string, mimeType string) FilePreviewKind {
-	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
-	switch {
-	case mimeType == "application/pdf" || strings.EqualFold(filepath.Ext(originalName), ".pdf"):
-		return FilePreviewPDF
-	case strings.HasPrefix(mimeType, "image/"):
-		return FilePreviewImage
-	case strings.HasPrefix(mimeType, "text/"):
-		return FilePreviewText
-	}
-
-	switch strings.ToLower(strings.TrimSpace(filepath.Ext(originalName))) {
-	case ".txt", ".md", ".log", ".json", ".csv":
-		return FilePreviewText
-	default:
-		return FilePreviewNone
-	}
+	return s.repository.IncrementDownloadCounts(ctx, normalized)
 }
 
 func normalizeBatchFileIDs(fileIDs []string) []string {
@@ -234,4 +247,22 @@ func normalizeBatchFileIDs(fileIDs []string) []string {
 		normalized = append(normalized, fileID)
 	}
 	return normalized
+}
+
+func buildFolderZipPath(fileName string, folderID *string, parentByFolder map[string]string, nameByFolder map[string]string) string {
+	parts := []string{fileName}
+	if folderID == nil {
+		return fileName
+	}
+
+	currentID := *folderID
+	for currentID != "" {
+		name := nameByFolder[currentID]
+		if name != "" {
+			parts = append([]string{name}, parts...)
+		}
+		currentID = parentByFolder[currentID]
+	}
+
+	return strings.Join(parts, "/")
 }

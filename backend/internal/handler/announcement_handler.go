@@ -98,6 +98,8 @@ func (h *AnnouncementHandler) Update(ctx *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrAnnouncementInvalidInput):
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid announcement"})
+		case errors.Is(err, service.ErrAnnouncementUpdateDenied):
+			ctx.JSON(http.StatusForbidden, gin.H{"error": "cannot update this announcement"})
 		case errors.Is(err, service.ErrAnnouncementNotFound):
 			ctx.JSON(http.StatusNotFound, gin.H{"error": "announcement not found"})
 		default:

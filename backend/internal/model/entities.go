@@ -57,15 +57,6 @@ const (
 	AnnouncementStatusHidden    AnnouncementStatus = "hidden"
 )
 
-// TagSubmissionStatus represents the moderation state of a user-proposed tag.
-type TagSubmissionStatus string
-
-const (
-	TagSubmissionStatusPending  TagSubmissionStatus = "pending"
-	TagSubmissionStatusApproved TagSubmissionStatus = "approved"
-	TagSubmissionStatusRejected TagSubmissionStatus = "rejected"
-)
-
 // ---------------------------------------------------------------------------
 // Core entities
 // ---------------------------------------------------------------------------
@@ -88,20 +79,20 @@ type Admin struct {
 
 // Folder is the hierarchical container for files and subfolders.
 type Folder struct {
-	ID         EntityID       `gorm:"column:id;type:text;primaryKey"`
-	ParentID   *EntityID      `gorm:"column:parent_id;type:text;index:idx_folders_parent_id_status"`
-	SourcePath *string        `gorm:"column:source_path;type:text;uniqueIndex:ux_folders_source_path"`
-	Name       string         `gorm:"column:name;type:text;not null"`
-	Status     ResourceStatus `gorm:"column:status;type:text;not null;default:'active';index:idx_folders_parent_id_status;index:idx_folders_status_created_at"`
-	CreatedAt  time.Time      `gorm:"column:created_at;autoCreateTime;index:idx_folders_status_created_at,sort:desc"`
-	UpdatedAt  time.Time      `gorm:"column:updated_at;autoUpdateTime"`
-	DeletedAt  *time.Time     `gorm:"column:deleted_at;type:datetime"`
+	ID          EntityID       `gorm:"column:id;type:text;primaryKey"`
+	ParentID    *EntityID      `gorm:"column:parent_id;type:text;index:idx_folders_parent_id_status"`
+	SourcePath  *string        `gorm:"column:source_path;type:text;uniqueIndex:ux_folders_source_path"`
+	Name        string         `gorm:"column:name;type:text;not null"`
+	Description string         `gorm:"column:description;type:text;not null;default:''"`
+	Status      ResourceStatus `gorm:"column:status;type:text;not null;default:'active';index:idx_folders_parent_id_status;index:idx_folders_status_created_at"`
+	CreatedAt   time.Time      `gorm:"column:created_at;autoCreateTime;index:idx_folders_status_created_at,sort:desc"`
+	UpdatedAt   time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+	DeletedAt   *time.Time     `gorm:"column:deleted_at;type:datetime"`
 
 	// Relations
-	Parent     *Folder     `gorm:"foreignKey:ParentID"`
-	Children   []Folder    `gorm:"foreignKey:ParentID"`
-	Files      []File      `gorm:"foreignKey:FolderID"`
-	FolderTags []FolderTag `gorm:"foreignKey:FolderID"`
+	Parent   *Folder  `gorm:"foreignKey:ParentID"`
+	Children []Folder `gorm:"foreignKey:ParentID"`
+	Files    []File   `gorm:"foreignKey:FolderID"`
 }
 
 // File is the published or offline resource metadata stored in SQLite.
@@ -128,68 +119,26 @@ type File struct {
 	// Relations
 	Folder     *Folder     `gorm:"foreignKey:FolderID"`
 	Submission *Submission `gorm:"foreignKey:SubmissionID"`
-	FileTags   []FileTag   `gorm:"foreignKey:FileID"`
 }
 
 // Submission tracks an upload request from staging through moderation.
 type Submission struct {
-	ID                  EntityID         `gorm:"column:id;type:text;primaryKey"`
-	ReceiptCode         string           `gorm:"column:receipt_code;type:text;not null;index:idx_submissions_receipt_code"`
-	TitleSnapshot       string           `gorm:"column:title_snapshot;type:text;not null"`
-	DescriptionSnapshot string           `gorm:"column:description_snapshot;type:text;not null;default:''"`
-	TagsSnapshot        string           `gorm:"column:tags_snapshot;type:text;not null;default:''"`
-	Status              SubmissionStatus `gorm:"column:status;type:text;not null;default:'pending';index:idx_submissions_status_created_at"`
-	RejectReason        string           `gorm:"column:reject_reason;type:text;not null;default:''"`
-	UploaderIP          string           `gorm:"column:uploader_ip;type:text;not null;default:''"`
-	ReviewerID          *EntityID        `gorm:"column:reviewer_id;type:text;index:idx_submissions_reviewer_id_reviewed_at"`
-	ReviewedAt          *time.Time       `gorm:"column:reviewed_at;type:datetime;index:idx_submissions_reviewer_id_reviewed_at,sort:desc;index:idx_submissions_reviewed_at,sort:desc"`
-	CreatedAt           time.Time        `gorm:"column:created_at;autoCreateTime;index:idx_submissions_status_created_at,sort:desc"`
-	UpdatedAt           time.Time        `gorm:"column:updated_at;autoUpdateTime"`
+	ID                   EntityID         `gorm:"column:id;type:text;primaryKey"`
+	ReceiptCode          string           `gorm:"column:receipt_code;type:text;not null;index:idx_submissions_receipt_code"`
+	TitleSnapshot        string           `gorm:"column:title_snapshot;type:text;not null"`
+	DescriptionSnapshot  string           `gorm:"column:description_snapshot;type:text;not null;default:''"`
+	RelativePathSnapshot string           `gorm:"column:relative_path_snapshot;type:text;not null;default:''"`
+	Status               SubmissionStatus `gorm:"column:status;type:text;not null;default:'pending';index:idx_submissions_status_created_at"`
+	RejectReason         string           `gorm:"column:reject_reason;type:text;not null;default:''"`
+	UploaderIP           string           `gorm:"column:uploader_ip;type:text;not null;default:''"`
+	ReviewerID           *EntityID        `gorm:"column:reviewer_id;type:text;index:idx_submissions_reviewer_id_reviewed_at"`
+	ReviewedAt           *time.Time       `gorm:"column:reviewed_at;type:datetime;index:idx_submissions_reviewer_id_reviewed_at,sort:desc;index:idx_submissions_reviewed_at,sort:desc"`
+	CreatedAt            time.Time        `gorm:"column:created_at;autoCreateTime;index:idx_submissions_status_created_at,sort:desc"`
+	UpdatedAt            time.Time        `gorm:"column:updated_at;autoUpdateTime"`
 
 	// Relations
 	Reviewer *Admin `gorm:"foreignKey:ReviewerID"`
 	File     *File  `gorm:"foreignKey:SubmissionID"` // has-one via File.SubmissionID
-}
-
-// Tag is a reusable classification entity shared by files and folders.
-type Tag struct {
-	ID             EntityID   `gorm:"column:id;type:text;primaryKey"`
-	Name           string     `gorm:"column:name;type:text;not null"`
-	NameNormalized string     `gorm:"column:name_normalized;type:text;not null;uniqueIndex:ux_tags_name_normalized"`
-	CreatedAt      time.Time  `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt      time.Time  `gorm:"column:updated_at;autoUpdateTime"`
-	DeletedAt      *time.Time `gorm:"column:deleted_at;type:datetime"`
-
-	// Relations
-	FileTags       []FileTag       `gorm:"foreignKey:TagID"`
-	FolderTags     []FolderTag     `gorm:"foreignKey:TagID"`
-	TagSubmissions []TagSubmission `gorm:"foreignKey:TagID"`
-}
-
-// ---------------------------------------------------------------------------
-// Association tables
-// ---------------------------------------------------------------------------
-
-// FileTag models the many-to-many association between files and tags.
-type FileTag struct {
-	ID        EntityID  `gorm:"column:id;type:text;primaryKey"`
-	FileID    EntityID  `gorm:"column:file_id;type:text;not null;uniqueIndex:ux_file_tags_file_tag"`
-	TagID     EntityID  `gorm:"column:tag_id;type:text;not null;uniqueIndex:ux_file_tags_file_tag"`
-	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime"`
-
-	File File `gorm:"foreignKey:FileID"`
-	Tag  Tag  `gorm:"foreignKey:TagID"`
-}
-
-// FolderTag models the many-to-many association between folders and tags.
-type FolderTag struct {
-	ID        EntityID  `gorm:"column:id;type:text;primaryKey"`
-	FolderID  EntityID  `gorm:"column:folder_id;type:text;not null;uniqueIndex:ux_folder_tags_folder_tag"`
-	TagID     EntityID  `gorm:"column:tag_id;type:text;not null;uniqueIndex:ux_folder_tags_folder_tag"`
-	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime"`
-
-	Folder Folder `gorm:"foreignKey:FolderID"`
-	Tag    Tag    `gorm:"foreignKey:TagID"`
 }
 
 // ---------------------------------------------------------------------------
@@ -200,8 +149,11 @@ type FolderTag struct {
 // Constraint: exactly one of FileID or FolderID must be non-nil.
 type Report struct {
 	ID           EntityID     `gorm:"column:id;type:text;primaryKey"`
+	ReceiptCode  string       `gorm:"column:receipt_code;type:text;not null;default:'';index:idx_reports_receipt_code"`
 	FileID       *EntityID    `gorm:"column:file_id;type:text;index:idx_reports_file_id"`
 	FolderID     *EntityID    `gorm:"column:folder_id;type:text;index:idx_reports_folder_id"`
+	TargetName   string       `gorm:"column:target_name;type:text;not null;default:''"`
+	TargetType   string       `gorm:"column:target_type;type:text;not null;default:''"`
 	Reason       string       `gorm:"column:reason;type:text;not null"`
 	Description  string       `gorm:"column:description;type:text;not null;default:''"`
 	ReporterIP   string       `gorm:"column:reporter_ip;type:text;not null;default:''"`
@@ -278,23 +230,6 @@ type DownloadEvent struct {
 	File File `gorm:"foreignKey:FileID"`
 }
 
-// TagSubmission keeps the optional workflow where users propose new tags for review.
-type TagSubmission struct {
-	ID           EntityID            `gorm:"column:id;type:text;primaryKey"`
-	ProposedName string              `gorm:"column:proposed_name;type:text;not null"`
-	Status       TagSubmissionStatus `gorm:"column:status;type:text;not null;default:'pending'"`
-	TagID        *EntityID           `gorm:"column:tag_id;type:text"`
-	ReviewerID   *EntityID           `gorm:"column:reviewer_id;type:text"`
-	ReviewedAt   *time.Time          `gorm:"column:reviewed_at;type:datetime"`
-	RejectReason string              `gorm:"column:reject_reason;type:text;not null;default:''"`
-	SubmitterIP  string              `gorm:"column:submitter_ip;type:text;not null;default:''"`
-	CreatedAt    time.Time           `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt    time.Time           `gorm:"column:updated_at;autoUpdateTime"`
-
-	Tag      *Tag   `gorm:"foreignKey:TagID"`
-	Reviewer *Admin `gorm:"foreignKey:ReviewerID"`
-}
-
 // SystemSetting stores extensible JSON-backed management policy blobs.
 type SystemSetting struct {
 	Key         string    `gorm:"column:key;type:text;primaryKey"`
@@ -314,14 +249,10 @@ func (Admin) TableName() string          { return "admins" }
 func (Folder) TableName() string         { return "folders" }
 func (File) TableName() string           { return "files" }
 func (Submission) TableName() string     { return "submissions" }
-func (Tag) TableName() string            { return "tags" }
-func (FileTag) TableName() string        { return "file_tags" }
-func (FolderTag) TableName() string      { return "folder_tags" }
 func (Report) TableName() string         { return "reports" }
 func (Announcement) TableName() string   { return "announcements" }
 func (OperationLog) TableName() string   { return "operation_logs" }
 func (AdminSession) TableName() string   { return "admin_sessions" }
 func (SiteVisitEvent) TableName() string { return "site_visit_events" }
 func (DownloadEvent) TableName() string  { return "download_events" }
-func (TagSubmission) TableName() string  { return "tag_submissions" }
 func (SystemSetting) TableName() string  { return "system_settings" }

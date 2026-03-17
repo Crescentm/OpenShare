@@ -15,23 +15,20 @@ import (
 const systemPolicyKey = "system_policy"
 
 type GuestPolicy struct {
-	AllowDirectPublish          bool `json:"allow_direct_publish"`
-	ExtraPermissionsEnabled     bool `json:"extra_permissions_enabled"`
-	AllowGuestEditTitle         bool `json:"allow_guest_edit_title"`
-	AllowGuestEditTags          bool `json:"allow_guest_edit_tags"`
-	AllowGuestEditDescription   bool `json:"allow_guest_edit_description"`
-	AllowGuestResourceDelete    bool `json:"allow_guest_resource_delete"`
+	AllowDirectPublish        bool `json:"allow_direct_publish"`
+	ExtraPermissionsEnabled   bool `json:"extra_permissions_enabled"`
+	AllowGuestEditTitle       bool `json:"allow_guest_edit_title"`
+	AllowGuestEditDescription bool `json:"allow_guest_edit_description"`
+	AllowGuestResourceDelete  bool `json:"allow_guest_resource_delete"`
 }
 
 type UploadPolicy struct {
 	MaxFileSizeBytes  int64    `json:"max_file_size_bytes"`
-	MaxTagCount       int      `json:"max_tag_count"`
 	AllowedExtensions []string `json:"allowed_extensions"`
 }
 
 type SearchPolicy struct {
 	EnableFuzzyMatch  bool `json:"enable_fuzzy_match"`
-	EnableTagFilter   bool `json:"enable_tag_filter"`
 	EnableFolderScope bool `json:"enable_folder_scope"`
 	ResultWindow      int  `json:"result_window"`
 }
@@ -53,7 +50,6 @@ func defaultSystemPolicy(cfg config.UploadConfig) SystemPolicy {
 		Guest: GuestPolicy{},
 		Upload: UploadPolicy{
 			MaxFileSizeBytes:  cfg.MaxFileSizeBytes,
-			MaxTagCount:       cfg.MaxTagCount,
 			AllowedExtensions: append([]string(nil), cfg.AllowedExtensions...),
 		},
 		Search: defaultSearchPolicy(),
@@ -87,7 +83,7 @@ func (s *SystemSettingService) GetPolicy(ctx context.Context) (*SystemPolicy, er
 }
 
 func (s *SystemSettingService) SavePolicy(ctx context.Context, policy SystemPolicy, operatorID string, operatorIP string) (*SystemPolicy, error) {
-	if policy.Upload.MaxFileSizeBytes <= 0 || policy.Upload.MaxTagCount < 0 || policy.Search.ResultWindow <= 0 {
+	if policy.Upload.MaxFileSizeBytes <= 0 || policy.Search.ResultWindow <= 0 {
 		return nil, ErrInvalidUploadInput
 	}
 	policy.Search = defaultSearchPolicy()
@@ -109,7 +105,6 @@ func (s *SystemSettingService) SavePolicy(ctx context.Context, policy SystemPoli
 func defaultSearchPolicy() SearchPolicy {
 	return SearchPolicy{
 		EnableFuzzyMatch:  true,
-		EnableTagFilter:   true,
 		EnableFolderScope: true,
 		ResultWindow:      100,
 	}

@@ -2,12 +2,15 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"openshare/backend/internal/model"
 	"openshare/backend/internal/service"
+	"openshare/backend/internal/session"
 )
 
 type PublicUploadHandler struct {
@@ -27,28 +30,72 @@ func NewPublicUploadHandler(service *service.PublicUploadService, systemSetting 
 func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
 	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, h.currentMaxRequestBytes(ctx.Request.Context()))
 
-	fileHeader, err := ctx.FormFile("file")
+	form, err := ctx.MultipartForm()
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse upload form"})
 		return
 	}
 
-	file, err := fileHeader.Open()
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to read uploaded file"})
-		return
+	var manifest []struct {
+		RelativePath string `json:"relative_path"`
 	}
-	defer file.Close()
+	fileHeaders := form.File["files"]
+	manifestRaw := ctx.PostForm("manifest")
+	if manifestRaw != "" {
+		if err := json.Unmarshal([]byte(manifestRaw), &manifest); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid upload manifest"})
+			return
+		}
+		if len(fileHeaders) == 0 || len(fileHeaders) != len(manifest) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "upload files do not match manifest"})
+			return
+		}
+	} else {
+		fileHeaders = form.File["file"]
+		if len(fileHeaders) == 0 {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+			return
+		}
+		manifest = make([]struct {
+			RelativePath string `json:"relative_path"`
+		}, len(fileHeaders))
+		for index, fileHeader := range fileHeaders {
+			manifest[index].RelativePath = fileHeader.Filename
+		}
+	}
+
+	files := make([]service.PublicUploadFileInput, 0, len(fileHeaders))
+	closers := make([]func(), 0, len(fileHeaders))
+	for index, fileHeader := range fileHeaders {
+		file, openErr := fileHeader.Open()
+		if openErr != nil {
+			for _, closer := range closers {
+				closer()
+			}
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "failed to read uploaded file"})
+			return
+		}
+		closers = append(closers, func() { _ = file.Close() })
+		files = append(files, service.PublicUploadFileInput{
+			OriginalName: fileHeader.Filename,
+			RelativePath: manifest[index].RelativePath,
+			DeclaredMIME: fileHeader.Header.Get("Content-Type"),
+			File:         file,
+		})
+	}
+	defer func() {
+		for _, closer := range closers {
+			closer()
+		}
+	}()
 
 	result, err := h.service.CreateSubmission(ctx.Request.Context(), service.PublicUploadInput{
-		Description:  ctx.PostForm("description"),
-		Tags:         append(ctx.PostFormArray("tag"), ctx.PostFormArray("tags")...),
-		ReceiptCode:  ctx.PostForm("receipt_code"),
-		FolderID:     ctx.PostForm("folder_id"),
-		OriginalName: fileHeader.Filename,
-		DeclaredMIME: fileHeader.Header.Get("Content-Type"),
-		UploaderIP:   ctx.ClientIP(),
-		File:         file,
+		Description:   ctx.PostForm("description"),
+		ReceiptCode:   readPublicReceiptCode(ctx),
+		FolderID:      ctx.PostForm("folder_id"),
+		UploaderIP:    ctx.ClientIP(),
+		DirectPublish: canDirectPublish(ctx),
+		Files:         files,
 	})
 	if err != nil {
 		switch {
@@ -76,7 +123,16 @@ func (h *PublicUploadHandler) CreateSubmission(ctx *gin.Context) {
 		return
 	}
 
+	writePublicReceiptCode(ctx, result.ReceiptCode)
 	ctx.JSON(http.StatusCreated, result)
+}
+
+func canDirectPublish(ctx *gin.Context) bool {
+	identity, ok := session.GetAdminIdentity(ctx)
+	if !ok {
+		return false
+	}
+	return identity.HasPermission(model.AdminPermissionSubmissionModeration)
 }
 
 func (h *PublicUploadHandler) currentMaxRequestBytes(ctx context.Context) int64 {
@@ -89,6 +145,9 @@ func (h *PublicUploadHandler) currentMaxRequestBytes(ctx context.Context) int64 
 	if err != nil || policy == nil || policy.Upload.MaxFileSizeBytes <= 0 {
 		return limit
 	}
-
-	return policy.Upload.MaxFileSizeBytes + (1 << 20)
+	fileBound := policy.Upload.MaxFileSizeBytes + (1 << 20)
+	if fileBound > limit {
+		return fileBound
+	}
+	return limit
 }

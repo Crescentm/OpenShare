@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/repository"
 	"openshare/backend/internal/storage"
@@ -18,8 +19,9 @@ import (
 )
 
 var (
-	ErrInvalidImportPath  = errors.New("invalid import path")
-	ErrFolderTreeNotFound = errors.New("folder not found")
+	ErrInvalidImportPath   = errors.New("invalid import path")
+	ErrFolderTreeNotFound  = errors.New("folder not found")
+	ErrManagedRootRequired = errors.New("managed root folder required")
 )
 
 type ImportService struct {
@@ -45,12 +47,12 @@ type LocalImportResult struct {
 }
 
 type FolderTreeNode struct {
-	ID      string               `json:"id"`
-	Name    string               `json:"name"`
-	Status  model.ResourceStatus `json:"status"`
-	Tags    []string             `json:"tags"`
-	Folders []FolderTreeNode     `json:"folders"`
-	Files   []FolderTreeFile     `json:"files"`
+	ID         string               `json:"id"`
+	Name       string               `json:"name"`
+	SourcePath string               `json:"source_path"`
+	Status     model.ResourceStatus `json:"status"`
+	Folders    []FolderTreeNode     `json:"folders"`
+	Files      []FolderTreeFile     `json:"files"`
 }
 
 type FolderTreeFile struct {
@@ -201,22 +203,17 @@ func (s *ImportService) GetFolderTree(ctx context.Context) ([]FolderTreeNode, er
 	if err != nil {
 		return nil, fmt.Errorf("list files: %w", err)
 	}
-	tagRows, err := s.repository.ListFolderTagRows(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list folder tags: %w", err)
-	}
-
 	nodes := make(map[string]*FolderTreeNode, len(folders))
 	childrenByParent := make(map[string][]string)
 	rootIDs := make([]string, 0)
 	for _, folder := range folders {
 		nodes[folder.ID] = &FolderTreeNode{
-			ID:      folder.ID,
-			Name:    folder.Name,
-			Status:  folder.Status,
-			Tags:    []string{},
-			Folders: []FolderTreeNode{},
-			Files:   []FolderTreeFile{},
+			ID:         folder.ID,
+			Name:       folder.Name,
+			SourcePath: derefString(folder.SourcePath),
+			Status:     folder.Status,
+			Folders:    []FolderTreeNode{},
+			Files:      []FolderTreeFile{},
 		}
 	}
 	for _, folder := range folders {
@@ -225,11 +222,6 @@ func (s *ImportService) GetFolderTree(ctx context.Context) ([]FolderTreeNode, er
 			continue
 		}
 		childrenByParent[*folder.ParentID] = append(childrenByParent[*folder.ParentID], folder.ID)
-	}
-	for _, row := range tagRows {
-		if node, ok := nodes[row.FolderID]; ok {
-			node.Tags = append(node.Tags, row.TagName)
-		}
 	}
 	for _, file := range files {
 		if file.FolderID == nil {
@@ -305,7 +297,7 @@ func (s *ImportService) ListDirectories(_ context.Context, rootPath string) (*Im
 	}, nil
 }
 
-func (s *ImportService) BindFolderTags(ctx context.Context, folderID string, tagNames []string, adminID, operatorIP string) error {
+func (s *ImportService) DeleteManagedDirectory(ctx context.Context, folderID, adminID, operatorIP string) error {
 	folder, err := s.repository.FindFolderByID(ctx, strings.TrimSpace(folderID))
 	if err != nil {
 		return fmt.Errorf("find folder: %w", err)
@@ -313,55 +305,34 @@ func (s *ImportService) BindFolderTags(ctx context.Context, folderID string, tag
 	if folder == nil {
 		return ErrFolderTreeNotFound
 	}
+	if folder.ParentID != nil {
+		return ErrManagedRootRequired
+	}
 
-	names, err := normalizeTags(tagNames, 20, 32)
+	logID, err := identity.NewID()
 	if err != nil {
-		return ErrInvalidUploadInput
+		return fmt.Errorf("generate operation log id: %w", err)
 	}
 
-	existing, err := s.repository.FindTagsByNames(ctx, names)
-	if err != nil {
-		return fmt.Errorf("find tags: %w", err)
-	}
-	tagByNormalized := make(map[string]model.Tag, len(existing))
-	for _, tag := range existing {
-		tagByNormalized[tag.NameNormalized] = tag
+	detail := folder.Name
+	if folder.SourcePath != nil && strings.TrimSpace(*folder.SourcePath) != "" {
+		detail = *folder.SourcePath
 	}
 
-	tagIDs := make([]string, 0, len(names))
-	for _, name := range names {
-		key := strings.ToLower(strings.TrimSpace(name))
-		tag, ok := tagByNormalized[key]
-		if !ok {
-			tagID, err := identity.NewID()
-			if err != nil {
-				return fmt.Errorf("generate tag id: %w", err)
-			}
-			tag = model.Tag{
-				ID:             tagID,
-				Name:           name,
-				NameNormalized: key,
-				CreatedAt:      s.nowFunc(),
-				UpdatedAt:      s.nowFunc(),
-			}
-			if err := s.repository.CreateTag(ctx, &tag); err != nil {
-				return fmt.Errorf("create tag: %w", err)
-			}
-			tagByNormalized[key] = tag
+	if err := s.repository.DeleteManagedRootWithLog(ctx, folder.ID, adminID, operatorIP, detail, logID, s.nowFunc()); err != nil {
+		if errors.Is(err, repository.ErrManagedRootRequired) {
+			return ErrManagedRootRequired
 		}
-		tagIDs = append(tagIDs, tag.ID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFolderTreeNotFound
+		}
+		return fmt.Errorf("delete managed directory: %w", err)
 	}
 
-	if err := s.repository.ReplaceFolderTags(ctx, folder.ID, tagIDs); err != nil {
-		return fmt.Errorf("replace folder tags: %w", err)
-	}
-
-	// Re-index folder after tag change.
 	if s.search != nil {
-		_ = s.search.IndexFolder(ctx, folder.ID, folder.Name)
+		_ = s.search.RebuildAllIndexes(ctx)
 	}
 
-	_ = s.repository.LogOperation(ctx, adminID, "folder_tags_updated", "folder", folder.ID, strings.Join(names, ","), operatorIP, s.nowFunc())
 	return nil
 }
 
@@ -479,4 +450,11 @@ func resolveBrowsePath(rootPath string) (string, error) {
 		return "", ErrInvalidImportPath
 	}
 	return cleaned, nil
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

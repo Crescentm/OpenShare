@@ -22,17 +22,21 @@ import (
 func TestCreateSubmissionReusesExistingReceiptCode(t *testing.T) {
 	cfg, db, storageService := newUploadTestDeps(t)
 	repo := repository.NewUploadRepository(db)
-	service := NewPublicUploadService(cfg.Upload, repo, storageService, nil)
+	service := NewPublicUploadService(cfg.Upload, repo, NewReceiptCodeService(repository.NewReceiptCodeRepository(db), cfg.Upload.ReceiptCodeLength), storageService, nil)
 	folderID := createUploadTargetFolder(t, db)
 
 	createExistingSubmission(t, db, "CUSTOM123")
 
 	result, err := service.CreateSubmission(context.Background(), PublicUploadInput{
-		ReceiptCode:  "CUSTOM123",
-		FolderID:     folderID,
-		OriginalName: "notes.pdf",
-		DeclaredMIME: "application/pdf",
-		File:         strings.NewReader("%PDF-1.4 test document"),
+		ReceiptCode: "CUSTOM123",
+		FolderID:    folderID,
+		Files: []PublicUploadFileInput{
+			{
+				OriginalName: "notes.pdf",
+				DeclaredMIME: "application/pdf",
+				File:         strings.NewReader("%PDF-1.4 test document"),
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("expected success when reusing receipt code, got %v", err)
@@ -45,17 +49,21 @@ func TestCreateSubmissionReusesExistingReceiptCode(t *testing.T) {
 func TestCreateSubmissionReturnsReceiptGenerationError(t *testing.T) {
 	cfg, db, storageService := newUploadTestDeps(t)
 	repo := repository.NewUploadRepository(db)
-	service := NewPublicUploadService(cfg.Upload, repo, storageService, nil)
+	service := NewPublicUploadService(cfg.Upload, repo, NewReceiptCodeService(repository.NewReceiptCodeRepository(db), cfg.Upload.ReceiptCodeLength), storageService, nil)
 	folderID := createUploadTargetFolder(t, db)
-	service.codeGen = func(int) (string, error) {
+	service.receiptCodes.codeGen = func(int) (string, error) {
 		return "", errors.New("entropy unavailable")
 	}
 
 	_, err := service.CreateSubmission(context.Background(), PublicUploadInput{
-		FolderID:     folderID,
-		OriginalName: "notes.pdf",
-		DeclaredMIME: "application/pdf",
-		File:         strings.NewReader("%PDF-1.4 test document"),
+		FolderID: folderID,
+		Files: []PublicUploadFileInput{
+			{
+				OriginalName: "notes.pdf",
+				DeclaredMIME: "application/pdf",
+				File:         strings.NewReader("%PDF-1.4 test document"),
+			},
+		},
 	})
 	if !errors.Is(err, ErrReceiptCodeGenerate) {
 		t.Fatalf("expected receipt generation error, got %v", err)
@@ -100,7 +108,6 @@ func createExistingSubmission(t *testing.T, db *gorm.DB, receiptCode string) {
 		ID:            mustNewUploadID(t),
 		ReceiptCode:   receiptCode,
 		TitleSnapshot: "existing",
-		TagsSnapshot:  "[]",
 		Status:        model.SubmissionStatusPending,
 	}
 	if err := db.Create(submission).Error; err != nil {

@@ -3,7 +3,6 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -31,8 +30,7 @@ func (h *SearchHandler) RebuildIndex(ctx *gin.Context) {
 // Search handles GET /api/public/search
 //
 //	Query parameters:
-//	  q         – keyword (required unless tags provided)
-//	  tag       – tag filter, repeatable for AND semantics
+//	  q         – keyword
 //	  folder_id – optional folder scope
 //	  page      – page number (default 1)
 //	  page_size – results per page (default 20, max 100)
@@ -49,20 +47,8 @@ func (h *SearchHandler) Search(ctx *gin.Context) {
 		return
 	}
 
-	// Collect tag filters: support both repeated ?tag=X&tag=Y and comma-separated ?tag=X,Y
-	var tags []string
-	for _, raw := range ctx.QueryArray("tag") {
-		for _, part := range strings.Split(raw, ",") {
-			trimmed := strings.TrimSpace(part)
-			if trimmed != "" {
-				tags = append(tags, trimmed)
-			}
-		}
-	}
-
 	result, err := h.service.Search(ctx.Request.Context(), service.SearchInput{
 		Keyword:  ctx.Query("q"),
-		Tags:     tags,
 		FolderID: ctx.Query("folder_id"),
 		Page:     page,
 		PageSize: pageSize,

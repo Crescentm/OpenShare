@@ -180,7 +180,7 @@ func TestAdminMeReturnsIdentityFromSession(t *testing.T) {
 		role:     string(model.AdminRoleAdmin),
 		permissions: []model.AdminPermission{
 			model.AdminPermissionReviewSubmissions,
-			model.AdminPermissionManageTags,
+			model.AdminPermissionManageSystem,
 		},
 	})
 	manager := newRouterSessionManager(db)

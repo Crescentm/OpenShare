@@ -16,16 +16,12 @@ var managedModels = []any{
 	&model.Folder{},
 	&model.File{},
 	&model.Submission{},
-	&model.Tag{},
-	&model.FileTag{},
-	&model.FolderTag{},
 	&model.Report{},
 	&model.Announcement{},
 	&model.OperationLog{},
 	&model.AdminSession{},
 	&model.SiteVisitEvent{},
 	&model.DownloadEvent{},
-	&model.TagSubmission{},
 	&model.SystemSetting{},
 }
 

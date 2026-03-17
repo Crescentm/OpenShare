@@ -7,6 +7,7 @@ import AdminAuditView from "@/views/admin/AdminAuditView.vue";
 import AdminAccountSettingsView from "@/views/admin/AdminAccountSettingsView.vue";
 import AdminDashboard from "@/views/admin/AdminDashboard.vue";
 import AdminOperationLogsView from "@/views/admin/AdminOperationLogsView.vue";
+import AdminAnnouncementsView from "@/views/admin/AdminAnnouncementsView.vue";
 import PublicFileDetailView from "@/views/public/PublicFileDetailView.vue";
 import HomeView from "@/views/public/Home.vue";
 import UploadView from "@/views/public/UploadView.vue";
@@ -60,6 +61,11 @@ const routes: RouteRecordRaw[] = [
         path: "logs",
         name: "admin-logs",
         component: AdminOperationLogsView,
+      },
+      {
+        path: "announcements",
+        name: "admin-announcements",
+        component: AdminAnnouncementsView,
       },
       {
         path: "account",

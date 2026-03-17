@@ -139,6 +139,30 @@ func (s *AdminAuthService) GetProfile(ctx context.Context, adminID string) (*mod
 	return admin, nil
 }
 
+func (s *AdminAuthService) VerifyPassword(ctx context.Context, adminID, password string) error {
+	adminID = strings.TrimSpace(adminID)
+	if adminID == "" || password == "" {
+		return ErrInvalidAdminCredentials
+	}
+
+	admin, err := s.adminRepo.FindByID(ctx, adminID)
+	if err != nil {
+		return fmt.Errorf("find admin for password verify: %w", err)
+	}
+	if admin == nil || admin.Status != model.AdminStatusActive {
+		return ErrInvalidAdminCredentials
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(password)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return ErrInvalidAdminCredentials
+		}
+		return fmt.Errorf("compare admin password: %w", err)
+	}
+
+	return nil
+}
+
 func (s *AdminAuthService) UpdateProfile(ctx context.Context, adminID, displayName, avatarURL, operatorIP string) (*model.Admin, error) {
 	adminID = strings.TrimSpace(adminID)
 	displayName = strings.TrimSpace(displayName)

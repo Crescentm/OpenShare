@@ -92,13 +92,17 @@ func TestCreateReportForFile(t *testing.T) {
 	}
 
 	var resp struct {
-		ReportID string `json:"report_id"`
+		ReportID    string `json:"report_id"`
+		ReceiptCode string `json:"receipt_code"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if resp.ReportID == "" {
 		t.Fatal("report_id should not be empty")
+	}
+	if resp.ReceiptCode == "" {
+		t.Fatal("receipt_code should not be empty")
 	}
 
 	// Verify DB record
@@ -109,8 +113,106 @@ func TestCreateReportForFile(t *testing.T) {
 	if report.Reason != "copyright" {
 		t.Fatalf("expected reason 'copyright', got %q", report.Reason)
 	}
+	if report.ReceiptCode != resp.ReceiptCode {
+		t.Fatalf("expected stored receipt code %q, got %q", resp.ReceiptCode, report.ReceiptCode)
+	}
+	if report.TargetName != file.Title || report.TargetType != "file" {
+		t.Fatalf("unexpected target snapshot: %q %q", report.TargetName, report.TargetType)
+	}
 	if report.FileID == nil || *report.FileID != file.ID {
 		t.Fatal("report file_id mismatch")
+	}
+}
+
+func TestLookupReportReceiptCode(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	manager := newRouterSessionManager(db)
+	engine := New(db, cfg, manager)
+
+	file := createActiveFile(t, db)
+	now := time.Now().UTC()
+	reportID := mustNewID(t)
+	report := &model.Report{
+		ID:          reportID,
+		ReceiptCode: "RECEIPT66",
+		FileID:      &file.ID,
+		TargetName:  file.Title,
+		TargetType:  "file",
+		Reason:      "copyright",
+		Description: "侵权内容",
+		Status:      model.ReportStatusPending,
+		ReporterIP:  "127.0.0.1",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := db.Create(report).Error; err != nil {
+		t.Fatalf("create report: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/public/reports/RECEIPT66", nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		ReceiptCode string `json:"receipt_code"`
+		Items       []struct {
+			TargetName  string `json:"target_name"`
+			ReasonLabel string `json:"reason_label"`
+			Status      string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode lookup response: %v", err)
+	}
+	if resp.ReceiptCode != "RECEIPT66" {
+		t.Fatalf("unexpected receipt code %q", resp.ReceiptCode)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 report item, got %d", len(resp.Items))
+	}
+	if resp.Items[0].TargetName != file.Title {
+		t.Fatalf("unexpected target name %q", resp.Items[0].TargetName)
+	}
+	if resp.Items[0].ReasonLabel != "侵权" {
+		t.Fatalf("unexpected reason label %q", resp.Items[0].ReasonLabel)
+	}
+	if resp.Items[0].Status != string(model.ReportStatusPending) {
+		t.Fatalf("unexpected status %q", resp.Items[0].Status)
+	}
+}
+
+func TestCreateReportReusesReceiptCodeFromCookie(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	manager := newRouterSessionManager(db)
+	engine := New(db, cfg, manager)
+
+	file := createActiveFile(t, db)
+
+	body := bytes.NewBufferString(`{"file_id":"` + file.ID + `","reason":"copyright"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/public/reports", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "openshare_receipt_code", Value: "SESSION88"})
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		ReceiptCode string `json:"receipt_code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.ReceiptCode != "SESSION88" {
+		t.Fatalf("expected cookie receipt code to be reused, got %q", resp.ReceiptCode)
 	}
 }
 
@@ -261,7 +363,7 @@ func TestAdminListPendingReports(t *testing.T) {
 	}
 }
 
-func TestAdminApproveReportTakesResourceOffline(t *testing.T) {
+func TestAdminApproveReportMarksHandledWithoutOffliningResource(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	manager := newRouterSessionManager(db)
@@ -309,13 +411,13 @@ func TestAdminApproveReportTakesResourceOffline(t *testing.T) {
 		t.Fatalf("expected approved, got %q", report.Status)
 	}
 
-	// Verify file is offline
+	// Verify file is still active
 	var updatedFile model.File
 	if err := db.Where("id = ?", file.ID).Take(&updatedFile).Error; err != nil {
 		t.Fatalf("reload file: %v", err)
 	}
-	if updatedFile.Status != model.ResourceStatusOffline {
-		t.Fatalf("expected file offline, got %q", updatedFile.Status)
+	if updatedFile.Status != model.ResourceStatusActive {
+		t.Fatalf("expected file still active, got %q", updatedFile.Status)
 	}
 
 	// Verify operation log

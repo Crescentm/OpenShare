@@ -126,7 +126,7 @@ func TestPublicSubmissionLookupReturnsMultipleItems(t *testing.T) {
 	}
 }
 
-func createFileForSubmission(t *testing.T, db *gorm.DB, submissionID string, downloadCount int64) {
+func createFileForSubmission(t *testing.T, db *gorm.DB, submissionID string, downloadCount int64) *model.File {
 	t.Helper()
 
 	file := &model.File{
@@ -148,4 +148,5 @@ func createFileForSubmission(t *testing.T, db *gorm.DB, submissionID string, dow
 	if err := db.Create(file).Error; err != nil {
 		t.Fatalf("create file for submission failed: %v", err)
 	}
+	return file
 }

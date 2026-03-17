@@ -40,18 +40,16 @@ var validReportReasons = map[string]string{
 
 // ReportService encapsulates the business logic for user reports.
 type ReportService struct {
-	repo    *repository.ReportRepository
-	search  *SearchService
-	storage *storage.Service
-	nowFunc func() time.Time
+	repo         *repository.ReportRepository
+	receiptCodes *ReceiptCodeService
+	nowFunc      func() time.Time
 }
 
-func NewReportService(repo *repository.ReportRepository, search *SearchService, storageService *storage.Service) *ReportService {
+func NewReportService(repo *repository.ReportRepository, receiptCodes *ReceiptCodeService, _ *SearchService, _ *storage.Service) *ReportService {
 	return &ReportService{
-		repo:    repo,
-		search:  search,
-		storage: storageService,
-		nowFunc: func() time.Time { return time.Now().UTC() },
+		repo:         repo,
+		receiptCodes: receiptCodes,
+		nowFunc:      func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -63,6 +61,7 @@ func NewReportService(repo *repository.ReportRepository, search *SearchService, 
 type CreateReportInput struct {
 	FileID      string
 	FolderID    string
+	ReceiptCode string
 	Reason      string
 	Description string
 	ReporterIP  string
@@ -70,8 +69,26 @@ type CreateReportInput struct {
 
 // CreateReportResult is the response returned to the public caller.
 type CreateReportResult struct {
-	ReportID  string    `json:"report_id"`
-	CreatedAt time.Time `json:"created_at"`
+	ReportID    string    `json:"report_id"`
+	ReceiptCode string    `json:"receipt_code"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type PublicReportLookupResult struct {
+	ReceiptCode string                   `json:"receipt_code"`
+	Items       []PublicReportLookupItem `json:"items"`
+}
+
+type PublicReportLookupItem struct {
+	TargetName   string             `json:"target_name"`
+	TargetType   string             `json:"target_type"`
+	Reason       string             `json:"reason"`
+	ReasonLabel  string             `json:"reason_label"`
+	Description  string             `json:"description"`
+	Status       model.ReportStatus `json:"status"`
+	ReviewReason string             `json:"review_reason"`
+	CreatedAt    time.Time          `json:"created_at"`
+	ReviewedAt   *time.Time         `json:"reviewed_at"`
 }
 
 // PendingReportItem is the admin-facing projection of an unreviewed report.
@@ -116,6 +133,8 @@ func (s *ReportService) CreateReport(ctx context.Context, input CreateReportInpu
 	}
 
 	// Verify the target resource exists and is active.
+	targetName := ""
+	targetType := ""
 	if hasFile {
 		exists, err := s.repo.FileExists(ctx, input.FileID)
 		if err != nil {
@@ -124,6 +143,7 @@ func (s *ReportService) CreateReport(ctx context.Context, input CreateReportInpu
 		if !exists {
 			return nil, ErrReportTargetNotFound
 		}
+		targetType = "file"
 	} else {
 		exists, err := s.repo.FolderExists(ctx, input.FolderID)
 		if err != nil {
@@ -132,6 +152,21 @@ func (s *ReportService) CreateReport(ctx context.Context, input CreateReportInpu
 		if !exists {
 			return nil, ErrReportTargetNotFound
 		}
+		targetType = "folder"
+	}
+
+	receiptCode, err := s.receiptCodes.ResolveForSession(ctx, input.ReceiptCode)
+	if err != nil {
+		return nil, err
+	}
+
+	if hasFile {
+		targetName, err = s.repo.FindFileTitleByID(ctx, strings.TrimSpace(input.FileID))
+	} else {
+		targetName, err = s.repo.FindFolderNameByID(ctx, strings.TrimSpace(input.FolderID))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load report target snapshot: %w", err)
 	}
 
 	reportID, err := identity.NewID()
@@ -142,6 +177,9 @@ func (s *ReportService) CreateReport(ctx context.Context, input CreateReportInpu
 	now := s.nowFunc()
 	report := &model.Report{
 		ID:          reportID,
+		ReceiptCode: receiptCode,
+		TargetName:  targetName,
+		TargetType:  targetType,
 		Reason:      reason,
 		Description: strings.TrimSpace(input.Description),
 		ReporterIP:  input.ReporterIP,
@@ -162,8 +200,45 @@ func (s *ReportService) CreateReport(ctx context.Context, input CreateReportInpu
 	}
 
 	return &CreateReportResult{
-		ReportID:  reportID,
-		CreatedAt: now,
+		ReportID:    reportID,
+		ReceiptCode: receiptCode,
+		CreatedAt:   now,
+	}, nil
+}
+
+func (s *ReportService) LookupPublicReport(ctx context.Context, receiptCode string) (*PublicReportLookupResult, error) {
+	normalized, err := normalizeReceiptCode(receiptCode)
+	if err != nil {
+		return nil, ErrInvalidUploadInput
+	}
+
+	reports, err := s.repo.FindPublicReportsByReceiptCode(ctx, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("lookup public report: %w", err)
+	}
+	if len(reports) == 0 {
+		return nil, ErrReportNotFound
+	}
+
+	items := make([]PublicReportLookupItem, 0, len(reports))
+	for _, report := range reports {
+		label, _ := validReportReasons[report.Reason]
+		items = append(items, PublicReportLookupItem{
+			TargetName:   report.TargetName,
+			TargetType:   report.TargetType,
+			Reason:       report.Reason,
+			ReasonLabel:  label,
+			Description:  report.Description,
+			Status:       report.Status,
+			ReviewReason: report.ReviewReason,
+			CreatedAt:    report.CreatedAt,
+			ReviewedAt:   report.ReviewedAt,
+		})
+	}
+
+	return &PublicReportLookupResult{
+		ReceiptCode: normalized,
+		Items:       items,
 	}, nil
 }
 
@@ -199,7 +274,7 @@ func (s *ReportService) ListPendingReports(ctx context.Context) ([]PendingReport
 }
 
 // ---------------------------------------------------------------------------
-// Admin: approve report (upholds report → resource goes offline)
+// Admin: approve report (feedback accepted and marked as handled)
 // ---------------------------------------------------------------------------
 
 func (s *ReportService) ApproveReport(ctx context.Context, reportID, adminID, operatorIP, reviewReason string) (*ReviewReportResult, error) {
@@ -214,32 +289,10 @@ func (s *ReportService) ApproveReport(ctx context.Context, reportID, adminID, op
 		return nil, ErrReportNotPending
 	}
 
-	movedFiles := make(map[string]string)
-	targetFiles, err := s.repo.ListTargetFiles(ctx, report)
-	if err != nil {
-		return nil, fmt.Errorf("list report target files: %w", err)
-	}
-	for _, file := range targetFiles {
-		newPath, moveErr := s.storage.MoveManagedFileToTrash(file.DiskPath)
-		if moveErr != nil {
-			return nil, fmt.Errorf("move reported file to trash: %w", moveErr)
-		}
-		movedFiles[file.ID] = newPath
-	}
-
 	reviewedAt := s.nowFunc()
-	logDetail := fmt.Sprintf("举报原因=%s，处理说明=%s，已处理文件=%d", report.Reason, strings.TrimSpace(reviewReason), len(movedFiles))
-	if err := s.repo.ApproveReport(ctx, report.ID, adminID, operatorIP, reviewedAt, logDetail, movedFiles); err != nil {
+	logDetail := fmt.Sprintf("反馈原因=%s，处理说明=%s", report.Reason, strings.TrimSpace(reviewReason))
+	if err := s.repo.ApproveReport(ctx, report.ID, adminID, operatorIP, reviewedAt, logDetail); err != nil {
 		return nil, fmt.Errorf("approve report: %w", err)
-	}
-
-	// Remove the resource from the search index.
-	if s.search != nil {
-		if report.FileID != nil {
-			_ = s.search.RemoveFromIndex(ctx, "file", *report.FileID)
-		} else if report.FolderID != nil {
-			_ = s.search.RemoveFromIndex(ctx, "folder", *report.FolderID)
-		}
 	}
 
 	return &ReviewReportResult{
@@ -250,7 +303,7 @@ func (s *ReportService) ApproveReport(ctx context.Context, reportID, adminID, op
 }
 
 // ---------------------------------------------------------------------------
-// Admin: reject report (dismiss report → resource stays visible)
+// Admin: reject report (dismiss feedback)
 // ---------------------------------------------------------------------------
 
 func (s *ReportService) RejectReport(ctx context.Context, reportID, adminID, operatorIP, reviewReason string) (*ReviewReportResult, error) {
@@ -266,7 +319,7 @@ func (s *ReportService) RejectReport(ctx context.Context, reportID, adminID, ope
 	}
 
 	reviewedAt := s.nowFunc()
-	logDetail := fmt.Sprintf("举报原因=%s，驳回说明=%s", report.Reason, strings.TrimSpace(reviewReason))
+	logDetail := fmt.Sprintf("反馈原因=%s，驳回说明=%s", report.Reason, strings.TrimSpace(reviewReason))
 	if err := s.repo.RejectReport(ctx, report.ID, adminID, operatorIP, reviewedAt, logDetail); err != nil {
 		return nil, fmt.Errorf("reject report: %w", err)
 	}

@@ -18,6 +18,7 @@ var (
 	ErrAnnouncementNotFound     = errors.New("announcement not found")
 	ErrAnnouncementInvalidInput = errors.New("invalid announcement input")
 	ErrAnnouncementDeleteDenied = errors.New("announcement delete denied")
+	ErrAnnouncementUpdateDenied = errors.New("announcement update denied")
 )
 
 type AnnouncementService struct {
@@ -117,6 +118,9 @@ func (s *AnnouncementService) Update(ctx context.Context, id string, input SaveA
 	if current == nil {
 		return nil, ErrAnnouncementNotFound
 	}
+	if err := s.canUpdateAnnouncement(ctx, current, input.OperatorID); err != nil {
+		return nil, err
+	}
 
 	title, content, status, err := normalizeAnnouncementInput(input.Title, input.Content, input.Status)
 	if err != nil {
@@ -156,6 +160,27 @@ func (s *AnnouncementService) Update(ctx context.Context, id string, input SaveA
 	}
 	result := mapAnnouncements([]model.Announcement{*updated})
 	return &result[0], nil
+}
+
+func (s *AnnouncementService) canUpdateAnnouncement(ctx context.Context, current *model.Announcement, operatorID string) error {
+	if s.adminRepo == nil {
+		return nil
+	}
+
+	operator, err := s.adminRepo.FindByID(ctx, operatorID)
+	if err != nil {
+		return fmt.Errorf("find operator admin: %w", err)
+	}
+	if operator == nil {
+		return ErrAnnouncementUpdateDenied
+	}
+	if operator.Role == string(model.AdminRoleSuperAdmin) {
+		return nil
+	}
+	if current.CreatedByID != operator.ID {
+		return ErrAnnouncementUpdateDenied
+	}
+	return nil
 }
 
 func (s *AnnouncementService) Delete(ctx context.Context, id string, operatorID string, operatorIP string) error {

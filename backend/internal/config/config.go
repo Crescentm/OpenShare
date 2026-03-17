@@ -45,14 +45,13 @@ type StorageConfig struct {
 }
 
 type UploadConfig struct {
-	MaxFileSizeBytes     int64    `json:"max_file_size_bytes"`
-	AllowedExtensions    []string `json:"allowed_extensions"`
-	AllowedMIMETypes     []string `json:"allowed_mime_types"`
-	MaxTitleLength       int      `json:"max_title_length"`
-	MaxDescriptionLength int      `json:"max_description_length"`
-	MaxTagCount          int      `json:"max_tag_count"`
-	MaxTagLength         int      `json:"max_tag_length"`
-	ReceiptCodeLength    int      `json:"receipt_code_length"`
+	MaxFileSizeBytes       int64    `json:"max_file_size_bytes"`
+	MaxBatchTotalSizeBytes int64    `json:"max_batch_total_size_bytes"`
+	AllowedExtensions      []string `json:"allowed_extensions"`
+	AllowedMIMETypes       []string `json:"allowed_mime_types"`
+	MaxTitleLength         int      `json:"max_title_length"`
+	MaxDescriptionLength   int      `json:"max_description_length"`
+	ReceiptCodeLength      int      `json:"receipt_code_length"`
 }
 
 type SessionConfig struct {
@@ -98,14 +97,13 @@ func Default() Config {
 			Trash:   "trash",
 		},
 		Upload: UploadConfig{
-			MaxFileSizeBytes:     5 << 30,
-			AllowedExtensions:    []string{},
-			AllowedMIMETypes:     []string{},
-			MaxTitleLength:       200,
-			MaxDescriptionLength: 4000,
-			MaxTagCount:          0,
-			MaxTagLength:         32,
-			ReceiptCodeLength:    12,
+			MaxFileSizeBytes:       5 << 30,
+			MaxBatchTotalSizeBytes: 20 << 30,
+			AllowedExtensions:      []string{},
+			AllowedMIMETypes:       []string{},
+			MaxTitleLength:         200,
+			MaxDescriptionLength:   4000,
+			ReceiptCodeLength:      12,
 		},
 		Session: SessionConfig{
 			Name:            "openshare_session",
@@ -183,10 +181,9 @@ func applyEnv(cfg *Config) error {
 	overrideString("OPENSHARE_STORAGE_STAGING", &cfg.Storage.Staging)
 	overrideString("OPENSHARE_STORAGE_TRASH", &cfg.Storage.Trash)
 	overrideInt64("OPENSHARE_UPLOAD_MAX_FILE_SIZE_BYTES", &cfg.Upload.MaxFileSizeBytes, &errs)
+	overrideInt64("OPENSHARE_UPLOAD_MAX_BATCH_TOTAL_SIZE_BYTES", &cfg.Upload.MaxBatchTotalSizeBytes, &errs)
 	overrideInt("OPENSHARE_UPLOAD_MAX_TITLE_LENGTH", &cfg.Upload.MaxTitleLength, &errs)
 	overrideInt("OPENSHARE_UPLOAD_MAX_DESCRIPTION_LENGTH", &cfg.Upload.MaxDescriptionLength, &errs)
-	overrideInt("OPENSHARE_UPLOAD_MAX_TAG_COUNT", &cfg.Upload.MaxTagCount, &errs)
-	overrideInt("OPENSHARE_UPLOAD_MAX_TAG_LENGTH", &cfg.Upload.MaxTagLength, &errs)
 	overrideInt("OPENSHARE_UPLOAD_RECEIPT_CODE_LENGTH", &cfg.Upload.ReceiptCodeLength, &errs)
 	overrideString("OPENSHARE_SESSION_NAME", &cfg.Session.Name)
 	overrideString("OPENSHARE_SESSION_SECRET", &cfg.Session.Secret)
@@ -235,17 +232,14 @@ func (c Config) Validate() error {
 	if c.Upload.MaxFileSizeBytes <= 0 {
 		return errors.New("upload.max_file_size_bytes must be greater than 0")
 	}
+	if c.Upload.MaxBatchTotalSizeBytes < c.Upload.MaxFileSizeBytes {
+		return errors.New("upload.max_batch_total_size_bytes must be greater than or equal to upload.max_file_size_bytes")
+	}
 	if c.Upload.MaxTitleLength <= 0 {
 		return errors.New("upload.max_title_length must be greater than 0")
 	}
 	if c.Upload.MaxDescriptionLength <= 0 {
 		return errors.New("upload.max_description_length must be greater than 0")
-	}
-	if c.Upload.MaxTagCount < 0 {
-		return errors.New("upload.max_tag_count must be greater than or equal to 0")
-	}
-	if c.Upload.MaxTagLength <= 0 {
-		return errors.New("upload.max_tag_length must be greater than 0")
 	}
 	if c.Upload.ReceiptCodeLength < 6 || c.Upload.ReceiptCodeLength > 32 {
 		return errors.New("upload.receipt_code_length must be between 6 and 32")

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,7 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	engine.Use(middleware.SessionLoader(sessionManager))
 
 	storageService := storage.NewService(cfg.Storage)
+	receiptCodeService := service.NewReceiptCodeService(repository.NewReceiptCodeRepository(db), cfg.Upload.ReceiptCodeLength)
 	adminRepo := repository.NewAdminRepository(db)
 	systemSettingService := service.NewSystemSettingService(repository.NewSystemSettingRepository(db), cfg)
 	adminAuthService := service.NewAdminAuthService(db, adminRepo, sessionManager)
@@ -31,8 +33,8 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	)
 
 	searchRepo := repository.NewSearchRepository(db)
-	tagRepo := repository.NewTagRepository(db)
-	searchService := service.NewSearchService(searchRepo, tagRepo, systemSettingService)
+	searchService := service.NewSearchService(searchRepo, systemSettingService)
+	_ = searchService.RebuildAllIndexes(context.Background())
 	searchHandler := handler.NewSearchHandler(searchService)
 	announcementHandler := handler.NewAnnouncementHandler(
 		service.NewAnnouncementService(repository.NewAnnouncementRepository(db), adminRepo),
@@ -46,15 +48,15 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 
 	importHandler := handler.NewImportHandler(
 		service.NewImportService(repository.NewImportRepository(db), storageService, searchService),
+		adminAuthService,
 	)
-	tagService := service.NewTagService(tagRepo, searchService)
-	tagHandler := handler.NewTagHandler(tagService)
 
 	moderationHandler := handler.NewModerationHandler(
-		service.NewModerationService(repository.NewModerationRepository(db), storageService, searchService, tagService),
+		service.NewModerationService(repository.NewModerationRepository(db), storageService, searchService),
 	)
 	resourceManagementHandler := handler.NewResourceManagementHandler(
-		service.NewResourceManagementServiceWithSettings(repository.NewResourceManagementRepository(db), storageService, systemSettingService),
+		service.NewResourceManagementServiceWithSettings(repository.NewResourceManagementRepository(db), storageService, systemSettingService, searchService),
+		adminAuthService,
 	)
 	systemSettingHandler := handler.NewSystemSettingHandler(
 		systemSettingService,
@@ -72,15 +74,16 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 		service.NewPublicUploadService(
 			cfg.Upload,
 			repository.NewUploadRepository(db),
+			receiptCodeService,
 			storageService,
 			systemSettingService,
 		),
 		systemSettingService,
-		cfg.Upload.MaxFileSizeBytes+(1<<20),
+		cfg.Upload.MaxBatchTotalSizeBytes+(1<<20),
 	)
 
 	reportRepo := repository.NewReportRepository(db)
-	reportService := service.NewReportService(reportRepo, searchService, storageService)
+	reportService := service.NewReportService(reportRepo, receiptCodeService, searchService, storageService)
 	reportHandler := handler.NewReportHandler(reportService)
 	siteVisitHandler := handler.NewSiteVisitHandler(
 		service.NewSiteVisitService(repository.NewSiteVisitRepository(db)),
@@ -115,16 +118,17 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	public.GET("/files/:fileID", publicDownloadHandler.GetFileDetail)
 	public.PUT("/files/:fileID", resourceManagementHandler.PublicUpdateFile)
 	public.DELETE("/files/:fileID", resourceManagementHandler.PublicDeleteFile)
-	public.GET("/files/:fileID/preview", publicDownloadHandler.PreviewFile)
 	public.GET("/files/:fileID/download", publicDownloadHandler.DownloadFile)
 	public.GET("/folders", publicCatalogHandler.ListPublicFolders)
+	public.GET("/folders/:folderID", publicCatalogHandler.GetPublicFolderDetail)
+	public.GET("/folders/:folderID/download", publicDownloadHandler.DownloadFolder)
 	public.GET("/announcements", announcementHandler.ListPublic)
 	public.GET("/system/policy", systemSettingHandler.GetPublicPolicy)
 	public.GET("/search", searchHandler.Search)
 	public.POST("/submissions", publicUploadHandler.CreateSubmission)
 	public.GET("/submissions/:receiptCode", publicSubmissionHandler.LookupByReceiptCode)
-	public.POST("/tag-submissions", tagHandler.SubmitCandidateTag)
 	public.POST("/reports", reportHandler.CreateReport)
+	public.GET("/reports/:reportID", reportHandler.LookupReport)
 
 	admin := api.Group("/admin")
 	admin.POST("/session/login", adminAuthHandler.Login)
@@ -139,37 +143,37 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	adminProtected.GET("/operation-logs", operationLogHandler.List)
 	adminProtected.GET(
 		"/announcements",
-		middleware.RequireAdminPermission(model.AdminPermissionManageAnnouncements),
+		middleware.RequireAdminPermission(model.AdminPermissionAnnouncements),
 		announcementHandler.ListAdmin,
 	)
 	adminProtected.POST(
 		"/announcements",
-		middleware.RequireAdminPermission(model.AdminPermissionManageAnnouncements),
+		middleware.RequireAdminPermission(model.AdminPermissionAnnouncements),
 		announcementHandler.Create,
 	)
 	adminProtected.PUT(
 		"/announcements/:announcementID",
-		middleware.RequireAdminPermission(model.AdminPermissionManageAnnouncements),
+		middleware.RequireAdminPermission(model.AdminPermissionAnnouncements),
 		announcementHandler.Update,
 	)
 	adminProtected.DELETE(
 		"/announcements/:announcementID",
-		middleware.RequireAdminPermission(model.AdminPermissionManageAnnouncements),
+		middleware.RequireAdminPermission(model.AdminPermissionAnnouncements),
 		announcementHandler.Delete,
 	)
 	adminProtected.GET(
 		"/submissions/pending",
-		middleware.RequireAdminPermission(model.AdminPermissionReviewSubmissions),
+		middleware.RequireAdminPermission(model.AdminPermissionSubmissionModeration),
 		moderationHandler.ListPendingSubmissions,
 	)
 	adminProtected.POST(
 		"/submissions/:submissionID/approve",
-		middleware.RequireAdminPermission(model.AdminPermissionReviewSubmissions),
+		middleware.RequireAdminPermission(model.AdminPermissionSubmissionModeration),
 		moderationHandler.ApproveSubmission,
 	)
 	adminProtected.POST(
 		"/submissions/:submissionID/reject",
-		middleware.RequireAdminPermission(model.AdminPermissionReviewSubmissions),
+		middleware.RequireAdminPermission(model.AdminPermissionSubmissionModeration),
 		moderationHandler.RejectSubmission,
 	)
 	adminProtected.POST(
@@ -181,6 +185,11 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 		"/imports/directories",
 		middleware.RequireAdminPermission(model.AdminPermissionManageSystem),
 		importHandler.ListDirectories,
+	)
+	adminProtected.DELETE(
+		"/imports/local/:folderID",
+		middleware.RequireSuperAdmin(),
+		importHandler.DeleteManagedDirectory,
 	)
 	adminProtected.POST(
 		"/search/rebuild-index",
@@ -196,95 +205,44 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 		resourceManagementHandler.ListFiles,
 	)
 	adminProtected.PUT(
+		"/resources/folders/:folderID",
+		middleware.RequireAdminPermission(model.AdminPermissionResourceModeration),
+		resourceManagementHandler.UpdateFolderDescription,
+	)
+	adminProtected.PUT(
 		"/resources/files/:fileID",
-		middleware.RequireAdminPermission(model.AdminPermissionEditResources),
+		middleware.RequireAdminPermission(model.AdminPermissionResourceModeration),
 		resourceManagementHandler.UpdateFile,
 	)
 	adminProtected.POST(
 		"/resources/files/:fileID/offline",
-		middleware.RequireAdminPermission(model.AdminPermissionDeleteResources),
+		middleware.RequireAdminPermission(model.AdminPermissionResourceModeration),
 		resourceManagementHandler.OfflineFile,
 	)
 	adminProtected.DELETE(
 		"/resources/files/:fileID",
-		middleware.RequireAdminPermission(model.AdminPermissionDeleteResources),
+		middleware.RequireAdminPermission(model.AdminPermissionResourceModeration),
 		resourceManagementHandler.DeleteFile,
 	)
-	adminProtected.PUT(
-		"/folders/:folderID/tags",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.BindFolderTags,
-	)
-
-	// Tag management routes
-	adminProtected.GET(
-		"/tags",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.ListTags,
-	)
-	adminProtected.POST(
-		"/tags",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.CreateTag,
-	)
-	adminProtected.PUT(
-		"/tags/:tagID",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.UpdateTag,
-	)
 	adminProtected.DELETE(
-		"/tags/:tagID",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.DeleteTag,
+		"/resources/folders/:folderID",
+		middleware.RequireAdminPermission(model.AdminPermissionResourceModeration),
+		resourceManagementHandler.DeleteFolder,
 	)
-	adminProtected.POST(
-		"/tags/merge",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.MergeTags,
-	)
-	adminProtected.PUT(
-		"/files/:fileID/tags",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.BindFileTags,
-	)
-	adminProtected.GET(
-		"/files/:fileID/tags",
-		tagHandler.GetFileTagsWithInheritance,
-	)
-	adminProtected.GET(
-		"/folders/:folderID/tags",
-		tagHandler.GetFolderTagsWithInheritance,
-	)
-	adminProtected.GET(
-		"/tag-submissions/pending",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.ListPendingTagSubmissions,
-	)
-	adminProtected.POST(
-		"/tag-submissions/:submissionID/approve",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.ApproveCandidateTag,
-	)
-	adminProtected.POST(
-		"/tag-submissions/:submissionID/reject",
-		middleware.RequireAdminPermission(model.AdminPermissionManageTags),
-		tagHandler.RejectCandidateTag,
-	)
-
 	// Report management routes
 	adminProtected.GET(
 		"/reports/pending",
-		middleware.RequireAdminPermission(model.AdminPermissionReviewReports),
+		middleware.RequireAdminPermission(model.AdminPermissionResourceModeration),
 		reportHandler.ListPendingReports,
 	)
 	adminProtected.POST(
 		"/reports/:reportID/approve",
-		middleware.RequireAdminPermission(model.AdminPermissionReviewReports),
+		middleware.RequireAdminPermission(model.AdminPermissionResourceModeration),
 		reportHandler.ApproveReport,
 	)
 	adminProtected.POST(
 		"/reports/:reportID/reject",
-		middleware.RequireAdminPermission(model.AdminPermissionReviewReports),
+		middleware.RequireAdminPermission(model.AdminPermissionResourceModeration),
 		reportHandler.RejectReport,
 	)
 
@@ -320,8 +278,8 @@ func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.E
 	adminPermissionProbe := adminProtected.Group("/_internal")
 	adminPermissionProbe.GET(
 		"/review",
-		middleware.RequireAdminPermission(model.AdminPermissionReviewSubmissions),
-		adminAuthHandler.PermissionProbe(model.AdminPermissionReviewSubmissions),
+		middleware.RequireAdminPermission(model.AdminPermissionSubmissionModeration),
+		adminAuthHandler.PermissionProbe(model.AdminPermissionSubmissionModeration),
 	)
 	adminPermissionProbe.GET(
 		"/system",

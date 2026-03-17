@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import { Download } from "lucide-vue-next";
 
-import PageHeader from "../../components/ui/PageHeader.vue";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
 import { HttpError, httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
-
-type PreviewKind = "none" | "pdf" | "image" | "text";
+import { hasAdminPermission } from "../../lib/admin/session";
+import { renderSimpleMarkdown } from "../../lib/markdown";
 
 interface FileDetailResponse {
   id: string;
@@ -16,61 +16,69 @@ interface FileDetailResponse {
   original_name: string;
   mime_type: string;
   size: number;
-  tags: string[];
   uploaded_at: string;
   download_count: number;
-  preview_kind: PreviewKind;
-  can_preview: boolean;
-}
-
-interface PublicPolicyResponse {
-  guest: {
-    allow_guest_edit_title: boolean;
-    allow_guest_edit_tags: boolean;
-    allow_guest_edit_description: boolean;
-    allow_guest_resource_delete: boolean;
-  };
 }
 
 const route = useRoute();
+const router = useRouter();
 const detail = ref<FileDetailResponse | null>(null);
 const loading = ref(false);
 const error = ref("");
 const message = ref("");
+const saveError = ref("");
 const saving = ref(false);
-const deleting = ref(false);
-const guestPolicy = ref<PublicPolicyResponse["guest"] | null>(null);
 const editTitle = ref("");
 const editDescription = ref("");
-const editTags = ref("");
-const textPreview = ref("");
-const textPreviewLoading = ref(false);
-const textPreviewError = ref("");
-
+const descriptionEditorOpen = ref(false);
+const canManageResourceDescriptions = ref(false);
+const deleteDialogOpen = ref(false);
+const deletePassword = ref("");
+const deleteSubmitting = ref(false);
+const deleteError = ref("");
 const fileID = computed(() => String(route.params.fileID ?? ""));
-const previewURL = computed(() => `/api/public/files/${encodeURIComponent(fileID.value)}/preview`);
 const downloadURL = computed(() => `/api/public/files/${encodeURIComponent(fileID.value)}/download`);
+const descriptionHTML = computed(() => renderSimpleMarkdown(detail.value?.description ?? ""));
+const detailStats = computed(() => {
+  if (!detail.value) {
+    return [];
+  }
+
+  return [
+    { label: "文件名", value: detail.value.original_name },
+    { label: "下载量", value: String(detail.value.download_count) },
+    { label: "文件大小", value: formatSize(detail.value.size) },
+    { label: "更新时间", value: formatDate(detail.value.uploaded_at) },
+  ];
+});
+const editorDirty = computed(() => {
+  if (!detail.value) {
+    return false;
+  }
+
+  return (
+    editTitle.value.trim() !== detail.value.title ||
+    editDescription.value.trim() !== (detail.value.description ?? "")
+  );
+});
 
 onMounted(() => {
-  void Promise.all([loadDetail(), loadPolicy()]);
+  void Promise.all([loadDetail(), loadAdminPermission()]);
 });
 
 watch(fileID, () => {
-  void Promise.all([loadDetail(), loadPolicy()]);
+  void Promise.all([loadDetail(), loadAdminPermission()]);
 });
 
 async function loadDetail() {
   loading.value = true;
   error.value = "";
-  textPreview.value = "";
-  textPreviewError.value = "";
+  detail.value = null;
   try {
     detail.value = await httpClient.get<FileDetailResponse>(`/public/files/${encodeURIComponent(fileID.value)}`);
     if (detail.value) {
       editTitle.value = detail.value.title;
       editDescription.value = detail.value.description;
-      editTags.value = detail.value.tags.join(", ");
-      await loadTextPreview(detail.value.preview_kind);
     }
   } catch (err: unknown) {
     if (err instanceof HttpError && err.status === 404) {
@@ -83,76 +91,84 @@ async function loadDetail() {
   }
 }
 
-async function loadTextPreview(kind: PreviewKind) {
-  if (kind !== "text") {
-    return;
-  }
-
-  textPreviewLoading.value = true;
-  try {
-    const response = await fetch(previewURL.value, { credentials: "include" });
-    if (!response.ok) {
-      throw new Error("preview request failed");
-    }
-    textPreview.value = await response.text();
-  } catch {
-    textPreviewError.value = "文本预览加载失败，请直接下载文件。";
-  } finally {
-    textPreviewLoading.value = false;
-  }
+async function loadAdminPermission() {
+  canManageResourceDescriptions.value = await hasAdminPermission("resource_moderation");
 }
 
-async function loadPolicy() {
-  try {
-    const response = await httpClient.get<PublicPolicyResponse>("/public/system/policy");
-    guestPolicy.value = response.guest;
-  } catch {
-    guestPolicy.value = null;
-  }
+function openDescriptionEditor() {
+  editTitle.value = detail.value?.title ?? "";
+  editDescription.value = detail.value?.description ?? "";
+  saveError.value = "";
+  message.value = "";
+  descriptionEditorOpen.value = true;
 }
 
-const canEditTitle = computed(() => !!guestPolicy.value?.allow_guest_edit_title);
-const canEditTags = computed(() => !!guestPolicy.value?.allow_guest_edit_tags);
-const canEditDescription = computed(() => !!guestPolicy.value?.allow_guest_edit_description);
-const canEdit = computed(() => canEditTitle.value || canEditTags.value || canEditDescription.value);
-const canDelete = computed(() => !!guestPolicy.value?.allow_guest_resource_delete);
+function closeDescriptionEditor() {
+  descriptionEditorOpen.value = false;
+  saving.value = false;
+  saveError.value = "";
+  editTitle.value = detail.value?.title ?? "";
+  editDescription.value = detail.value?.description ?? "";
+}
 
-async function savePublicEdit() {
-  if (!detail.value) return;
+function openDeleteDialog() {
+  deletePassword.value = "";
+  deleteError.value = "";
+  deleteDialogOpen.value = true;
+}
+
+function closeDeleteDialog() {
+  deleteDialogOpen.value = false;
+  deletePassword.value = "";
+  deleteError.value = "";
+  deleteSubmitting.value = false;
+}
+
+async function saveDescription() {
+  if (!detail.value || !editorDirty.value) return;
   saving.value = true;
-  error.value = "";
+  saveError.value = "";
   message.value = "";
   try {
-    await httpClient.request(`/public/files/${encodeURIComponent(detail.value.id)}`, {
+    await httpClient.request(`/admin/resources/files/${encodeURIComponent(detail.value.id)}`, {
       method: "PUT",
       body: {
-        title: editTitle.value,
-        description: editDescription.value,
-        tags: editTags.value.split(",").map((item) => item.trim()).filter(Boolean),
+        title: editTitle.value.trim(),
+        description: editDescription.value.trim(),
       },
     });
-    message.value = "资料信息已更新。";
+    message.value = "文件简介已更新。";
     await loadDetail();
+    descriptionEditorOpen.value = false;
   } catch (err: unknown) {
-    error.value = readApiError(err, "更新资料失败。");
+    saveError.value = readApiError(err, "更新文件简介失败。");
   } finally {
     saving.value = false;
   }
 }
 
-async function deletePublicFile() {
-  if (!detail.value || !window.confirm("确认删除这个资料吗？")) return;
-  deleting.value = true;
-  error.value = "";
-  message.value = "";
+async function confirmDeleteFile() {
+  if (!detail.value) {
+    return;
+  }
+  if (!deletePassword.value.trim()) {
+    deleteError.value = "请输入当前管理员密码。";
+    return;
+  }
+
+  deleteSubmitting.value = true;
+  deleteError.value = "";
   try {
-    await httpClient.request(`/public/files/${encodeURIComponent(detail.value.id)}`, { method: "DELETE" });
-    message.value = "资料已删除。";
-    detail.value = null;
+    await httpClient.request(`/admin/resources/files/${encodeURIComponent(detail.value.id)}`, {
+      method: "DELETE",
+      body: { password: deletePassword.value },
+    });
+    closeDeleteDialog();
+    goBack();
   } catch (err: unknown) {
-    error.value = readApiError(err, "删除资料失败。");
+    deleteError.value = readApiError(err, "删除文件失败。");
   } finally {
-    deleting.value = false;
+    deleteSubmitting.value = false;
   }
 }
 
@@ -168,128 +184,184 @@ function formatSize(size: number) {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+function goBack() {
+  if (window.history.length > 1) {
+    void router.back();
+    return;
+  }
+  void router.push({ name: "public-home" });
+}
+
+function downloadFile() {
+  const link = document.createElement("a");
+  link.href = downloadURL.value;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  if (detail.value) {
+    detail.value = {
+      ...detail.value,
+      download_count: detail.value.download_count + 1,
+    };
+  }
+}
 </script>
 
 <template>
-  <section class="app-container space-y-6 py-8 sm:py-10">
-    <PageHeader eyebrow="File Detail" title="文件详情" description="展示资料基本信息、在线预览和访客可用的公开维护能力。" />
-
-    <p v-if="loading" class="panel px-4 py-3 text-sm text-slate-500">加载中…</p>
-    <p v-else-if="error" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</p>
-    <p v-if="message" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ message }}</p>
-
-    <template v-else-if="detail">
+  <section class="app-container py-8 sm:py-10">
+    <div class="mx-auto max-w-[66%] min-w-[720px] space-y-6">
       <SurfaceCard>
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h3 class="text-2xl font-semibold text-slate-900">{{ detail.title }}</h3>
-            <p class="mt-3 text-sm leading-6 text-slate-600">{{ detail.description || "暂无描述" }}</p>
+        <p v-if="loading" class="text-sm text-slate-500">加载中…</p>
+
+        <div v-else-if="error" class="space-y-4">
+          <p class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</p>
+          <div class="flex gap-3">
+            <button type="button" class="btn-secondary" @click="goBack">返回上一页</button>
+            <button type="button" class="btn-primary" @click="$router.push({ name: 'public-home' })">返回首页</button>
           </div>
-          <a
-            :href="downloadURL"
-            class="btn-primary"
-          >
-            下载文件
-          </a>
         </div>
 
-        <div class="mt-5 flex flex-wrap gap-2">
-          <span
-            v-for="tag in detail.tags"
-            :key="tag"
-            class="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800"
-          >
-            {{ tag }}
-          </span>
-          <span v-if="detail.tags.length === 0" class="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
-            无 Tag
-          </span>
-        </div>
+        <template v-else-if="detail">
+          <p v-if="message" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ message }}</p>
 
-        <dl class="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div class="rounded-2xl bg-slate-50 px-4 py-4">
-            <dt class="text-xs uppercase tracking-[0.16em] text-slate-500">上传时间</dt>
-            <dd class="mt-2 text-sm font-semibold text-slate-900">{{ formatDate(detail.uploaded_at) }}</dd>
-          </div>
-          <div class="rounded-2xl bg-slate-50 px-4 py-4">
-            <dt class="text-xs uppercase tracking-[0.16em] text-slate-500">下载次数</dt>
-            <dd class="mt-2 text-sm font-semibold text-slate-900">{{ detail.download_count }}</dd>
-          </div>
-          <div class="rounded-2xl bg-slate-50 px-4 py-4">
-            <dt class="text-xs uppercase tracking-[0.16em] text-slate-500">文件大小</dt>
-            <dd class="mt-2 text-sm font-semibold text-slate-900">{{ formatSize(detail.size) }}</dd>
-          </div>
-          <div class="rounded-2xl bg-slate-50 px-4 py-4">
-            <dt class="text-xs uppercase tracking-[0.16em] text-slate-500">文件类型</dt>
-            <dd class="mt-2 text-sm font-semibold text-slate-900">{{ detail.original_name }}</dd>
-          </div>
-        </dl>
+          <section>
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0 flex-1 space-y-3">
+                <div class="space-y-2">
+                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">File Info</p>
+                  <h3 class="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">文件详情</h3>
+                </div>
+                <div class="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm text-slate-500">
+                  <div
+                    v-for="item in detailStats"
+                    :key="item.label"
+                    class="inline-flex items-center gap-2"
+                  >
+                    <span>{{ item.label }}</span>
+                    <span class="max-w-[360px] truncate font-medium text-slate-900" :title="item.value">{{ item.value }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex shrink-0 items-start gap-3">
+                <button type="button" class="btn-secondary" @click="goBack">返回文件夹</button>
+                <button
+                  v-if="canManageResourceDescriptions"
+                  type="button"
+                  class="btn-secondary"
+                  @click="openDescriptionEditor"
+                >
+                  编辑
+                </button>
+                <button
+                  v-if="canManageResourceDescriptions"
+                  type="button"
+                  class="btn-secondary text-rose-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                  @click="openDeleteDialog"
+                >
+                  删除
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white transition hover:bg-slate-800"
+                  aria-label="下载文件"
+                  @click="downloadFile"
+                >
+                  <Download class="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-4 rounded-3xl border border-slate-200 bg-white px-5 py-5">
+              <div
+                v-if="descriptionHTML"
+                class="markdown-content"
+                v-html="descriptionHTML"
+              />
+              <p v-else class="text-sm text-slate-400">该文件暂无简介orz</p>
+            </div>
+          </section>
+        </template>
       </SurfaceCard>
+    </div>
 
-      <SurfaceCard>
-        <div class="flex items-center justify-between gap-4">
+    <Teleport to="body">
+      <div v-if="deleteDialogOpen && detail" class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4">
+        <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
           <div>
-            <p class="text-sm font-semibold uppercase tracking-[0.22em] text-blue-700">Preview</p>
-            <h3 class="mt-2 text-2xl font-semibold text-slate-900">在线预览</h3>
+            <h3 class="text-lg font-semibold text-slate-900">确认删除文件</h3>
+            <p class="mt-2 text-sm leading-6 text-slate-500">
+              删除后将无法恢复。确认删除
+              <span class="font-medium text-slate-900">{{ detail.original_name }}</span>
+              吗？
+            </p>
           </div>
-          <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-            {{ detail.preview_kind }}
-          </span>
-        </div>
-
-        <div class="mt-6">
-          <iframe
-            v-if="detail.preview_kind === 'pdf'"
-            :src="previewURL"
-            class="h-[70vh] w-full rounded-2xl border border-slate-200"
-          />
-          <img
-            v-else-if="detail.preview_kind === 'image'"
-            :src="previewURL"
-            :alt="detail.title"
-            class="max-h-[70vh] w-full rounded-2xl border border-slate-200 object-contain"
-          />
-          <div
-            v-else-if="detail.preview_kind === 'text'"
-            class="min-h-[50vh] rounded-2xl border border-slate-200 bg-slate-50 p-5"
-          >
-            <p v-if="textPreviewLoading" class="text-sm text-slate-500">正在加载文本预览…</p>
-            <p v-else-if="textPreviewError" class="text-sm text-rose-600">{{ textPreviewError }}</p>
-            <pre v-else class="overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{{ textPreview }}</pre>
-          </div>
-          <div v-else class="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-sm text-slate-600">
-            当前格式不支持在线预览，请直接下载文件。
+          <div class="mt-6 space-y-4">
+            <input v-model="deletePassword" type="password" class="field" placeholder="输入当前管理员密码确认删除" />
+            <p v-if="deleteError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {{ deleteError }}
+            </p>
+            <div class="flex justify-end gap-3">
+              <button type="button" class="btn-secondary" @click="closeDeleteDialog">取消</button>
+              <button
+                type="button"
+                class="inline-flex h-11 items-center rounded-xl bg-rose-600 px-5 text-sm font-medium text-white transition hover:bg-rose-700"
+                :disabled="deleteSubmitting"
+                @click="confirmDeleteFile"
+              >
+                {{ deleteSubmitting ? "删除中…" : "确认删除" }}
+              </button>
+            </div>
           </div>
         </div>
-      </SurfaceCard>
+      </div>
+    </Teleport>
 
-      <SurfaceCard v-if="canEdit || canDelete">
-        <div class="flex items-center justify-between gap-4">
-          <div>
-            <p class="text-sm font-semibold uppercase tracking-[0.22em] text-blue-700">Guest Controls</p>
-            <h3 class="mt-2 text-2xl font-semibold text-slate-900">公开资料维护</h3>
-          </div>
-          <div class="flex gap-2">
-            <button
-              v-if="canDelete"
-              class="btn-danger"
-              :disabled="deleting"
-              @click="deletePublicFile"
-            >
-              {{ deleting ? "删除中…" : "删除资料" }}
-            </button>
+    <Teleport to="body">
+      <div v-if="descriptionEditorOpen" class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm">
+        <div class="flex min-h-screen items-center justify-center px-4 py-6">
+          <div class="panel w-full max-w-3xl overflow-hidden p-6">
+            <div class="border-b border-slate-200 pb-4">
+              <div>
+                <h3 class="text-lg font-semibold text-slate-900">编辑文件信息</h3>
+                <p class="mt-1 text-sm text-slate-500">支持修改文件名与简介，简介支持简单 Markdown。</p>
+              </div>
+            </div>
+
+            <div class="mt-5 space-y-4">
+              <label class="space-y-2">
+                <span class="text-sm font-medium text-slate-700">文件名</span>
+                <input
+                  v-model="editTitle"
+                  class="field"
+                  :disabled="!canManageResourceDescriptions"
+                  placeholder="输入文件名"
+                />
+              </label>
+
+              <textarea
+                v-model="editDescription"
+                rows="10"
+                class="field-area"
+                placeholder="输入文件简介，支持标题、粗体、链接、列表与行内代码。"
+              />
+
+              <p v-if="saveError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {{ saveError }}
+              </p>
+
+              <div class="flex justify-end gap-3">
+                <button type="button" class="btn-secondary" @click="closeDescriptionEditor">取消</button>
+                <button type="button" class="btn-primary" :disabled="saving || !editorDirty" @click="saveDescription">
+                  {{ saving ? "保存中…" : "保存更改" }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-
-        <form v-if="canEdit" class="mt-6 space-y-4" @submit.prevent="savePublicEdit">
-          <input v-if="canEditTitle" v-model="editTitle" class="field" />
-          <textarea v-if="canEditDescription" v-model="editDescription" rows="4" class="field-area" />
-          <input v-if="canEditTags" v-model="editTags" placeholder="Tag, 用逗号分隔" class="field" />
-          <button type="submit" class="btn-primary" :disabled="saving">
-            {{ saving ? "保存中…" : "保存修改" }}
-          </button>
-        </form>
-      </SurfaceCard>
-    </template>
+      </div>
+    </Teleport>
   </section>
 </template>

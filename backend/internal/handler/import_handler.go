@@ -11,15 +11,16 @@ import (
 )
 
 type ImportHandler struct {
-	service *service.ImportService
+	service     *service.ImportService
+	authService *service.AdminAuthService
 }
 
 type importLocalRequest struct {
 	RootPath string `json:"root_path"`
 }
 
-type bindFolderTagsRequest struct {
-	Tags []string `json:"tags"`
+type deleteManagedDirectoryRequest struct {
+	Password string `json:"password"`
 }
 
 func (h *ImportHandler) ListDirectories(ctx *gin.Context) {
@@ -37,8 +38,8 @@ func (h *ImportHandler) ListDirectories(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, result)
 }
 
-func NewImportHandler(service *service.ImportService) *ImportHandler {
-	return &ImportHandler{service: service}
+func NewImportHandler(service *service.ImportService, authService *service.AdminAuthService) *ImportHandler {
+	return &ImportHandler{service: service, authService: authService}
 }
 
 func (h *ImportHandler) ImportLocalDirectory(ctx *gin.Context) {
@@ -82,28 +83,41 @@ func (h *ImportHandler) GetFolderTree(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"items": tree})
 }
 
-func (h *ImportHandler) BindFolderTags(ctx *gin.Context) {
+func (h *ImportHandler) DeleteManagedDirectory(ctx *gin.Context) {
 	identity, ok := session.GetAdminIdentity(ctx)
 	if !ok {
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 		return
 	}
+	if !identity.IsSuperAdmin() {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": "super admin required"})
+		return
+	}
 
-	var req bindFolderTagsRequest
+	var req deleteManagedDirectoryRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
 
-	err := h.service.BindFolderTags(ctx.Request.Context(), ctx.Param("folderID"), req.Tags, identity.AdminID, ctx.ClientIP())
-	if err != nil {
+	if err := h.authService.VerifyPassword(ctx.Request.Context(), identity.AdminID, req.Password); err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidAdminCredentials):
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "invalid password"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify password"})
+		}
+		return
+	}
+
+	if err := h.service.DeleteManagedDirectory(ctx.Request.Context(), ctx.Param("folderID"), identity.AdminID, ctx.ClientIP()); err != nil {
 		switch {
 		case errors.Is(err, service.ErrFolderTreeNotFound):
 			ctx.JSON(http.StatusNotFound, gin.H{"error": "folder not found"})
-		case errors.Is(err, service.ErrInvalidUploadInput):
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid tags"})
+		case errors.Is(err, service.ErrManagedRootRequired):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "managed root folder required"})
 		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to bind folder tags"})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete managed directory"})
 		}
 		return
 	}

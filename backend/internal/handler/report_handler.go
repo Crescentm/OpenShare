@@ -40,6 +40,7 @@ func (h *ReportHandler) CreateReport(ctx *gin.Context) {
 	result, err := h.service.CreateReport(ctx.Request.Context(), service.CreateReportInput{
 		FileID:      req.FileID,
 		FolderID:    req.FolderID,
+		ReceiptCode: readPublicReceiptCode(ctx),
 		Reason:      req.Reason,
 		Description: req.Description,
 		ReporterIP:  ctx.ClientIP(),
@@ -60,7 +61,25 @@ func (h *ReportHandler) CreateReport(ctx *gin.Context) {
 		return
 	}
 
+	writePublicReceiptCode(ctx, result.ReceiptCode)
 	ctx.JSON(http.StatusCreated, result)
+}
+
+func (h *ReportHandler) LookupReport(ctx *gin.Context) {
+	result, err := h.service.LookupPublicReport(ctx.Request.Context(), ctx.Param("reportID"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidUploadInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid receipt code"})
+		case errors.Is(err, service.ErrReportNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "report not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to lookup report"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, result)
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +97,7 @@ func (h *ReportHandler) ListPendingReports(ctx *gin.Context) {
 }
 
 // ---------------------------------------------------------------------------
-// Admin: approve report (upholds the report, takes resource offline)
+// Admin: approve report (marks feedback as handled)
 // ---------------------------------------------------------------------------
 
 type reviewReportRequest struct {

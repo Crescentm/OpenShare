@@ -16,29 +16,36 @@ const (
 type AdminPermission string
 
 const (
+	AdminPermissionSubmissionModeration AdminPermission = "submission_moderation"
+	AdminPermissionResourceModeration   AdminPermission = "resource_moderation"
+	AdminPermissionAnnouncements        AdminPermission = "announcements"
+	AdminPermissionManageAdmins         AdminPermission = "manage_admins"
+	AdminPermissionManageSystem         AdminPermission = "manage_system"
+
+	// Legacy aliases kept for backward-compatible parsing and tests.
 	AdminPermissionReviewSubmissions   AdminPermission = "review_submissions"
-	AdminPermissionReviewTags          AdminPermission = "review_tags"
 	AdminPermissionDirectUpload        AdminPermission = "direct_upload"
 	AdminPermissionManageAnnouncements AdminPermission = "manage_announcements"
 	AdminPermissionEditResources       AdminPermission = "edit_resources"
 	AdminPermissionDeleteResources     AdminPermission = "delete_resources"
-	AdminPermissionManageTags          AdminPermission = "manage_tags"
-	AdminPermissionManageAdmins        AdminPermission = "manage_admins"
-	AdminPermissionManageSystem        AdminPermission = "manage_system"
 	AdminPermissionReviewReports       AdminPermission = "review_reports"
 )
 
 var validAdminPermissions = map[AdminPermission]struct{}{
-	AdminPermissionReviewSubmissions:   {},
-	AdminPermissionReviewTags:          {},
-	AdminPermissionDirectUpload:        {},
-	AdminPermissionManageAnnouncements: {},
-	AdminPermissionEditResources:       {},
-	AdminPermissionDeleteResources:     {},
-	AdminPermissionManageTags:          {},
-	AdminPermissionManageAdmins:        {},
-	AdminPermissionManageSystem:        {},
-	AdminPermissionReviewReports:       {},
+	AdminPermissionSubmissionModeration: {},
+	AdminPermissionResourceModeration:   {},
+	AdminPermissionAnnouncements:        {},
+	AdminPermissionManageAdmins:         {},
+	AdminPermissionManageSystem:         {},
+}
+
+var adminPermissionAliases = map[AdminPermission]AdminPermission{
+	AdminPermissionReviewSubmissions:   AdminPermissionSubmissionModeration,
+	AdminPermissionDirectUpload:        AdminPermissionSubmissionModeration,
+	AdminPermissionReviewReports:       AdminPermissionResourceModeration,
+	AdminPermissionEditResources:       AdminPermissionResourceModeration,
+	AdminPermissionDeleteResources:     AdminPermissionResourceModeration,
+	AdminPermissionManageAnnouncements: AdminPermissionAnnouncements,
 }
 
 var validAdminRoles = map[AdminRole]struct{}{
@@ -74,7 +81,7 @@ func (a Admin) IsActive() bool {
 func DefaultAdminPermissions(role AdminRole) []AdminPermission {
 	switch NormalizeAdminRole(string(role)) {
 	case AdminRoleAdmin:
-		return []AdminPermission{AdminPermissionReviewSubmissions}
+		return []AdminPermission{AdminPermissionSubmissionModeration}
 	case AdminRoleSuperAdmin:
 		return nil
 	default:
@@ -121,7 +128,7 @@ func NormalizeAdminPermissions(permissions []AdminPermission) string {
 	normalized := make([]string, 0, len(permissions))
 
 	for _, permission := range permissions {
-		permission = AdminPermission(strings.TrimSpace(string(permission)))
+		permission = normalizeAdminPermission(permission)
 		if _, ok := validAdminPermissions[permission]; !ok {
 			continue
 		}
@@ -147,7 +154,7 @@ func ParseAdminPermissions(raw string) []AdminPermission {
 	seen := make(map[AdminPermission]struct{}, len(parts))
 
 	for _, part := range parts {
-		permission := AdminPermission(strings.TrimSpace(part))
+		permission := normalizeAdminPermission(AdminPermission(part))
 		if _, ok := validAdminPermissions[permission]; !ok {
 			continue
 		}
@@ -161,4 +168,12 @@ func ParseAdminPermissions(raw string) []AdminPermission {
 
 	slices.Sort(permissions)
 	return permissions
+}
+
+func normalizeAdminPermission(permission AdminPermission) AdminPermission {
+	permission = AdminPermission(strings.TrimSpace(string(permission)))
+	if alias, ok := adminPermissionAliases[permission]; ok {
+		return alias
+	}
+	return permission
 }

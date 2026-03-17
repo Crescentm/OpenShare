@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,14 +17,17 @@ import (
 )
 
 var (
-	ErrManagedFileNotFound = errors.New("managed file not found")
-	ErrInvalidResourceEdit = errors.New("invalid resource edit")
+	ErrManagedFileNotFound   = errors.New("managed file not found")
+	ErrManagedFolderNotFound = errors.New("managed folder not found")
+	ErrManagedFolderConflict = errors.New("managed folder conflict")
+	ErrInvalidResourceEdit   = errors.New("invalid resource edit")
 )
 
 type ResourceManagementService struct {
 	repo     *repository.ResourceManagementRepository
 	storage  *storage.Service
 	settings *SystemSettingService
+	search   *SearchService
 	nowFunc  func() time.Time
 }
 
@@ -36,7 +40,6 @@ type ManagedFileItem struct {
 	Size          int64                `json:"size"`
 	DownloadCount int64                `json:"download_count"`
 	FolderName    string               `json:"folder_name"`
-	Tags          []string             `json:"tags"`
 	CreatedAt     time.Time            `json:"created_at"`
 	UpdatedAt     time.Time            `json:"updated_at"`
 }
@@ -49,21 +52,28 @@ type ListManagedFilesInput struct {
 type UpdateManagedFileInput struct {
 	Title       string
 	Description string
-	Tags        []string
 	OperatorID  string
 	OperatorIP  string
 }
 
-func NewResourceManagementService(repo *repository.ResourceManagementRepository, storageService *storage.Service) *ResourceManagementService {
+type UpdateManagedFolderDescriptionInput struct {
+	Name        string
+	Description string
+	OperatorID  string
+	OperatorIP  string
+}
+
+func NewResourceManagementService(repo *repository.ResourceManagementRepository, storageService *storage.Service, searchService *SearchService) *ResourceManagementService {
 	return &ResourceManagementService{
-		repo:    repo,
-		storage: storageService,
-		nowFunc: func() time.Time { return time.Now().UTC() },
+		repo:     repo,
+		storage:  storageService,
+		search:   searchService,
+		nowFunc:  func() time.Time { return time.Now().UTC() },
 	}
 }
 
-func NewResourceManagementServiceWithSettings(repo *repository.ResourceManagementRepository, storageService *storage.Service, settings *SystemSettingService) *ResourceManagementService {
-	service := NewResourceManagementService(repo, storageService)
+func NewResourceManagementServiceWithSettings(repo *repository.ResourceManagementRepository, storageService *storage.Service, settings *SystemSettingService, searchService *SearchService) *ResourceManagementService {
+	service := NewResourceManagementService(repo, storageService, searchService)
 	service.settings = settings
 	return service
 }
@@ -73,19 +83,6 @@ func (s *ResourceManagementService) ListFiles(ctx context.Context, input ListMan
 	if err != nil {
 		return nil, err
 	}
-	fileIDs := make([]string, 0, len(rows))
-	for _, row := range rows {
-		fileIDs = append(fileIDs, row.ID)
-	}
-	tagRows, err := s.repo.ListFileTags(ctx, fileIDs)
-	if err != nil {
-		return nil, err
-	}
-	tagsByFile := make(map[string][]string, len(tagRows))
-	for _, row := range tagRows {
-		tagsByFile[row.FileID] = append(tagsByFile[row.FileID], row.TagName)
-	}
-
 	items := make([]ManagedFileItem, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, ManagedFileItem{
@@ -97,7 +94,6 @@ func (s *ResourceManagementService) ListFiles(ctx context.Context, input ListMan
 			Size:          row.Size,
 			DownloadCount: row.DownloadCount,
 			FolderName:    row.FolderName,
-			Tags:          tagsByFile[row.ID],
 			CreatedAt:     row.CreatedAt,
 			UpdatedAt:     row.UpdatedAt,
 		})
@@ -115,21 +111,155 @@ func (s *ResourceManagementService) UpdateFile(ctx context.Context, fileID strin
 		return ErrInvalidResourceEdit
 	}
 	description := strings.TrimSpace(input.Description)
-	tags, err := normalizeTags(input.Tags, 20, 32)
-	if err != nil {
-		return ErrInvalidResourceEdit
-	}
 	logID, err := identity.NewID()
 	if err != nil {
 		return fmt.Errorf("generate resource update log id: %w", err)
 	}
-	if err := s.repo.UpdateFileMetadataAndTags(ctx, fileID, title, description, tags, input.OperatorID, input.OperatorIP, logID, s.nowFunc()); err != nil {
+	if err := s.repo.UpdateFileMetadata(ctx, fileID, title, description, input.OperatorID, input.OperatorIP, logID, s.nowFunc()); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrManagedFileNotFound
 		}
 		return fmt.Errorf("update managed file: %w", err)
 	}
+	if s.search != nil {
+		_ = s.search.IndexFile(ctx, fileID, title, description)
+	}
 	return nil
+}
+
+func (s *ResourceManagementService) UpdateFolderDescription(ctx context.Context, folderID string, input UpdateManagedFolderDescriptionInput) error {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return ErrManagedFolderNotFound
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return ErrInvalidResourceEdit
+	}
+
+	current, err := s.repo.FindFolderByID(ctx, folderID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrManagedFolderNotFound
+	}
+
+	conflict, err := s.repo.FolderNameExists(ctx, current.ParentID, name, current.ID)
+	if err != nil {
+		return err
+	}
+	if conflict {
+		return ErrManagedFolderConflict
+	}
+
+	logID, err := identity.NewID()
+	if err != nil {
+		return fmt.Errorf("generate folder update log id: %w", err)
+	}
+
+	description := strings.TrimSpace(input.Description)
+	if current.SourcePath == nil || strings.TrimSpace(*current.SourcePath) == "" || current.Name == name {
+		if err := s.repo.UpdateFolderMetadata(ctx, folderID, name, description, input.OperatorID, input.OperatorIP, logID, s.nowFunc()); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrManagedFolderNotFound
+			}
+			return fmt.Errorf("update folder metadata: %w", err)
+		}
+		if s.search != nil {
+			_ = s.search.IndexFolder(ctx, folderID, name, description)
+		}
+		return nil
+	}
+
+	folders, err := s.repo.ListFolderPaths(ctx)
+	if err != nil {
+		return fmt.Errorf("list folder paths: %w", err)
+	}
+	files, err := s.repo.ListFilePaths(ctx)
+	if err != nil {
+		return fmt.Errorf("list file paths: %w", err)
+	}
+
+	oldRootPath := strings.TrimSpace(*current.SourcePath)
+	newRootPath, err := s.storage.RenameManagedDirectory(oldRootPath, name)
+	if err != nil {
+		if errors.Is(err, storage.ErrManagedDirectoryConflict) {
+			return ErrManagedFolderConflict
+		}
+		return fmt.Errorf("rename managed directory: %w", err)
+	}
+
+	folderSourcePaths := map[string]string{
+		current.ID: newRootPath,
+	}
+	for _, folder := range folders {
+		if folder.SourcePath == nil {
+			continue
+		}
+		sourcePath := strings.TrimSpace(*folder.SourcePath)
+		if sourcePath == "" || sourcePath == oldRootPath || !isPathWithinRoot(sourcePath, oldRootPath) {
+			continue
+		}
+		relative, relErr := filepath.Rel(oldRootPath, sourcePath)
+		if relErr != nil {
+			return fmt.Errorf("resolve folder relative path: %w", relErr)
+		}
+		folderSourcePaths[folder.ID] = filepath.Join(newRootPath, relative)
+	}
+
+	filePathUpdates := make(map[string]repository.ManagedFilePathRow)
+	for _, file := range files {
+		updated := file
+		changed := false
+		if sourcePath := normalizePathPointer(file.SourcePath); sourcePath != "" && (sourcePath == oldRootPath || isPathWithinRoot(sourcePath, oldRootPath)) {
+			relative, relErr := filepath.Rel(oldRootPath, sourcePath)
+			if relErr != nil {
+				return fmt.Errorf("resolve file source relative path: %w", relErr)
+			}
+			next := filepath.Join(newRootPath, relative)
+			updated.SourcePath = &next
+			changed = true
+		}
+		if diskPath := strings.TrimSpace(file.DiskPath); diskPath != "" && (diskPath == oldRootPath || isPathWithinRoot(diskPath, oldRootPath)) {
+			relative, relErr := filepath.Rel(oldRootPath, diskPath)
+			if relErr != nil {
+				return fmt.Errorf("resolve file disk relative path: %w", relErr)
+			}
+			updated.DiskPath = filepath.Join(newRootPath, relative)
+			changed = true
+		}
+		if changed {
+			filePathUpdates[file.ID] = updated
+		}
+	}
+
+	if err := s.repo.UpdateFolderTreePaths(ctx, folderID, name, description, folderSourcePaths, filePathUpdates, input.OperatorID, input.OperatorIP, logID, s.nowFunc()); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrManagedFolderNotFound
+		}
+		return fmt.Errorf("update folder tree paths: %w", err)
+	}
+	if s.search != nil {
+		_ = s.search.RebuildAllIndexes(ctx)
+	}
+	return nil
+}
+
+func normalizePathPointer(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func isPathWithinRoot(path, root string) bool {
+	path = filepath.Clean(strings.TrimSpace(path))
+	root = filepath.Clean(strings.TrimSpace(root))
+	if path == "" || root == "" {
+		return false
+	}
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
 func (s *ResourceManagementService) OfflineFile(ctx context.Context, fileID string, operatorID string, operatorIP string) error {
@@ -178,6 +308,51 @@ func (s *ResourceManagementService) DeleteFile(ctx context.Context, fileID strin
 		}
 		return fmt.Errorf("delete managed file: %w", err)
 	}
+	if s.search != nil {
+		_ = s.search.RemoveFromIndex(ctx, "file", current.ID)
+	}
+	return nil
+}
+
+func (s *ResourceManagementService) DeleteFolder(ctx context.Context, folderID string, operatorID string, operatorIP string) error {
+	current, err := s.repo.FindFolderByID(ctx, strings.TrimSpace(folderID))
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrManagedFolderNotFound
+	}
+
+	folderIDs, err := s.repo.ListFolderTreeIDs(ctx, current.ID)
+	if err != nil {
+		return err
+	}
+	if len(folderIDs) == 0 {
+		return ErrManagedFolderNotFound
+	}
+
+	newPath := ""
+	if current.SourcePath != nil && strings.TrimSpace(*current.SourcePath) != "" {
+		newPath, err = s.storage.MoveManagedDirectoryToTrash(*current.SourcePath)
+		if err != nil {
+			return fmt.Errorf("move managed folder to trash: %w", err)
+		}
+	}
+
+	now := s.nowFunc()
+	logID, err := identity.NewID()
+	if err != nil {
+		return fmt.Errorf("generate folder delete log id: %w", err)
+	}
+	if err := s.repo.DeleteFolderTreeWithLog(ctx, current.ID, folderIDs, newPath, operatorID, operatorIP, logID, current.Name, now); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrManagedFolderNotFound
+		}
+		return fmt.Errorf("delete managed folder: %w", err)
+	}
+	if s.search != nil {
+		_ = s.search.RebuildAllIndexes(ctx)
+	}
 	return nil
 }
 
@@ -186,7 +361,7 @@ func (s *ResourceManagementService) PublicUpdateFile(ctx context.Context, fileID
 	if err != nil {
 		return err
 	}
-	if !policy.AllowGuestEditTitle && !policy.AllowGuestEditTags && !policy.AllowGuestEditDescription {
+	if !policy.AllowGuestEditTitle && !policy.AllowGuestEditDescription {
 		return ErrInvalidResourceEdit
 	}
 
@@ -205,17 +380,6 @@ func (s *ResourceManagementService) PublicUpdateFile(ctx context.Context, fileID
 	if !policy.AllowGuestEditDescription {
 		merged.Description = current.Description
 	}
-	if !policy.AllowGuestEditTags {
-		tagRows, err := s.repo.ListFileTags(ctx, []string{current.ID})
-		if err != nil {
-			return fmt.Errorf("list current file tags: %w", err)
-		}
-		merged.Tags = make([]string, 0, len(tagRows))
-		for _, row := range tagRows {
-			merged.Tags = append(merged.Tags, row.TagName)
-		}
-	}
-
 	merged.OperatorID = ""
 	return s.UpdateFile(ctx, fileID, merged)
 }

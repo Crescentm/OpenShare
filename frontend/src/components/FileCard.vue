@@ -9,7 +9,6 @@ withDefaults(
     updatedAt?: string;
     uploader?: string;
     source?: string;
-    tags?: string[];
     badge?: string;
     actionText?: string;
     thumbnailLabel?: string;
@@ -21,7 +20,6 @@ withDefaults(
     updatedAt: "",
     uploader: "",
     source: "",
-    tags: () => [],
     badge: "",
     actionText: "下载",
     thumbnailLabel: "FILE",
@@ -64,17 +62,6 @@ withDefaults(
           <span v-if="updatedAt">{{ updatedAt }}</span>
           <span v-if="uploader">{{ uploader }}</span>
         </div>
-
-        <div v-if="tags.length > 0" class="mt-4 flex flex-wrap gap-2">
-          <span
-            v-for="tag in tags"
-            :key="tag"
-            class="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-          >
-            {{ tag }}
-          </span>
-        </div>
-
         <div class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
           <div class="min-w-0 text-sm text-slate-500 dark:text-slate-400">
             <span v-if="source" class="truncate">{{ source }}</span>

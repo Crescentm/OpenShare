@@ -18,12 +18,13 @@ type PublicSubmissionService struct {
 }
 
 type PublicSubmissionLookupResult struct {
-	ReceiptCode string                   `json:"receipt_code"`
-	Items       []PublicSubmissionItem    `json:"items"`
+	ReceiptCode string                 `json:"receipt_code"`
+	Items       []PublicSubmissionItem `json:"items"`
 }
 
 type PublicSubmissionItem struct {
 	Title         string                 `json:"title"`
+	RelativePath  string                 `json:"relative_path"`
 	Status        model.SubmissionStatus `json:"status"`
 	UploadedAt    time.Time              `json:"uploaded_at"`
 	DownloadCount int64                  `json:"download_count"`
@@ -55,6 +56,7 @@ func (s *PublicSubmissionService) LookupByReceiptCode(ctx context.Context, recei
 	for _, row := range rows {
 		items = append(items, PublicSubmissionItem{
 			Title:         row.TitleSnapshot,
+			RelativePath:  row.RelativePath,
 			Status:        row.Status,
 			UploadedAt:    row.CreatedAt.UTC(),
 			DownloadCount: row.DownloadCount,

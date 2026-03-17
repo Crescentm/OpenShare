@@ -19,7 +19,7 @@ func TestPublicFilesListsAllActiveFiles(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	folderID := createPublicTestFolder(t, db, "导入资料")
-	rootActive := createPublicTestFile(t, db, publicTestFile{
+	createPublicTestFile(t, db, publicTestFile{
 		title:         "公开文件",
 		status:        model.ResourceStatusActive,
 		downloadCount: 7,
@@ -35,7 +35,6 @@ func TestPublicFilesListsAllActiveFiles(t *testing.T) {
 		folderID: &folderID,
 		size:     256,
 	})
-	addTagsToFile(t, db, rootActive.ID, "数学", "物理")
 
 	engine := New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files", nil)
@@ -49,8 +48,7 @@ func TestPublicFilesListsAllActiveFiles(t *testing.T) {
 
 	var response struct {
 		Items []struct {
-			Title string   `json:"title"`
-			Tags  []string `json:"tags"`
+			Title string `json:"title"`
 		} `json:"items"`
 		Total int `json:"total"`
 	}
@@ -66,10 +64,8 @@ func TestPublicFilesListsAllActiveFiles(t *testing.T) {
 		t.Fatalf("expected 2 items, got %d", len(response.Items))
 	}
 
-	// Find the root file to check its tags
 	var rootItem *struct {
-		Title string   `json:"title"`
-		Tags  []string `json:"tags"`
+		Title string `json:"title"`
 	}
 	for i := range response.Items {
 		if response.Items[i].Title == "公开文件" {
@@ -79,9 +75,6 @@ func TestPublicFilesListsAllActiveFiles(t *testing.T) {
 	}
 	if rootItem == nil {
 		t.Fatal("root file not found in response")
-	}
-	if len(rootItem.Tags) != 2 {
-		t.Fatalf("expected 2 tags on root file, got %v", rootItem.Tags)
 	}
 }
 
@@ -179,6 +172,118 @@ func TestPublicFilesSupportsPaginationAndSort(t *testing.T) {
 	}
 }
 
+func TestPublicFoldersReturnsBreadcrumbs(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	rootID := createPublicTestFolderWithParent(t, db, publicTestFolder{
+		name: "课程资料",
+	})
+	childID := createPublicTestFolderWithParent(t, db, publicTestFolder{
+		name:        "高数",
+		parentID:    &rootID,
+		description: "高数简介",
+	})
+
+	engine := New(db, cfg, newRouterSessionManager(db))
+	request := httptest.NewRequest(http.MethodGet, "/api/public/folders/"+childID, nil)
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+		FileCount   int64  `json:"file_count"`
+		TotalSize   int64  `json:"total_size"`
+		Breadcrumbs []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"breadcrumbs"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.ID != childID {
+		t.Fatalf("expected folder id %q, got %q", childID, response.ID)
+	}
+	if response.Description != "高数简介" {
+		t.Fatalf("expected folder description, got %q", response.Description)
+	}
+	if len(response.Breadcrumbs) != 2 {
+		t.Fatalf("expected 2 breadcrumbs, got %+v", response.Breadcrumbs)
+	}
+	if response.Breadcrumbs[0].Name != "课程资料" || response.Breadcrumbs[1].Name != "高数" {
+		t.Fatalf("unexpected breadcrumbs: %+v", response.Breadcrumbs)
+	}
+}
+
+func TestPublicFoldersReturnsAggregatedStats(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	rootID := createPublicTestFolderWithParent(t, db, publicTestFolder{
+		name: "课程资料",
+	})
+	childID := createPublicTestFolderWithParent(t, db, publicTestFolder{
+		name:     "讲义",
+		parentID: &rootID,
+	})
+	createPublicTestFile(t, db, publicTestFile{
+		title:         "根目录文件",
+		status:        model.ResourceStatusActive,
+		folderID:      &rootID,
+		downloadCount: 3,
+		size:          128,
+	})
+	createPublicTestFile(t, db, publicTestFile{
+		title:         "子目录文件",
+		status:        model.ResourceStatusActive,
+		folderID:      &childID,
+		downloadCount: 7,
+		size:          256,
+	})
+
+	engine := New(db, cfg, newRouterSessionManager(db))
+	request := httptest.NewRequest(http.MethodGet, "/api/public/folders", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Items []struct {
+			ID            string `json:"id"`
+			FileCount     int64  `json:"file_count"`
+			DownloadCount int64  `json:"download_count"`
+			TotalSize     int64  `json:"total_size"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+
+	if len(response.Items) != 1 {
+		t.Fatalf("expected 1 root folder, got %d", len(response.Items))
+	}
+	if response.Items[0].ID != rootID {
+		t.Fatalf("unexpected folder id %q", response.Items[0].ID)
+	}
+	if response.Items[0].FileCount != 2 {
+		t.Fatalf("expected file_count 2, got %d", response.Items[0].FileCount)
+	}
+	if response.Items[0].DownloadCount != 10 {
+		t.Fatalf("expected download_count 10, got %d", response.Items[0].DownloadCount)
+	}
+	if response.Items[0].TotalSize != 384 {
+		t.Fatalf("expected total_size 384, got %d", response.Items[0].TotalSize)
+	}
+}
+
 type publicTestFile struct {
 	title         string
 	status        model.ResourceStatus
@@ -221,55 +326,40 @@ func createPublicTestFile(t *testing.T, db *gorm.DB, input publicTestFile) *mode
 	return file
 }
 
+type publicTestFolder struct {
+	name        string
+	parentID    *string
+	description string
+}
+
 func createPublicTestFolder(t *testing.T, db *gorm.DB, name string) string {
+	t.Helper()
+	return createPublicTestFolderWithParent(t, db, publicTestFolder{name: name})
+}
+
+func createPublicTestFolderWithParent(t *testing.T, db *gorm.DB, input publicTestFolder) string {
 	t.Helper()
 
 	folderID := mustNewID(t)
-	sourcePath := filepath.Join(t.TempDir(), name)
+	sourcePath := filepath.Join(t.TempDir(), input.name)
 	if err := os.MkdirAll(sourcePath, 0o755); err != nil {
 		t.Fatalf("create public test folder path failed: %v", err)
 	}
 	folder := &model.Folder{
-		ID:         folderID,
-		Name:       name,
-		SourcePath: &sourcePath,
-		Status:     model.ResourceStatusActive,
-		CreatedAt:  time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
-		UpdatedAt:  time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
+		ID:          folderID,
+		ParentID:    input.parentID,
+		Name:        input.name,
+		Description: input.description,
+		SourcePath:  &sourcePath,
+		Status:      model.ResourceStatusActive,
+		CreatedAt:   time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
 	}
 	if err := db.Create(folder).Error; err != nil {
 		t.Fatalf("create public test folder failed: %v", err)
 	}
 
 	return folderID
-}
-
-func addTagsToFile(t *testing.T, db *gorm.DB, fileID string, names ...string) {
-	t.Helper()
-
-	for _, name := range names {
-		tagID := mustNewID(t)
-		tag := &model.Tag{
-			ID:             tagID,
-			Name:           name,
-			NameNormalized: name,
-			CreatedAt:      time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
-			UpdatedAt:      time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
-		}
-		if err := db.Create(tag).Error; err != nil {
-			t.Fatalf("create tag failed: %v", err)
-		}
-
-		fileTag := &model.FileTag{
-			ID:        mustNewID(t),
-			FileID:    fileID,
-			TagID:     tagID,
-			CreatedAt: time.Date(2026, 3, 11, 8, 0, 0, 0, time.UTC),
-		}
-		if err := db.Create(fileTag).Error; err != nil {
-			t.Fatalf("create file tag failed: %v", err)
-		}
-	}
 }
 
 func mustNewID(t *testing.T) string {

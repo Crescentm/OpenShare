@@ -44,16 +44,38 @@ type PublicFileItem struct {
 	ID            string    `json:"id"`
 	Title         string    `json:"title"`
 	OriginalName  string    `json:"original_name"`
+	Description   string    `json:"description"`
 	Extension     string    `json:"extension"`
-	Tags          []string  `json:"tags"`
 	UploadedAt    time.Time `json:"uploaded_at"`
 	DownloadCount int64     `json:"download_count"`
 	Size          int64     `json:"size"`
 }
 
 type PublicFolderItem struct {
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	FileCount     int64     `json:"file_count"`
+	DownloadCount int64     `json:"download_count"`
+	TotalSize     int64     `json:"total_size"`
+}
+
+type PublicFolderBreadcrumbItem struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+type PublicFolderDetail struct {
+	ID            string                       `json:"id"`
+	Name          string                       `json:"name"`
+	Description   string                       `json:"description"`
+	ParentID      *string                      `json:"parent_id"`
+	Breadcrumbs   []PublicFolderBreadcrumbItem `json:"breadcrumbs"`
+	FileCount     int64                        `json:"file_count"`
+	DownloadCount int64                        `json:"download_count"`
+	TotalSize     int64                        `json:"total_size"`
+	UpdatedAt     time.Time                    `json:"updated_at"`
 }
 
 func NewPublicCatalogService(repository *repository.PublicCatalogRepository) *PublicCatalogService {
@@ -87,33 +109,14 @@ func (s *PublicCatalogService) ListPublicFiles(ctx context.Context, input Public
 		return nil, fmt.Errorf("list public files: %w", err)
 	}
 
-	fileIDs := make([]string, 0, len(files))
-	for _, file := range files {
-		fileIDs = append(fileIDs, file.ID)
-	}
-
-	tagRows, err := s.repository.ListTagsByFileIDs(ctx, fileIDs)
-	if err != nil {
-		return nil, fmt.Errorf("list public file tags: %w", err)
-	}
-
-	tagsByFileID := make(map[string][]string, len(files))
-	for _, row := range tagRows {
-		tagsByFileID[row.FileID] = append(tagsByFileID[row.FileID], row.TagName)
-	}
-
 	items := make([]PublicFileItem, 0, len(files))
 	for _, file := range files {
-		tags := tagsByFileID[file.ID]
-		if tags == nil {
-			tags = []string{}
-		}
 		items = append(items, PublicFileItem{
 			ID:            file.ID,
 			Title:         file.Title,
 			OriginalName:  file.OriginalName,
+			Description:   file.Description,
 			Extension:     file.Extension,
-			Tags:          tags,
 			UploadedAt:    file.CreatedAt,
 			DownloadCount: file.DownloadCount,
 			Size:          file.Size,
@@ -146,15 +149,85 @@ func (s *PublicCatalogService) ListPublicFolders(ctx context.Context, parentID s
 		return nil, fmt.Errorf("list public folders: %w", err)
 	}
 
+	folderIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		folderIDs = append(folderIDs, row.ID)
+	}
+
+	statsByFolderID, err := s.repository.SummarizePublicFolders(ctx, folderIDs)
+	if err != nil {
+		return nil, fmt.Errorf("summarize public folders: %w", err)
+	}
+
 	items := make([]PublicFolderItem, 0, len(rows))
 	for _, row := range rows {
+		stats := statsByFolderID[row.ID]
 		items = append(items, PublicFolderItem{
-			ID:   row.ID,
-			Name: row.Name,
+			ID:            row.ID,
+			Name:          row.Name,
+			Description:   row.Description,
+			UpdatedAt:     row.UpdatedAt,
+			FileCount:     stats.FileCount,
+			DownloadCount: stats.DownloadCount,
+			TotalSize:     stats.TotalSizeBytes,
 		})
 	}
 
 	return items, nil
+}
+
+func (s *PublicCatalogService) GetPublicFolderDetail(ctx context.Context, folderID string) (*PublicFolderDetail, error) {
+	trimmed := strings.TrimSpace(folderID)
+	if trimmed == "" {
+		return nil, ErrFolderNotFound
+	}
+
+	current, err := s.repository.FindPublicFolderByID(ctx, trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("find public folder: %w", err)
+	}
+	if current == nil {
+		return nil, ErrFolderNotFound
+	}
+
+	breadcrumbs := []PublicFolderBreadcrumbItem{{ID: current.ID, Name: current.Name}}
+	parentID := current.ParentID
+	for parentID != nil {
+		parent, err := s.repository.FindPublicFolderByID(ctx, *parentID)
+		if err != nil {
+			return nil, fmt.Errorf("find public folder ancestor: %w", err)
+		}
+		if parent == nil {
+			return nil, ErrFolderNotFound
+		}
+		breadcrumbs = append(breadcrumbs, PublicFolderBreadcrumbItem{
+			ID:   parent.ID,
+			Name: parent.Name,
+		})
+		parentID = parent.ParentID
+	}
+
+	for i, j := 0, len(breadcrumbs)-1; i < j; i, j = i+1, j-1 {
+		breadcrumbs[i], breadcrumbs[j] = breadcrumbs[j], breadcrumbs[i]
+	}
+
+	statsByFolderID, err := s.repository.SummarizePublicFolders(ctx, []string{current.ID})
+	if err != nil {
+		return nil, fmt.Errorf("summarize public folder detail: %w", err)
+	}
+	stats := statsByFolderID[current.ID]
+
+	return &PublicFolderDetail{
+		ID:            current.ID,
+		Name:          current.Name,
+		Description:   current.Description,
+		ParentID:      current.ParentID,
+		Breadcrumbs:   breadcrumbs,
+		FileCount:     stats.FileCount,
+		DownloadCount: stats.DownloadCount,
+		TotalSize:     stats.TotalSizeBytes,
+		UpdatedAt:     current.UpdatedAt,
+	}, nil
 }
 
 type normalizedPublicFileListInput struct {

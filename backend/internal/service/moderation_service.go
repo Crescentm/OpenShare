@@ -2,12 +2,13 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/repository"
@@ -27,7 +28,6 @@ type ModerationService struct {
 	repository *repository.ModerationRepository
 	storage    *storage.Service
 	search     *SearchService
-	tags       *TagService
 	nowFunc    func() time.Time
 }
 
@@ -36,6 +36,7 @@ type PendingSubmissionItem struct {
 	ReceiptCode   string                 `json:"receipt_code"`
 	Title         string                 `json:"title"`
 	Description   string                 `json:"description"`
+	RelativePath  string                 `json:"relative_path"`
 	Status        model.SubmissionStatus `json:"status"`
 	UploadedAt    time.Time              `json:"uploaded_at"`
 	FileID        string                 `json:"file_id"`
@@ -52,12 +53,11 @@ type ReviewResult struct {
 	RejectReason string                 `json:"reject_reason,omitempty"`
 }
 
-func NewModerationService(repository *repository.ModerationRepository, storageService *storage.Service, searchService *SearchService, tagService *TagService) *ModerationService {
+func NewModerationService(repository *repository.ModerationRepository, storageService *storage.Service, searchService *SearchService) *ModerationService {
 	return &ModerationService{
 		repository: repository,
 		storage:    storageService,
 		search:     searchService,
-		tags:       tagService,
 		nowFunc:    func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -75,6 +75,7 @@ func (s *ModerationService) ListPendingSubmissions(ctx context.Context) ([]Pendi
 			ReceiptCode:   row.ReceiptCode,
 			Title:         row.Title,
 			Description:   row.Description,
+			RelativePath:  row.RelativePath,
 			Status:        row.Status,
 			UploadedAt:    row.CreatedAt,
 			FileID:        row.FileID,
@@ -120,14 +121,19 @@ func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID 
 		return nil, ErrApproveFolderMissing
 	}
 
+	targetFolder, err := s.ensureApprovalTargetFolder(ctx, folder, record.Submission.RelativePathSnapshot)
+	if err != nil {
+		return nil, err
+	}
+
 	// Move staged file into the folder's physical directory.
-	finalPath, finalName, err := s.storage.MoveStagedFileToFolder(record.File.DiskPath, *folder.SourcePath, record.File.OriginalName)
+	finalPath, finalName, err := s.storage.MoveStagedFileToFolder(record.File.DiskPath, *targetFolder.SourcePath, record.File.OriginalName)
 	if err != nil {
 		return nil, fmt.Errorf("move staged file to folder: %w", err)
 	}
 
 	reviewedAt := s.nowFunc()
-	if err := s.repository.ApproveSubmission(ctx, record.Submission.ID, adminID, operatorIP, reviewedAt, finalPath, finalName); err != nil {
+	if err := s.repository.ApproveSubmission(ctx, record.Submission.ID, adminID, operatorIP, reviewedAt, targetFolder.ID, finalPath, finalName); err != nil {
 		// Rollback: move the file back to staging.
 		if _, rollbackErr := s.storage.MoveFileBackToStaging(finalPath, record.File.StoredName); rollbackErr != nil {
 			return nil, fmt.Errorf("approve submission failed (%v); rollback failed: %w", err, rollbackErr)
@@ -135,12 +141,9 @@ func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID 
 		return nil, fmt.Errorf("approve submission: %w", err)
 	}
 
-	// Apply tags from the submission snapshot to the approved file.
-	s.applySubmissionTags(ctx, record.File.ID, record.Submission.TagsSnapshot, adminID, operatorIP)
-
 	// Update FTS5 search index for the newly approved file.
 	if s.search != nil {
-		_ = s.search.IndexFile(ctx, record.File.ID, record.File.Title)
+		_ = s.search.IndexFile(ctx, record.File.ID, record.File.Title, record.File.Description)
 	}
 
 	return &ReviewResult{
@@ -150,30 +153,32 @@ func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID 
 	}, nil
 }
 
-// applySubmissionTags parses the JSON tags snapshot from a submission and
-// binds the tags to the approved file via the tag service.
-func (s *ModerationService) applySubmissionTags(ctx context.Context, fileID, tagsSnapshot, adminID, operatorIP string) {
-	if s.tags == nil || strings.TrimSpace(tagsSnapshot) == "" {
-		return
+func (s *ModerationService) ensureApprovalTargetFolder(ctx context.Context, rootFolder *model.Folder, relativePath string) (*model.Folder, error) {
+	relativeDir := repository.NormalizeRelativePathForStorage(filepath.ToSlash(filepath.Dir(strings.TrimSpace(relativePath))))
+	if relativeDir == "" {
+		return rootFolder, nil
+	}
+	if rootFolder.SourcePath == nil || strings.TrimSpace(*rootFolder.SourcePath) == "" {
+		return nil, ErrApproveFolderMissing
+	}
+	targetPath := filepath.Join(*rootFolder.SourcePath, filepath.FromSlash(relativeDir))
+	if err := s.storage.EnsureManagedDirectory(targetPath); err != nil {
+		return nil, fmt.Errorf("ensure approval directory: %w", err)
 	}
 
-	var tagNames []string
-	if err := json.Unmarshal([]byte(tagsSnapshot), &tagNames); err != nil {
-		log.Printf("[WARN] failed to parse tags snapshot for file %s: %v", fileID, err)
-		return
-	}
-	if len(tagNames) == 0 {
-		return
-	}
-
-	if err := s.tags.BindFileTags(ctx, BindFileTagsInput{
-		FileID:     fileID,
-		TagNames:   tagNames,
-		AdminID:    adminID,
-		OperatorIP: operatorIP,
+	var targetFolder *model.Folder
+	now := s.nowFunc()
+	if err := s.repository.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		leaf, ensureErr := repository.EnsureActiveFolderPathTx(tx, rootFolder, relativeDir, now)
+		if ensureErr != nil {
+			return ensureErr
+		}
+		targetFolder = leaf
+		return nil
 	}); err != nil {
-		log.Printf("[WARN] failed to bind upload tags for file %s: %v", fileID, err)
+		return nil, fmt.Errorf("ensure approval folder path: %w", err)
 	}
+	return targetFolder, nil
 }
 
 func (s *ModerationService) RejectSubmission(ctx context.Context, submissionID string, adminID string, operatorIP string, rejectReason string) (*ReviewResult, error) {

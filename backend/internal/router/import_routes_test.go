@@ -60,6 +60,14 @@ func TestImportLocalDirectoryCreatesMetadata(t *testing.T) {
 		t.Fatalf("expected 2 files, got %d", fileCount)
 	}
 
+	var ignoredCount int64
+	if err := db.Model(&model.File{}).Where("original_name = ?", ".DS_Store").Count(&ignoredCount).Error; err != nil {
+		t.Fatalf("count ignored files failed: %v", err)
+	}
+	if ignoredCount != 0 {
+		t.Fatalf("expected .DS_Store to be ignored, got %d records", ignoredCount)
+	}
+
 	var file model.File
 	targetPath := filepath.Join(importRoot, "nested", "chapter1.txt")
 	if err := db.Where("disk_path = ?", targetPath).Take(&file).Error; err != nil {
@@ -122,7 +130,7 @@ func TestImportLocalDirectoryIsIncremental(t *testing.T) {
 	}
 }
 
-func TestFolderTreeAndBindTags(t *testing.T) {
+func TestFolderTree(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
@@ -131,7 +139,6 @@ func TestFolderTreeAndBindTags(t *testing.T) {
 		role:     string(model.AdminRoleAdmin),
 		permissions: []model.AdminPermission{
 			model.AdminPermissionManageSystem,
-			model.AdminPermissionManageTags,
 		},
 	})
 	importRoot := createImportFixture(t)
@@ -157,15 +164,6 @@ func TestFolderTreeAndBindTags(t *testing.T) {
 		t.Fatalf("find root folder failed: %v", err)
 	}
 
-	tagRequest := httptest.NewRequest(http.MethodPut, "/api/admin/folders/"+rootFolder.ID+"/tags", bytes.NewBufferString(`{"tags":["课程","重点"]}`))
-	tagRequest.Header.Set("Content-Type", "application/json")
-	tagRequest.AddCookie(&http.Cookie{Name: manager.CookieName(), Value: cookieValue, Path: "/"})
-	tagRecorder := httptest.NewRecorder()
-	engine.ServeHTTP(tagRecorder, tagRequest)
-	if tagRecorder.Code != http.StatusNoContent {
-		t.Fatalf("expected bind tags status 204, got %d body=%s", tagRecorder.Code, tagRecorder.Body.String())
-	}
-
 	treeRequest := httptest.NewRequest(http.MethodGet, "/api/admin/folders/tree", nil)
 	treeRequest.AddCookie(&http.Cookie{Name: manager.CookieName(), Value: cookieValue, Path: "/"})
 	treeRecorder := httptest.NewRecorder()
@@ -176,8 +174,7 @@ func TestFolderTreeAndBindTags(t *testing.T) {
 
 	var response struct {
 		Items []struct {
-			ID      string   `json:"id"`
-			Tags    []string `json:"tags"`
+			ID      string `json:"id"`
 			Folders []struct {
 				Name string `json:"name"`
 			} `json:"folders"`
@@ -191,9 +188,6 @@ func TestFolderTreeAndBindTags(t *testing.T) {
 	}
 	if len(response.Items) != 1 {
 		t.Fatalf("expected 1 root folder, got %d", len(response.Items))
-	}
-	if len(response.Items[0].Tags) != 2 {
-		t.Fatalf("expected 2 tags, got %v", response.Items[0].Tags)
 	}
 	if len(response.Items[0].Folders) != 1 {
 		t.Fatalf("expected 1 child folder, got %d", len(response.Items[0].Folders))
@@ -250,6 +244,63 @@ func TestImportDirectoryBrowser(t *testing.T) {
 	}
 }
 
+func TestDeleteManagedDirectoryRequiresSuperAdminPasswordAndCleansData(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
+		username: "superadmin",
+		password: "s3cret-pass",
+		role:     string(model.AdminRoleSuperAdmin),
+	})
+	importRoot := createImportFixture(t)
+	manager := newRouterSessionManager(db)
+	engine := New(db, cfg, manager)
+
+	cookieValue, _, err := manager.Create(t.Context(), admin)
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+
+	importRequest := httptest.NewRequest(http.MethodPost, "/api/admin/imports/local", bytes.NewBufferString(`{"root_path":"`+importRoot+`"}`))
+	importRequest.Header.Set("Content-Type", "application/json")
+	importRequest.AddCookie(&http.Cookie{Name: manager.CookieName(), Value: cookieValue, Path: "/"})
+	importRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(importRecorder, importRequest)
+	if importRecorder.Code != http.StatusOK {
+		t.Fatalf("expected import status 200, got %d body=%s", importRecorder.Code, importRecorder.Body.String())
+	}
+
+	var rootFolder model.Folder
+	if err := db.Where("source_path = ?", importRoot).Take(&rootFolder).Error; err != nil {
+		t.Fatalf("find root folder failed: %v", err)
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/admin/imports/local/"+rootFolder.ID, bytes.NewBufferString(`{"password":"s3cret-pass"}`))
+	deleteRequest.Header.Set("Content-Type", "application/json")
+	deleteRequest.AddCookie(&http.Cookie{Name: manager.CookieName(), Value: cookieValue, Path: "/"})
+	deleteRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(deleteRecorder, deleteRequest)
+	if deleteRecorder.Code != http.StatusNoContent {
+		t.Fatalf("expected delete status 204, got %d body=%s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+
+	var folderCount int64
+	if err := db.Model(&model.Folder{}).Count(&folderCount).Error; err != nil {
+		t.Fatalf("count folders failed: %v", err)
+	}
+	if folderCount != 0 {
+		t.Fatalf("expected all imported folders deleted, got %d", folderCount)
+	}
+
+	var fileCount int64
+	if err := db.Model(&model.File{}).Count(&fileCount).Error; err != nil {
+		t.Fatalf("count files failed: %v", err)
+	}
+	if fileCount != 0 {
+		t.Fatalf("expected all imported files deleted, got %d", fileCount)
+	}
+}
+
 func createImportFixture(t *testing.T) string {
 	t.Helper()
 
@@ -260,8 +311,14 @@ func createImportFixture(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(root, "root.pdf"), []byte("root file"), 0o644); err != nil {
 		t.Fatalf("write root fixture file failed: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, ".DS_Store"), []byte("mac metadata"), 0o644); err != nil {
+		t.Fatalf("write root ds_store fixture file failed: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "nested", "chapter1.txt"), []byte("chapter one"), 0o644); err != nil {
 		t.Fatalf("write nested fixture file failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nested", ".DS_Store"), []byte("nested mac metadata"), 0o644); err != nil {
+		t.Fatalf("write nested ds_store fixture file failed: %v", err)
 	}
 
 	return root

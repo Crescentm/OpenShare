@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
 import { RouterView, useRoute } from "vue-router";
 
 import Navbar from "../components/Navbar.vue";
 import { httpClient } from "../lib/http/client";
 
 const route = useRoute();
+const viewKey = computed(() => {
+  if (route.name === "public-file-detail") {
+    return `file:${String(route.params.fileID ?? "")}`;
+  }
+  return String(route.name ?? route.path);
+});
 
 const links = [
   { to: "/", label: "首页" },
-  { to: "/upload", label: "上传" },
+  { to: "/upload", label: "回执查询" },
 ];
 
 onMounted(() => {
@@ -40,7 +46,7 @@ async function trackVisit() {
     />
 
     <main class="pt-16">
-      <RouterView />
+      <RouterView :key="viewKey" />
     </main>
   </div>
 </template>

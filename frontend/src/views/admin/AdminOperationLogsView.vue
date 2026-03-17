@@ -79,21 +79,13 @@ function actionLabel(action: string) {
     resource_updated: "更新资料信息",
     resource_offlined: "下架资料",
     resource_deleted: "删除资料",
-    report_approved: "确认举报并下架",
-    report_rejected: "驳回举报",
+    report_approved: "处理反馈",
+    report_rejected: "驳回反馈",
     local_import: "导入本地目录",
     system_settings_updated: "更新系统设置",
     announcement_created: "创建公告",
     announcement_updated: "修改公告",
     announcement_deleted: "删除公告",
-    tag_created: "创建标签",
-    tag_updated: "修改标签",
-    tag_deleted: "删除标签",
-    file_tags_updated: "更新资料标签",
-    folder_tags_updated: "更新目录标签",
-    tag_submission_approved: "通过标签审核",
-    tag_submission_rejected: "驳回标签审核",
-    tag_merged: "合并标签",
   };
   return labels[action] ?? action;
 }
@@ -104,11 +96,9 @@ function targetTypeLabel(targetType: string) {
     announcement: "公告",
     file: "资料",
     folder: "目录",
-    report: "举报",
+    report: "反馈",
     submission: "上传记录",
     system_setting: "系统设置",
-    tag: "标签",
-    tag_submission: "标签投稿",
   };
   return labels[targetType] ?? (targetType || "未知对象");
 }
@@ -146,9 +136,9 @@ function summaryLabel(item: OperationLogItem) {
     case "submission_rejected":
       return `驳回上传审核${detail ? `：${detail}` : ""}`;
     case "report_approved":
-      return `确认举报并完成处理：${objectName}${detail ? `，处理说明：${detail}` : ""}`;
+      return `处理反馈：${objectName}${detail ? `，处理意见：${detail}` : ""}`;
     case "report_rejected":
-      return `驳回举报记录：${objectName}${detail ? `，处理说明：${detail}` : ""}`;
+      return `驳回反馈记录：${objectName}${detail ? `，处理说明：${detail}` : ""}`;
     case "resource_updated":
       return `更新资料信息${detail ? `：${detail}` : ""}`;
     case "resource_offlined":
@@ -168,22 +158,6 @@ function summaryLabel(item: OperationLogItem) {
       return `更新公告${detail ? `：${detail}` : ""}`;
     case "announcement_deleted":
       return `删除公告${detail ? `：${detail}` : ""}`;
-    case "tag_created":
-      return `创建标签${detail ? `：${detail}` : ""}`;
-    case "tag_updated":
-      return `更新标签${detail ? `：${detail}` : ""}`;
-    case "tag_deleted":
-      return `删除标签${detail ? `：${detail}` : ""}`;
-    case "file_tags_updated":
-      return `更新资料标签${detail ? `：${detail}` : ""}`;
-    case "folder_tags_updated":
-      return `更新目录标签${detail ? `：${detail}` : ""}`;
-    case "tag_submission_approved":
-      return `通过标签审核${detail ? `：${detail}` : ""}`;
-    case "tag_submission_rejected":
-      return `驳回标签审核${detail ? `：${detail}` : ""}`;
-    case "tag_merged":
-      return `合并标签${detail ? `：${detail}` : ""}`;
     default:
       return `执行操作：${actionLabel(item.action)}，对象为 ${objectName}`;
   }

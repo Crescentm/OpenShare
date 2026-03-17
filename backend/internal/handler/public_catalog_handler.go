@@ -68,6 +68,21 @@ func (h *PublicCatalogHandler) ListPublicFolders(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"items": items})
 }
 
+func (h *PublicCatalogHandler) GetPublicFolderDetail(ctx *gin.Context) {
+	detail, err := h.service.GetPublicFolderDetail(ctx.Request.Context(), ctx.Param("folderID"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrFolderNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "folder not found"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get folder detail"})
+		}
+		return
+	}
+
+	ctx.JSON(http.StatusOK, detail)
+}
+
 func parseIntQuery(raw string) (int, error) {
 	if raw == "" {
 		return 0, nil

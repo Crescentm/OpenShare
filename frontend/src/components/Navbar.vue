@@ -32,7 +32,7 @@ const props = withDefaults(
   {
     items: () => [
       { label: "首页", to: "/" },
-      { label: "上传", to: "/upload" },
+      { label: "回执查询", to: "/upload" },
     ],
     currentPath: "/",
     githubHref: "https://github.com/zzzzquan/OpenShare",

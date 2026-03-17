@@ -49,13 +49,3 @@ func SanitizeQuery(raw string) (string, bool) {
 	}
 	return strings.Join(tokens, " "), true
 }
-
-// SanitizeTagName normalizes a tag name for exact-match filtering.
-// Returns the lowercased, trimmed name and whether it is non-empty.
-func SanitizeTagName(raw string) (string, bool) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return "", false
-	}
-	return strings.ToLower(s), true
-}

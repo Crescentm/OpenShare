@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -77,44 +76,7 @@ func TestPublicDownloadReturnsGoneWhenRepositoryFileMissing(t *testing.T) {
 	}
 }
 
-func TestPublicPreviewServesSupportedFileTypes(t *testing.T) {
-	cfg := newRouterTestConfig(t)
-	db := newRouterTestDB(t)
-	file := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "lecture.pdf", []byte("%PDF-1.4 preview"))
-	engine := New(db, cfg, newRouterSessionManager(db))
-
-	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/preview", nil)
-	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
-	}
-	if got := recorder.Header().Get("Content-Disposition"); got == "" || !strings.HasPrefix(got, "inline;") {
-		t.Fatalf("expected inline content disposition, got %q", got)
-	}
-}
-
-func TestPublicPreviewRejectsUnsupportedTypes(t *testing.T) {
-	cfg := newRouterTestConfig(t)
-	db := newRouterTestDB(t)
-	file := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "slides.pptx", []byte("binary"))
-	file.MimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-	if err := db.Save(file).Error; err != nil {
-		t.Fatalf("update mime type failed: %v", err)
-	}
-	engine := New(db, cfg, newRouterSessionManager(db))
-
-	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/preview", nil)
-	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusConflict {
-		t.Fatalf("expected status 409, got %d, body=%s", recorder.Code, recorder.Body.String())
-	}
-}
-
-func TestPublicFileDetailReturnsPreviewMetadata(t *testing.T) {
+func TestPublicFileDetailReturnsMetadata(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	file := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "notes.txt", []byte("hello"))
@@ -123,7 +85,6 @@ func TestPublicFileDetailReturnsPreviewMetadata(t *testing.T) {
 	if err := db.Save(file).Error; err != nil {
 		t.Fatalf("save detail file failed: %v", err)
 	}
-	addTagsToFile(t, db, file.ID, "文本")
 	engine := New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID, nil)
@@ -134,20 +95,14 @@ func TestPublicFileDetailReturnsPreviewMetadata(t *testing.T) {
 		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
 	}
 	var response struct {
-		ID          string   `json:"id"`
-		Description string   `json:"description"`
-		PreviewKind string   `json:"preview_kind"`
-		CanPreview  bool     `json:"can_preview"`
-		Tags        []string `json:"tags"`
+		ID          string `json:"id"`
+		Description string `json:"description"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode detail response: %v", err)
 	}
-	if response.ID != file.ID || response.Description != "detail" || response.PreviewKind != "text" || !response.CanPreview {
+	if response.ID != file.ID || response.Description != "detail" {
 		t.Fatalf("unexpected detail response: %+v", response)
-	}
-	if len(response.Tags) != 1 || response.Tags[0] != "文本" {
-		t.Fatalf("unexpected detail tags: %+v", response.Tags)
 	}
 }
 
@@ -191,6 +146,66 @@ func TestPublicBatchDownloadStreamsZip(t *testing.T) {
 	assertEventuallyDownloadCount(t, db, second.ID, 1)
 }
 
+func TestPublicFolderDownloadStreamsZip(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	rootFolder := createPublicDownloadFolder(t, db, nil, "课程资料")
+	nestedFolder := createPublicDownloadFolder(t, db, &rootFolder.ID, "讲义")
+
+	rootFile := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "overview.txt", []byte("overview"))
+	rootFile.MimeType = "text/plain"
+	rootFile.FolderID = &rootFolder.ID
+	if err := db.Save(rootFile).Error; err != nil {
+		t.Fatalf("save root folder file failed: %v", err)
+	}
+
+	nestedFile := createRepositoryFileForDownload(t, cfg, db, model.ResourceStatusActive, "chapter1.pdf", []byte("chapter"))
+	nestedFile.FolderID = &nestedFolder.ID
+	if err := db.Save(nestedFile).Error; err != nil {
+		t.Fatalf("save nested folder file failed: %v", err)
+	}
+
+	engine := New(db, cfg, newRouterSessionManager(db))
+	request := httptest.NewRequest(http.MethodGet, "/api/public/folders/"+rootFolder.ID+"/download", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/zip" {
+		t.Fatalf("expected zip content type, got %q", got)
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(recorder.Body.Bytes()), int64(recorder.Body.Len()))
+	if err != nil {
+		t.Fatalf("read zip response failed: %v", err)
+	}
+	if len(reader.File) != 2 {
+		t.Fatalf("expected 2 files in zip, got %d", len(reader.File))
+	}
+
+	names := []string{reader.File[0].Name, reader.File[1].Name}
+	expected := map[string]bool{
+		"课程资料/overview.txt":    false,
+		"课程资料/讲义/chapter1.pdf": false,
+	}
+	for _, name := range names {
+		if _, ok := expected[name]; !ok {
+			t.Fatalf("unexpected zip entry %q", name)
+		}
+		expected[name] = true
+	}
+	for name, seen := range expected {
+		if !seen {
+			t.Fatalf("missing zip entry %q", name)
+		}
+	}
+
+	assertEventuallyDownloadCount(t, db, rootFile.ID, 1)
+	assertEventuallyDownloadCount(t, db, nestedFile.ID, 1)
+}
+
 func createRepositoryFileForDownload(t *testing.T, cfg config.Config, db *gorm.DB, status model.ResourceStatus, originalName string, content []byte) *model.File {
 	t.Helper()
 
@@ -221,6 +236,25 @@ func createRepositoryFileForDownload(t *testing.T, cfg config.Config, db *gorm.D
 	}
 
 	return file
+}
+
+func createPublicDownloadFolder(t *testing.T, db *gorm.DB, parentID *string, name string) *model.Folder {
+	t.Helper()
+
+	now := time.Date(2026, 3, 12, 15, 0, 0, 0, time.UTC)
+	folder := &model.Folder{
+		ID:        mustNewID(t),
+		ParentID:  parentID,
+		Name:      name,
+		Status:    model.ResourceStatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := db.Create(folder).Error; err != nil {
+		t.Fatalf("create public download folder failed: %v", err)
+	}
+
+	return folder
 }
 
 func assertEventuallyDownloadCount(t *testing.T, db *gorm.DB, fileID string, expected int64) {

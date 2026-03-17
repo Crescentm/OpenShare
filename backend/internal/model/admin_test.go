@@ -4,29 +4,29 @@ import "testing"
 
 func TestNormalizeAdminPermissions(t *testing.T) {
 	normalized := NormalizeAdminPermissions([]AdminPermission{
-		AdminPermissionManageTags,
+		AdminPermissionManageSystem,
 		AdminPermissionReviewSubmissions,
-		AdminPermissionManageTags,
+		AdminPermissionManageSystem,
 		AdminPermission("invalid"),
 	})
 
-	expected := "manage_tags,review_submissions"
+	expected := "manage_system,submission_moderation"
 	if normalized != expected {
 		t.Fatalf("expected normalized permissions %q, got %q", expected, normalized)
 	}
 }
 
 func TestParseAdminPermissions(t *testing.T) {
-	permissions := ParseAdminPermissions("manage_tags, review_submissions,manage_tags,invalid")
+	permissions := ParseAdminPermissions("manage_system, review_submissions,manage_system,invalid")
 
 	if len(permissions) != 2 {
 		t.Fatalf("expected 2 permissions, got %v", permissions)
 	}
-	if permissions[0] != AdminPermissionManageTags {
-		t.Fatalf("expected first permission %q, got %q", AdminPermissionManageTags, permissions[0])
+	if permissions[0] != AdminPermissionManageSystem {
+		t.Fatalf("expected first permission %q, got %q", AdminPermissionManageSystem, permissions[0])
 	}
-	if permissions[1] != AdminPermissionReviewSubmissions {
-		t.Fatalf("expected second permission %q, got %q", AdminPermissionReviewSubmissions, permissions[1])
+	if permissions[1] != AdminPermissionSubmissionModeration {
+		t.Fatalf("expected second permission %q, got %q", AdminPermissionSubmissionModeration, permissions[1])
 	}
 }
 
@@ -48,8 +48,8 @@ func TestValidateAdminRoleAndStatus(t *testing.T) {
 
 func TestDefaultAdminPermissions(t *testing.T) {
 	adminPermissions := DefaultAdminPermissions(AdminRoleAdmin)
-	if len(adminPermissions) != 1 || adminPermissions[0] != AdminPermissionReviewSubmissions {
-		t.Fatalf("expected default admin permission set to contain review_submissions, got %v", adminPermissions)
+	if len(adminPermissions) != 1 || adminPermissions[0] != AdminPermissionSubmissionModeration {
+		t.Fatalf("expected default admin permission set to contain submission_moderation, got %v", adminPermissions)
 	}
 
 	superAdminPermissions := DefaultAdminPermissions(AdminRoleSuperAdmin)
@@ -61,15 +61,15 @@ func TestDefaultAdminPermissions(t *testing.T) {
 func TestAdminHasPermission(t *testing.T) {
 	admin := Admin{
 		Role:        string(AdminRoleAdmin),
-		Permissions: NormalizeAdminPermissions([]AdminPermission{AdminPermissionManageTags}),
+		Permissions: NormalizeAdminPermissions([]AdminPermission{AdminPermissionManageSystem}),
 		Status:      AdminStatusActive,
 	}
 
-	if !admin.HasPermission(AdminPermissionManageTags) {
-		t.Fatal("expected admin to have manage_tags permission")
+	if !admin.HasPermission(AdminPermissionManageSystem) {
+		t.Fatal("expected admin to have manage_system permission")
 	}
-	if admin.HasPermission(AdminPermissionManageSystem) {
-		t.Fatal("expected admin to not have manage_system permission")
+	if admin.HasPermission(AdminPermissionDirectUpload) {
+		t.Fatal("expected admin to not have direct_upload permission")
 	}
 
 	superAdmin := Admin{

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
-import { LayoutDashboard, Inbox, ScrollText, Shield, UserRound } from "lucide-vue-next";
+import { LayoutDashboard, Inbox, Megaphone, ScrollText, Shield, UserRound } from "lucide-vue-next";
 
 import AdminSidebar, { type AdminSidebarItem } from "../components/AdminSidebar.vue";
 import { HttpError, httpClient } from "../lib/http/client";
@@ -19,6 +19,10 @@ interface AdminMeResponse {
   };
 }
 
+interface AdminDashboardStatsResponse {
+  pending_audit_count: number;
+}
+
 const sessionStore = useSessionStore();
 const route = useRoute();
 
@@ -27,15 +31,22 @@ const password = ref("");
 const loading = ref(true);
 const loginLoading = ref(false);
 const loginError = ref("");
+const pendingAuditCount = ref(0);
 
 const navItems = computed<AdminSidebarItem[]>(() => [
-  { to: "/admin/audit", label: "审核", icon: Inbox },
+  { to: "/admin/audit", label: "审核", icon: Inbox, hasAlert: pendingAuditCount.value > 0 },
+  ...(sessionStore.hasPermission("announcements") ? [{ to: "/admin/announcements", label: "公告", icon: Megaphone }] : []),
   { to: "/admin/logs", label: "操作记录", icon: ScrollText },
   { to: "/admin/permissions", label: "权限管理", icon: Shield },
 ]);
 
 onMounted(async () => {
+  window.addEventListener("admin-pending-audit-refresh", handlePendingAuditRefresh);
   await restoreSession();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("admin-pending-audit-refresh", handlePendingAuditRefresh);
 });
 
 async function restoreSession() {
@@ -43,9 +54,11 @@ async function restoreSession() {
   try {
     const response = await httpClient.get<AdminMeResponse>("/admin/me");
     applySession(response);
+    await loadPendingAuditCount();
     await trackVisit();
   } catch {
     sessionStore.reset();
+    pendingAuditCount.value = 0;
   } finally {
     loading.value = false;
   }
@@ -61,6 +74,7 @@ async function login() {
       password: password.value,
     });
     applySession(response);
+    await loadPendingAuditCount();
     await trackVisit();
     password.value = "";
   } catch (error: unknown) {
@@ -72,6 +86,7 @@ async function login() {
 
 async function logout() {
   await httpClient.post("/admin/session/logout");
+  pendingAuditCount.value = 0;
   sessionStore.reset();
 }
 
@@ -84,6 +99,19 @@ function applySession(response: AdminMeResponse) {
     status: response.admin.status,
     permissions: response.admin.permissions,
   });
+}
+
+async function loadPendingAuditCount() {
+  try {
+    const response = await httpClient.get<AdminDashboardStatsResponse>("/admin/dashboard/stats");
+    pendingAuditCount.value = response.pending_audit_count ?? 0;
+  } catch {
+    pendingAuditCount.value = 0;
+  }
+}
+
+function handlePendingAuditRefresh() {
+  void loadPendingAuditCount();
 }
 
 function readApiError(error: unknown) {
@@ -160,6 +188,7 @@ async function trackVisit() {
           subtitle=""
           :avatar-url="sessionStore.avatarUrl"
           :avatar-fallback="sessionStore.displayName.slice(0, 1).toUpperCase() || 'A'"
+          :avatar-has-alert="pendingAuditCount > 0"
           @logout="logout"
         >
           <template #footer-actions>

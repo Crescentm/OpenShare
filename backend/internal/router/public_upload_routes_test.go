@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -23,7 +24,6 @@ func TestPublicUploadCreatesPendingSubmission(t *testing.T) {
 
 	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
 		description: "第一章到第四章",
-		tags:        []string{"数学", "考试"},
 		folderID:    folderID,
 		fileName:    "notes.pdf",
 		fileContent: []byte("%PDF-1.4 test document"),
@@ -74,7 +74,7 @@ func TestPublicUploadCreatesPendingSubmission(t *testing.T) {
 	}
 }
 
-func TestPublicUploadReusesExistingReceiptCode(t *testing.T) {
+func TestPublicUploadReusesReceiptCodeFromCookie(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	engine := New(db, cfg, newRouterSessionManager(db))
@@ -83,7 +83,6 @@ func TestPublicUploadReusesExistingReceiptCode(t *testing.T) {
 	createPendingSubmissionForTest(t, db, "CUSTOM123")
 
 	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
-		receiptCode: "CUSTOM123",
 		folderID:    folderID,
 		fileName:    "os.pdf",
 		fileContent: []byte("%PDF-1.4 test document"),
@@ -91,6 +90,7 @@ func TestPublicUploadReusesExistingReceiptCode(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
 	request.Header.Set("Content-Type", contentType)
+	request.AddCookie(&http.Cookie{Name: "openshare_receipt_code", Value: "CUSTOM123"})
 	recorder := httptest.NewRecorder()
 
 	engine.ServeHTTP(recorder, request)
@@ -202,6 +202,63 @@ func TestPublicUploadAssignsFileToFolder(t *testing.T) {
 	}
 }
 
+func TestPublicUploadDirectPublishesForSubmissionModerationAdmin(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	manager := newRouterSessionManager(db)
+	engine := New(db, cfg, manager)
+
+	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
+		username:    "reviewer",
+		password:    "s3cret-pass",
+		role:        string(model.AdminRoleAdmin),
+		permissions: []model.AdminPermission{model.AdminPermissionSubmissionModeration},
+	})
+	cookieValue, _, err := manager.Create(context.Background(), admin)
+	if err != nil {
+		t.Fatalf("create admin session failed: %v", err)
+	}
+
+	folderID := createPublicTestFolder(t, db, "课程资料")
+	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
+		folderID:    folderID,
+		fileName:    "probability.pdf",
+		fileContent: []byte("%PDF-1.4 test document"),
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
+	request.Header.Set("Content-Type", contentType)
+	request.AddCookie(&http.Cookie{Name: "openshare_session", Value: cookieValue, Path: "/"})
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.Status != string(model.SubmissionStatusApproved) {
+		t.Fatalf("expected approved status, got %q", response.Status)
+	}
+
+	var file model.File
+	if err := db.Where("original_name = ?", "probability.pdf").Take(&file).Error; err != nil {
+		t.Fatalf("query file failed: %v", err)
+	}
+	if file.Status != model.ResourceStatusActive {
+		t.Fatalf("expected active file status, got %q", file.Status)
+	}
+	if _, err := os.Stat(file.DiskPath); err != nil {
+		t.Fatalf("expected file to be moved into managed storage, got %v", err)
+	}
+}
+
 func TestPublicUploadRequiresFolderSelection(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
@@ -278,9 +335,127 @@ func TestPublicUploadSupportsDirectPublishPolicy(t *testing.T) {
 	}
 }
 
+func TestPublicUploadIgnoresCustomReceiptCodeField(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "默认目录")
+
+	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
+		receiptCode: "CUSTOM123",
+		folderID:    folderID,
+		fileName:    "ignored.pdf",
+		fileContent: []byte("%PDF-1.4 test document"),
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		ReceiptCode string `json:"receipt_code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.ReceiptCode == "CUSTOM123" {
+		t.Fatal("expected custom receipt field to be ignored")
+	}
+}
+
+func TestPublicUploadAcceptsManifestBatchWithRelativePaths(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	engine := New(db, cfg, newRouterSessionManager(db))
+	folderID := createPublicTestFolder(t, db, "批量目录")
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	if err := writer.WriteField("folder_id", folderID); err != nil {
+		t.Fatalf("write folder_id failed: %v", err)
+	}
+	if err := writer.WriteField("manifest", `[{"relative_path":"课程资料/高数/notes.pdf"},{"relative_path":"课程资料/高数/习题.docx"}]`); err != nil {
+		t.Fatalf("write manifest failed: %v", err)
+	}
+
+	partOne, err := writer.CreateFormFile("files", "notes.pdf")
+	if err != nil {
+		t.Fatalf("create first file failed: %v", err)
+	}
+	if _, err := partOne.Write([]byte("%PDF-1.4 batch document")); err != nil {
+		t.Fatalf("write first file failed: %v", err)
+	}
+
+	partTwo, err := writer.CreateFormFile("files", "习题.docx")
+	if err != nil {
+		t.Fatalf("create second file failed: %v", err)
+	}
+	if _, err := partTwo.Write([]byte("PK test")); err != nil {
+		t.Fatalf("write second file failed: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var submissions []model.Submission
+	if err := db.Order("title_snapshot ASC").Find(&submissions).Error; err != nil {
+		t.Fatalf("query submissions failed: %v", err)
+	}
+	if len(submissions) != 2 {
+		t.Fatalf("expected 2 submissions, got %d", len(submissions))
+	}
+	if submissions[0].ReceiptCode != submissions[1].ReceiptCode {
+		t.Fatalf("expected batch submissions to share receipt code, got %q and %q", submissions[0].ReceiptCode, submissions[1].ReceiptCode)
+	}
+	if submissions[0].RelativePathSnapshot == "" || submissions[1].RelativePathSnapshot == "" {
+		t.Fatalf("expected relative path snapshots to be stored, got %+v", submissions)
+	}
+}
+
+func TestPublicSubmissionLookupStillWorksAfterFileDeletion(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	submission := createPendingSubmissionForTest(t, db, "DELETED88")
+	file := createFileForSubmission(t, db, submission.ID, 12)
+	now := time.Now().UTC()
+	if err := db.Model(&model.File{}).Where("id = ?", file.ID).Updates(map[string]any{
+		"status":     model.ResourceStatusDeleted,
+		"deleted_at": &now,
+	}).Error; err != nil {
+		t.Fatalf("delete file failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/submissions/DELETED88", nil)
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 type uploadRequestBody struct {
 	description string
-	tags        []string
 	receiptCode string
 	folderID    string
 	fileName    string
@@ -308,12 +483,6 @@ func buildUploadRequestBody(t *testing.T, input uploadRequestBody) (*bytes.Buffe
 			t.Fatalf("write folder_id failed: %v", err)
 		}
 	}
-	for _, tag := range input.tags {
-		if err := writer.WriteField("tag", tag); err != nil {
-			t.Fatalf("write tag failed: %v", err)
-		}
-	}
-
 	part, err := writer.CreateFormFile("file", input.fileName)
 	if err != nil {
 		t.Fatalf("create form file failed: %v", err)
@@ -336,7 +505,6 @@ func createPendingSubmissionForTest(t *testing.T, db *gorm.DB, receiptCode strin
 		ID:            submissionID,
 		ReceiptCode:   receiptCode,
 		TitleSnapshot: "existing",
-		TagsSnapshot:  "[]",
 		Status:        model.SubmissionStatusPending,
 	}
 	if err := db.Create(submission).Error; err != nil {
@@ -349,7 +517,7 @@ func createPendingSubmissionForTest(t *testing.T, db *gorm.DB, receiptCode strin
 func setDirectPublishPolicy(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
-	payload := `{"guest":{"allow_direct_publish":true,"extra_permissions_enabled":false,"allow_guest_edit_title":false,"allow_guest_edit_tags":false,"allow_guest_edit_description":false,"allow_guest_resource_delete":false},"upload":{"max_file_size_bytes":10485760,"max_tag_count":0,"allowed_extensions":[]},"search":{"enable_fuzzy_match":true,"enable_tag_filter":true,"enable_folder_scope":true,"result_window":50}}`
+	payload := `{"guest":{"allow_direct_publish":true,"extra_permissions_enabled":false,"allow_guest_edit_title":false,"allow_guest_edit_description":false,"allow_guest_resource_delete":false},"upload":{"max_file_size_bytes":10485760,"allowed_extensions":[]},"search":{"enable_fuzzy_match":true,"enable_folder_scope":true,"result_window":50}}`
 	if err := db.Create(&model.SystemSetting{
 		Key:       "system_policy",
 		Value:     payload,

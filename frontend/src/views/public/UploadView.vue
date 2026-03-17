@@ -1,32 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 
 import EmptyState from "../../components/ui/EmptyState.vue";
 import PageHeader from "../../components/ui/PageHeader.vue";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
-import { httpClient } from "../../lib/http/client";
-import { readApiError } from "../../lib/http/helpers";
-
-interface PublicFolderItem {
-  id: string;
-  name: string;
-}
-
-interface PublicFolderListResponse {
-  items: PublicFolderItem[];
-}
-
-interface UploadResponse {
-  receipt_code: string;
-  status: string;
-  title: string;
-  uploaded_at: string;
-}
+import { HttpError, httpClient } from "../../lib/http/client";
 
 interface SubmissionLookupResponse {
   receipt_code: string;
   items: Array<{
     title: string;
+    relative_path: string;
     status: string;
     uploaded_at: string;
     download_count: number;
@@ -34,142 +18,98 @@ interface SubmissionLookupResponse {
   }>;
 }
 
-const folders = ref<{ id: string; name: string }[]>([]);
-const foldersLoading = ref(false);
-
-const uploadForm = ref({
-  folderID: "",
-  description: "",
-  tags: "",
-  receiptCode: "",
-  file: null as File | null,
-});
-
-const uploadLoading = ref(false);
-const uploadError = ref("");
-const uploadMessage = ref("");
-const uploadResult = ref<UploadResponse | null>(null);
+interface FeedbackLookupResponse {
+  receipt_code: string;
+  items: Array<{
+    target_name: string;
+    target_type: string;
+    reason: string;
+    reason_label: string;
+    description: string;
+    status: string;
+    review_reason: string;
+    created_at: string;
+    reviewed_at: string | null;
+  }>;
+}
 
 const receiptCode = ref("");
 const lookupLoading = ref(false);
 const lookupError = ref("");
-const lookupResult = ref<SubmissionLookupResponse | null>(null);
+const submissionLookupResult = ref<SubmissionLookupResponse | null>(null);
+const feedbackLookupResult = ref<FeedbackLookupResponse | null>(null);
 
-const flattenedFolders = computed(() => folders.value);
-
-onMounted(async () => {
-  receiptCode.value = localStorage.getItem("openshare_receipt_code") ?? "";
-  await loadFolders();
-
-  if (receiptCode.value.trim()) {
-    await lookupReceipt();
-  }
+onMounted(() => {
+  const storedReceiptCode =
+    sessionStorage.getItem("openshare_receipt_code") ??
+    localStorage.getItem("openshare_receipt_code") ??
+    readReceiptCodeFromCookie();
+  receiptCode.value = storedReceiptCode;
+  localStorage.removeItem("openshare_feedback_receipt_code");
 });
-
-async function loadFolders() {
-  foldersLoading.value = true;
-  try {
-    const result: { id: string; name: string }[] = [];
-
-    async function loadLevel(parentId: string | null, prefix: string) {
-      let url = "/public/folders";
-      if (parentId) {
-        url += `?parent_id=${encodeURIComponent(parentId)}`;
-      }
-      const response = await httpClient.get<PublicFolderListResponse>(url);
-      for (const item of response.items ?? []) {
-        const displayName = prefix ? `${prefix} / ${item.name}` : item.name;
-        result.push({ id: item.id, name: displayName });
-        await loadLevel(item.id, displayName);
-      }
-    }
-
-    await loadLevel(null, "");
-    folders.value = result;
-  } catch {
-    folders.value = [];
-  } finally {
-    foldersLoading.value = false;
-  }
-}
-
-function onFileChange(event: Event) {
-  const target = event.target as HTMLInputElement;
-  uploadForm.value.file = target.files?.[0] ?? null;
-}
-
-async function submitUpload() {
-  if (!uploadForm.value.file) {
-    uploadError.value = "请选择要上传的文件。";
-    return;
-  }
-
-  uploadLoading.value = true;
-  uploadError.value = "";
-  uploadMessage.value = "";
-  uploadResult.value = null;
-
-  try {
-    const formData = new FormData();
-    formData.set("file", uploadForm.value.file);
-    formData.set("folder_id", uploadForm.value.folderID);
-    formData.set("description", uploadForm.value.description.trim());
-
-    const tags = uploadForm.value.tags
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    for (const tag of tags) {
-      formData.append("tags", tag);
-    }
-
-    if (uploadForm.value.receiptCode.trim()) {
-      formData.set("receipt_code", uploadForm.value.receiptCode.trim());
-    }
-
-    const response = await httpClient.post<UploadResponse>("/public/submissions", formData);
-    uploadResult.value = response;
-    uploadMessage.value = `资料《${response.title}》已提交，当前状态为 ${response.status}。`;
-    receiptCode.value = response.receipt_code;
-    localStorage.setItem("openshare_receipt_code", response.receipt_code);
-    uploadForm.value.description = "";
-    uploadForm.value.tags = "";
-    uploadForm.value.file = null;
-    await lookupReceipt();
-  } catch (error: unknown) {
-    uploadError.value = readApiError(error, "提交上传失败，请稍后重试。");
-  } finally {
-    uploadLoading.value = false;
-  }
-}
 
 async function lookupReceipt() {
   const code = receiptCode.value.trim();
   if (!code) {
     lookupError.value = "请输入回执码。";
-    lookupResult.value = null;
+    submissionLookupResult.value = null;
+    feedbackLookupResult.value = null;
     return;
   }
 
   lookupLoading.value = true;
   lookupError.value = "";
-  try {
-    const response = await httpClient.get<SubmissionLookupResponse>(`/public/submissions/${encodeURIComponent(code)}`);
-    lookupResult.value = response;
-    localStorage.setItem("openshare_receipt_code", response.receipt_code);
-  } catch (error: unknown) {
-    lookupResult.value = null;
-    lookupError.value = readApiError(error, "查询投稿记录失败。");
-  } finally {
+  submissionLookupResult.value = null;
+  feedbackLookupResult.value = null;
+
+  const [submissionResult, feedbackResult] = await Promise.allSettled([
+    httpClient.get<SubmissionLookupResponse>(`/public/submissions/${encodeURIComponent(code)}`),
+    httpClient.get<FeedbackLookupResponse>(`/public/reports/${encodeURIComponent(code)}`),
+  ]);
+
+  const submissionError = submissionResult.status === "rejected" ? submissionResult.reason : null;
+  const feedbackError = feedbackResult.status === "rejected" ? feedbackResult.reason : null;
+  const fatalSubmissionError =
+    submissionError instanceof HttpError ? submissionError.status !== 404 : Boolean(submissionError);
+  const fatalFeedbackError =
+    feedbackError instanceof HttpError ? feedbackError.status !== 404 : Boolean(feedbackError);
+
+  if (fatalSubmissionError || fatalFeedbackError) {
+    lookupError.value = "查询回执失败。";
     lookupLoading.value = false;
+    return;
   }
+
+  if (submissionResult.status === "fulfilled") {
+    submissionLookupResult.value = submissionResult.value;
+    sessionStorage.setItem("openshare_receipt_code", submissionResult.value.receipt_code);
+  }
+  if (feedbackResult.status === "fulfilled") {
+    feedbackLookupResult.value = feedbackResult.value;
+    sessionStorage.setItem("openshare_receipt_code", feedbackResult.value.receipt_code);
+  }
+
+  if (!submissionLookupResult.value && !feedbackLookupResult.value) {
+    lookupError.value = "未找到对应回执码。";
+  }
+  lookupLoading.value = false;
 }
 
 function clearReceipt() {
   receiptCode.value = "";
-  lookupResult.value = null;
+  submissionLookupResult.value = null;
+  feedbackLookupResult.value = null;
   lookupError.value = "";
+  sessionStorage.removeItem("openshare_receipt_code");
   localStorage.removeItem("openshare_receipt_code");
+  localStorage.removeItem("openshare_feedback_receipt_code");
+}
+
+function readReceiptCodeFromCookie() {
+  const cookie = document.cookie
+    .split("; ")
+    .find((item) => item.startsWith("openshare_receipt_code="));
+  return cookie ? decodeURIComponent(cookie.split("=").slice(1).join("=")) : "";
 }
 
 function formatDate(value: string) {
@@ -179,7 +119,7 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function statusLabel(status: string) {
+function submissionStatusLabel(status: string) {
   const labels: Record<string, string> = {
     pending: "待审核",
     approved: "已通过",
@@ -187,119 +127,107 @@ function statusLabel(status: string) {
   };
   return labels[status] ?? status;
 }
+
+function feedbackStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: "待处理",
+    approved: "已处理",
+    rejected: "已驳回",
+  };
+  return labels[status] ?? status;
+}
+
+function feedbackReasonLabel(item: FeedbackLookupResponse["items"][number]) {
+  return item.reason_label || item.reason || "-";
+}
 </script>
 
 <template>
   <div class="app-container py-8 sm:py-10">
-    <section class="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-      <SurfaceCard>
-        <PageHeader
-          eyebrow="Upload"
-          title="上传资料"
-          description="上传资料后会进入审核池。标题默认取文件名，Tag 和描述可选填写。"
-        />
-
-        <form class="mt-6 space-y-4" @submit.prevent="submitUpload">
-          <div class="grid gap-4 md:grid-cols-2">
-            <div class="space-y-2">
-              <label class="text-sm font-medium text-slate-700 dark:text-slate-300">目标目录</label>
-              <select v-model="uploadForm.folderID" class="field">
-                <option value="">请选择目录</option>
-                <option v-for="folder in flattenedFolders" :key="folder.id" :value="folder.id">
-                  {{ folder.name }}
-                </option>
-              </select>
-              <p v-if="foldersLoading" class="text-xs text-slate-400">目录加载中…</p>
-            </div>
-
-            <div class="space-y-2">
-              <label class="text-sm font-medium text-slate-700 dark:text-slate-300">回执码</label>
-              <input v-model="uploadForm.receiptCode" class="field" placeholder="可选，自定义或留空自动生成" />
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <label class="text-sm font-medium text-slate-700 dark:text-slate-300">描述</label>
-            <textarea
-              v-model="uploadForm.description"
-              rows="4"
-              class="field-area"
-              placeholder="可选，简要说明资料内容和适用场景"
-            />
-          </div>
-
-          <div class="space-y-2">
-            <label class="text-sm font-medium text-slate-700 dark:text-slate-300">标签</label>
-            <input v-model="uploadForm.tags" class="field" placeholder="多个标签用逗号分隔，例如：计算机网络, 期末复习" />
-          </div>
-
-          <div class="space-y-2">
-            <label class="text-sm font-medium text-slate-700 dark:text-slate-300">文件</label>
-            <input type="file" class="field flex items-center py-2.5" @change="onFileChange" />
-          </div>
-
-          <button type="submit" class="btn-primary" :disabled="uploadLoading">
-            {{ uploadLoading ? "提交中…" : "提交上传" }}
-          </button>
-        </form>
-
-        <p v-if="uploadMessage" class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-          {{ uploadMessage }}
-        </p>
-        <p v-if="uploadError" class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-          {{ uploadError }}
-        </p>
-      </SurfaceCard>
-
+    <div class="mx-auto max-w-[66%] min-w-[720px]">
       <SurfaceCard>
         <PageHeader
           eyebrow="Receipt"
-          title="查询投稿记录"
-          description="输入回执码查看历史投稿记录，浏览器会自动记住最近一次使用的回执码。"
+          title="回执查询"
+          description="上传和反馈共用同一个回执查询入口，输入回执码后自动识别记录类型。"
         />
 
         <div class="mt-6 flex gap-3">
-          <input v-model="receiptCode" class="field flex-1" placeholder="输入回执码" @keydown.enter.prevent="lookupReceipt" />
-          <button class="btn-secondary" @click="lookupReceipt">查询</button>
+          <input
+            v-model="receiptCode"
+            class="field flex-1"
+            placeholder="输入回执码"
+            @keydown.enter.prevent="lookupReceipt"
+          />
+          <button class="btn-secondary" :disabled="lookupLoading" @click="lookupReceipt">
+            {{ lookupLoading ? "查询中…" : "查询" }}
+          </button>
         </div>
 
         <div class="mt-4 flex gap-3">
-          <button class="text-sm text-slate-500 transition hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100" @click="clearReceipt">
+          <button class="text-sm text-slate-500 transition hover:text-slate-900" @click="clearReceipt">
             清除本地回执码
           </button>
         </div>
 
-        <p v-if="lookupError" class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+        <p v-if="lookupError" class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {{ lookupError }}
         </p>
-        <p v-else-if="lookupLoading" class="mt-4 text-sm text-slate-500 dark:text-slate-400">正在查询…</p>
+        <p v-else-if="lookupLoading" class="mt-4 text-sm text-slate-500">正在查询…</p>
 
-        <div v-else-if="lookupResult" class="mt-6 space-y-3">
+        <div v-if="submissionLookupResult" class="mt-6 space-y-3">
+          <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            当前类型：<span class="font-medium text-slate-900">上传记录</span>
+          </div>
           <article
-            v-for="item in lookupResult.items"
+            v-for="item in submissionLookupResult.items"
             :key="`${item.title}-${item.uploaded_at}`"
-            class="rounded-xl border border-slate-200 p-4 dark:border-slate-800"
+            class="rounded-xl border border-slate-200 p-4"
           >
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ item.title }}</h3>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ formatDate(item.uploaded_at) }}</p>
+                <h3 class="text-sm font-semibold text-slate-900">{{ item.title }}</h3>
+                <p class="mt-1 text-sm text-slate-500">{{ formatDate(item.uploaded_at) }}</p>
+                <p v-if="item.relative_path" class="mt-1 text-sm text-slate-500">目录结构：{{ item.relative_path }}</p>
               </div>
-              <span class="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                {{ statusLabel(item.status) }}
+              <span class="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                {{ submissionStatusLabel(item.status) }}
               </span>
             </div>
-            <div class="mt-3 flex flex-wrap gap-4 text-sm text-slate-500 dark:text-slate-400">
+            <div class="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
               <span>下载 {{ item.download_count }}</span>
               <span v-if="item.reject_reason">驳回原因：{{ item.reject_reason }}</span>
             </div>
           </article>
         </div>
 
-        <div v-else class="mt-6">
-          <EmptyState title="输入回执码后查看投稿记录" description="会显示文件标题、审核状态、上传时间和历史下载量。" />
+        <div v-if="feedbackLookupResult" class="mt-6 space-y-3">
+          <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            当前类型：<span class="font-medium text-slate-900">反馈记录</span>
+          </div>
+          <article
+            v-for="item in feedbackLookupResult.items"
+            :key="`${item.target_type}-${item.target_name}-${item.created_at}`"
+            class="rounded-xl border border-slate-200 p-4 text-sm text-slate-600"
+          >
+            <div class="grid gap-3">
+              <p><span class="font-medium text-slate-900">回执码：</span>{{ feedbackLookupResult.receipt_code }}</p>
+              <p><span class="font-medium text-slate-900">目标：</span>{{ item.target_name || "-" }}</p>
+              <p><span class="font-medium text-slate-900">类型：</span>{{ item.target_type === "folder" ? "文件夹" : "文件" }}</p>
+              <p><span class="font-medium text-slate-900">原因：</span>{{ feedbackReasonLabel(item) }}</p>
+              <p><span class="font-medium text-slate-900">状态：</span>{{ feedbackStatusLabel(item.status) }}</p>
+              <p><span class="font-medium text-slate-900">提交时间：</span>{{ formatDate(item.created_at) }}</p>
+              <p v-if="item.description"><span class="font-medium text-slate-900">说明：</span>{{ item.description }}</p>
+              <p v-if="item.reviewed_at"><span class="font-medium text-slate-900">处理时间：</span>{{ formatDate(item.reviewed_at) }}</p>
+              <p v-if="item.review_reason"><span class="font-medium text-slate-900">{{ item.status === 'rejected' ? '驳回说明：' : '处理意见：' }}</span>{{ item.review_reason }}</p>
+            </div>
+          </article>
+        </div>
+
+        <div v-if="!submissionLookupResult && !feedbackLookupResult" class="mt-6">
+          <EmptyState title="输入回执码后查看记录" description="系统会自动识别这是上传记录还是反馈记录。" />
         </div>
       </SurfaceCard>
-    </section>
+    </div>
   </div>
 </template>
