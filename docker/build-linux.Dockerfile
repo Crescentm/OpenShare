@@ -1,12 +1,51 @@
-FROM golang:1.25-bookworm
+FROM node:22-bookworm AS frontend-builder
+
+WORKDIR /workspace/frontend
+
+COPY frontend/package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+COPY frontend/ ./
+RUN npm run build
+
+
+FROM golang:1.25-bookworm AS backend-builder
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl gnupg build-essential \
-  && mkdir -p /etc/apt/keyrings \
-  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
-  && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends nodejs \
+  && apt-get install -y --no-install-recommends ca-certificates build-essential \
   && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace
+WORKDIR /workspace/backend
+
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+
+COPY backend/ ./
+COPY --from=frontend-builder /workspace/frontend/dist ./web/dist
+
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o /out/openshare ./cmd/server
+
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=backend-builder /out/openshare ./openshare
+COPY --from=backend-builder /workspace/backend/config ./config
+
+RUN mkdir -p /data/openshare
+
+ENV OPENSHARE_SERVER_HOST=0.0.0.0 \
+  OPENSHARE_SERVER_PORT=8080 \
+  OPENSHARE_DATABASE_PATH=/data/openshare/openshare.db \
+  OPENSHARE_STORAGE_ROOT=/data/openshare
+
+VOLUME ["/data/openshare"]
+
+EXPOSE 8080
+
+CMD ["./openshare"]

@@ -41,7 +41,7 @@ Thumbs.db
 !/backend/web/dist/
 !/backend/web/dist/.gitkeep
 # Local Configuration (Secrets)
-/backend/configs/config.local.json
+/backend/config/config.local.json
 /backend/.env
 
 ### Backend (Data)
@@ -53,3 +53,4 @@ Thumbs.db
 
 ### Local Scripts
 /scripts/
+/config/

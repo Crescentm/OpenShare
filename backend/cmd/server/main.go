@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load("configs/config.default.json", "configs/config.local.json")
+	cfg, err := config.Load("config/config.default.json", "config/config.local.json")
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}

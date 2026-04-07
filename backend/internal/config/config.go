@@ -67,11 +67,15 @@ func (c *UploadConfig) UnmarshalJSON(data []byte) error {
 
 	if raw.MaxUploadTotalBytes != nil {
 		c.MaxUploadTotalBytes = *raw.MaxUploadTotalBytes
-	} else {
-		setIfPresent(&c.MaxUploadTotalBytes, raw.MaxFileSizeBytes)
+	} else if raw.MaxFileSizeBytes != nil {
+		c.MaxUploadTotalBytes = *raw.MaxFileSizeBytes
 	}
-	setIfPresent(&c.MaxDescriptionLength, raw.MaxDescriptionLength)
-	setIfPresent(&c.ReceiptCodeLength, raw.ReceiptCodeLength)
+	if raw.MaxDescriptionLength != nil {
+		c.MaxDescriptionLength = *raw.MaxDescriptionLength
+	}
+	if raw.ReceiptCodeLength != nil {
+		c.ReceiptCodeLength = *raw.ReceiptCodeLength
+	}
 	return nil
 }
 

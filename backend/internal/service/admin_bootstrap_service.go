@@ -3,6 +3,7 @@ package service
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -15,8 +16,6 @@ import (
 	"openshare/backend/internal/repository"
 	"openshare/backend/pkg/identity"
 )
-
-const defaultSuperAdminUsername = "superadmin"
 
 type AdminBootstrapService struct {
 	db        *gorm.DB
@@ -65,12 +64,9 @@ func (s *AdminBootstrapService) ensureDefaultSuperAdmin() (*bootstrapResult, err
 			return nil
 		}
 
-		existingAdmin, err := s.adminRepo.FindByUsername(tx, defaultSuperAdminUsername)
+		username, err := generateInitialUsername()
 		if err != nil {
-			return fmt.Errorf("check default super admin username: %w", err)
-		}
-		if existingAdmin != nil {
-			return fmt.Errorf("default super admin username %q is already occupied", defaultSuperAdminUsername)
+			return fmt.Errorf("generate initial username: %w", err)
 		}
 
 		password, err := generateInitialPassword()
@@ -90,7 +86,7 @@ func (s *AdminBootstrapService) ensureDefaultSuperAdmin() (*bootstrapResult, err
 
 		admin := &model.Admin{
 			ID:           adminID,
-			Username:     defaultSuperAdminUsername,
+			Username:     username,
 			DisplayName:  "Superadmin",
 			PasswordHash: string(passwordHash),
 			Role:         string(model.AdminRoleSuperAdmin),
@@ -110,6 +106,14 @@ func (s *AdminBootstrapService) ensureDefaultSuperAdmin() (*bootstrapResult, err
 	}
 
 	return result, nil
+}
+
+func generateInitialUsername() (string, error) {
+	randomBytes := make([]byte, 5)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", err
+	}
+	return "admin" + hex.EncodeToString(randomBytes), nil
 }
 
 func generateInitialPassword() (string, error) {

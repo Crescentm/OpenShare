@@ -1,0 +1,16 @@
+services:
+  openshare:
+    build:
+      context: .
+      dockerfile: docker/build-linux.Dockerfile
+    image: openshare:local
+    container_name: openshare
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      OPENSHARE_SESSION_SECRET: ${OPENSHARE_SESSION_SECRET}
+      GIN_MODE: release
+    volumes:
+      - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
+      - ${OPENSHARE_CONFIG:-./config/config.local.json}:/app/config/config.local.json

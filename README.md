@@ -86,7 +86,7 @@ OpenShare/
 ├── assets/                     README 配图与静态资源
 ├── backend/                    Go 后端服务
 │   ├── cmd/server/             服务入口
-│   ├── configs/                默认配置与本地配置样例
+│   ├── config/                默认配置与本地配置样例
 │   ├── internal/               路由、服务、仓储、模型等核心实现
 │   └── web/                    嵌入式前端构建产物
 ├── docker/                     Linux 构建镜像文件
@@ -109,7 +109,7 @@ OpenShare/
 本脚本：
 
 - 不会清空已有数据库和存储目录
-- 不会覆盖已存在的 `backend/configs/config.local.json`
+- 不会覆盖已存在的 `backend/config/config.local.json`
 - 第一次启动时会自动初始化数据库，并输出超级管理员初始凭据
 
 ```bash
@@ -121,7 +121,7 @@ LOCAL_DATA_DIR="$ROOT_DIR/.localdata"
 LOG_DIR="$LOCAL_DATA_DIR/logs"
 BACKEND_LOG="$LOG_DIR/backend.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
-BACKEND_CONFIG_LOCAL="$ROOT_DIR/backend/configs/config.local.json"
+BACKEND_CONFIG_LOCAL="$ROOT_DIR/backend/config/config.local.json"
 
 mkdir -p "$LOG_DIR"
 
@@ -195,7 +195,7 @@ wait
 ### 方法二：二进制文件启动
 
 1. 从仓库的 Releases 页面下载 linux-amd64 平台的压缩包
-2. 根据需求修改 `configs/config.local.json`
+2. 根据需求修改 `config/config.local.json`
 3. 运行发布包中的 `start.sh`
 
 目录结构：
@@ -204,7 +204,7 @@ wait
 openshare-x.x.x-linux-amd64/
 ├── openshare
 ├── start.sh
-└── configs/
+└── config/
 ```
 
 启动：
