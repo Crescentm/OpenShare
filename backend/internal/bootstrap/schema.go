@@ -39,6 +39,9 @@ func EnsureSchema(db *gorm.DB) error {
 	if err := migrateFeedbacksSchema(db); err != nil {
 		return fmt.Errorf("migrate feedbacks schema: %w", err)
 	}
+	if err := migrateManagedSyncSchema(db); err != nil {
+		return fmt.Errorf("migrate managed sync schema: %w", err)
+	}
 	if err := db.AutoMigrate(managedModels...); err != nil {
 		return fmt.Errorf("auto migrate schema: %w", err)
 	}

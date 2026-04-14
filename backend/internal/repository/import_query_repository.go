@@ -12,10 +12,13 @@ import (
 )
 
 type FolderTreeFolderRow struct {
-	ID         string
-	ParentID   *string
-	Name       string
-	SourcePath *string
+	ID            string
+	ParentID      *string
+	Name          string
+	SourcePath    *string
+	SyncState     string
+	SyncError     string
+	LastScannedAt *time.Time
 }
 
 type FolderTreeFileRow struct {
@@ -28,35 +31,42 @@ type FolderTreeFileRow struct {
 
 type ManagedRootRow struct {
 	ID         string
+	Name       string
 	SourcePath *string
 }
 
 type ManagedSubtreeFolderRow struct {
-	ID          string
-	ParentID    *string
-	Name        string
-	Description string
-	SourcePath  *string
-	CreatedAt   time.Time
+	ID            string
+	ParentID      *string
+	Name          string
+	Description   string
+	SourcePath    *string
+	FsDirMtimeNs  int64
+	LastScannedAt *time.Time
+	SyncState     string
+	SyncError     string
+	CreatedAt     time.Time
 }
 
 type ManagedSubtreeFileRow struct {
-	ID            string
-	FolderID      *string
-	Name          string
-	Description   string
-	Extension     string
-	MimeType      string
-	Size          int64
-	DownloadCount int64
-	CreatedAt     time.Time
+	ID             string
+	FolderID       *string
+	Name           string
+	Description    string
+	Extension      string
+	MimeType       string
+	Size           int64
+	DownloadCount  int64
+	FsFileMtimeNs  int64
+	LastVerifiedAt *time.Time
+	CreatedAt      time.Time
 }
 
 func (r *ImportRepository) ListFolders(ctx context.Context) ([]FolderTreeFolderRow, error) {
 	var rows []FolderTreeFolderRow
 	err := r.db.WithContext(ctx).
 		Model(&model.Folder{}).
-		Select("id, parent_id, name, source_path").
+		Select("id, parent_id, name, source_path, sync_state, sync_error, last_scanned_at").
 		Order("name ASC").
 		Find(&rows).Error
 	if err != nil {
@@ -94,7 +104,7 @@ func (r *ImportRepository) ListManagedRoots(ctx context.Context) ([]ManagedRootR
 	var rows []ManagedRootRow
 	if err := r.db.WithContext(ctx).
 		Model(&model.Folder{}).
-		Select("id, source_path").
+		Select("id, name, source_path").
 		Where("parent_id IS NULL").
 		Where("source_path IS NOT NULL AND TRIM(source_path) <> ''").
 		Order("source_path ASC").
@@ -106,16 +116,16 @@ func (r *ImportRepository) ListManagedRoots(ctx context.Context) ([]ManagedRootR
 
 func (r *ImportRepository) ListManagedSubtreeFolders(ctx context.Context, rootFolderID string) ([]ManagedSubtreeFolderRow, error) {
 	query := `
-		WITH RECURSIVE folder_tree(id, parent_id, name, description, source_path, created_at) AS (
-			SELECT id, parent_id, name, description, source_path, created_at
+		WITH RECURSIVE folder_tree(id, parent_id, name, description, source_path, fs_dir_mtime_ns, last_scanned_at, sync_state, sync_error, created_at) AS (
+			SELECT id, parent_id, name, description, source_path, fs_dir_mtime_ns, last_scanned_at, sync_state, sync_error, created_at
 			FROM folders
 			WHERE id = ?
 			UNION ALL
-			SELECT folders.id, folders.parent_id, folders.name, folders.description, folders.source_path, folders.created_at
+			SELECT folders.id, folders.parent_id, folders.name, folders.description, folders.source_path, folders.fs_dir_mtime_ns, folders.last_scanned_at, folders.sync_state, folders.sync_error, folders.created_at
 			FROM folders
 			JOIN folder_tree ON folders.parent_id = folder_tree.id
 		)
-		SELECT id, parent_id, name, description, source_path, created_at
+		SELECT id, parent_id, name, description, source_path, fs_dir_mtime_ns, last_scanned_at, sync_state, sync_error, created_at
 		FROM folder_tree
 	`
 
@@ -146,6 +156,8 @@ func (r *ImportRepository) ListManagedSubtreeFiles(ctx context.Context, rootFold
 			files.mime_type,
 			files.size,
 			files.download_count,
+			files.fs_file_mtime_ns,
+			files.last_verified_at,
 			files.created_at
 		FROM files
 		JOIN folder_tree ON files.folder_id = folder_tree.id

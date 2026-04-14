@@ -12,20 +12,28 @@ import (
 )
 
 type ManagedFolderUpdate struct {
-	ID         string
-	ParentID   *string
-	Name       string
-	SourcePath string
+	ID             string
+	ParentID       *string
+	Name           string
+	SourcePath     string
+	FsDirMtimeNs   int64
+	LastScannedAt  *time.Time
+	SyncState      string
+	SyncError      string
+	TouchUpdatedAt bool
 }
 
 type ManagedFileUpdate struct {
-	ID          string
-	FolderID    *string
-	Name        string
-	Description string
-	Extension   string
-	MimeType    string
-	Size        int64
+	ID             string
+	FolderID       *string
+	Name           string
+	Description    string
+	Extension      string
+	MimeType       string
+	Size           int64
+	FsFileMtimeNs  int64
+	LastVerifiedAt *time.Time
+	TouchUpdatedAt bool
 }
 
 type RescanSyncInput struct {
@@ -61,14 +69,21 @@ func (r *ImportRepository) ApplyRescanSync(ctx context.Context, input RescanSync
 		}
 
 		for _, update := range input.UpdatedFolders {
+			values := map[string]any{
+				"parent_id":       update.ParentID,
+				"name":            update.Name,
+				"source_path":     update.SourcePath,
+				"fs_dir_mtime_ns": update.FsDirMtimeNs,
+				"last_scanned_at": update.LastScannedAt,
+				"sync_state":      update.SyncState,
+				"sync_error":      update.SyncError,
+			}
+			if update.TouchUpdatedAt {
+				values["updated_at"] = input.Now
+			}
 			if err := tx.Model(&model.Folder{}).
 				Where("id = ?", update.ID).
-				Updates(map[string]any{
-					"parent_id":   update.ParentID,
-					"name":        update.Name,
-					"source_path": update.SourcePath,
-					"updated_at":  input.Now,
-				}).Error; err != nil {
+				Updates(values).Error; err != nil {
 				return fmt.Errorf("update rescanned folder %s: %w", update.ID, err)
 			}
 		}
@@ -80,17 +95,22 @@ func (r *ImportRepository) ApplyRescanSync(ctx context.Context, input RescanSync
 		}
 
 		for _, update := range input.UpdatedFiles {
+			values := map[string]any{
+				"folder_id":        update.FolderID,
+				"name":             update.Name,
+				"description":      update.Description,
+				"extension":        update.Extension,
+				"mime_type":        update.MimeType,
+				"size":             update.Size,
+				"fs_file_mtime_ns": update.FsFileMtimeNs,
+				"last_verified_at": update.LastVerifiedAt,
+			}
+			if update.TouchUpdatedAt {
+				values["updated_at"] = input.Now
+			}
 			if err := tx.Model(&model.File{}).
 				Where("id = ?", update.ID).
-				Updates(map[string]any{
-					"folder_id":      update.FolderID,
-					"name":           update.Name,
-					"description":    update.Description,
-					"extension":      update.Extension,
-					"mime_type":      update.MimeType,
-					"size":           update.Size,
-					"updated_at":     input.Now,
-				}).Error; err != nil {
+				Updates(values).Error; err != nil {
 				return fmt.Errorf("update rescanned file %s: %w", update.ID, err)
 			}
 		}
@@ -108,10 +128,25 @@ func (r *ImportRepository) ApplyRescanSync(ctx context.Context, input RescanSync
 			return fmt.Errorf("rebuild dashboard stats after rescan: %w", err)
 		}
 
+		if input.OperatorID == "" {
+			return nil
+		}
+
 		logID, err := identity.NewID()
 		if err != nil {
 			return fmt.Errorf("generate rescan operation log id: %w", err)
 		}
 		return createOperationLogTx(tx, logID, input.OperatorID, "managed_directory_rescanned", "folder", input.RootFolderID, input.Detail, input.OperatorIP, input.Now)
 	})
+}
+
+func (r *ImportRepository) UpdateFolderSyncState(ctx context.Context, folderID string, state, syncError string, now time.Time) error {
+	return r.db.WithContext(ctx).
+		Model(&model.Folder{}).
+		Where("id = ?", folderID).
+		Updates(map[string]any{
+			"sync_state": state,
+			"sync_error": syncError,
+			"updated_at": now,
+		}).Error
 }

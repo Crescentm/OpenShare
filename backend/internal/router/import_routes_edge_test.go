@@ -279,3 +279,43 @@ func TestRescanManagedDirectoryMirrorsFilesystemAndPreservesHistoricalDownloadSt
 		t.Fatalf("expected historical total downloads preserved, got %d", systemStats.TotalDownloads)
 	}
 }
+
+func TestGetFolderTreeIncludesSyncStatus(t *testing.T) {
+	_, _, cookie, engine, _ := newImportRouteEnv(t, adminAccess{
+		username: "superadmin",
+		password: "s3cret-pass",
+		role:     string(model.AdminRoleSuperAdmin),
+	})
+	importRoot := createImportFixture(t)
+
+	importRecorder := importLocalDirectory(t, engine, cookie, importRoot)
+	if importRecorder.Code != http.StatusOK {
+		t.Fatalf("expected import status 200, got %d body=%s", importRecorder.Code, importRecorder.Body.String())
+	}
+
+	treeRequest := httptest.NewRequest(http.MethodGet, "/api/admin/folders/tree", nil)
+	treeRequest.AddCookie(cookie)
+	treeRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(treeRecorder, treeRequest)
+	if treeRecorder.Code != http.StatusOK {
+		t.Fatalf("expected folder tree status 200, got %d body=%s", treeRecorder.Code, treeRecorder.Body.String())
+	}
+
+	var response struct {
+		Items []struct {
+			ID            string  `json:"id"`
+			SyncState     string  `json:"sync_state"`
+			SyncError     string  `json:"sync_error"`
+			LastScannedAt *string `json:"last_scanned_at"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(treeRecorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode folder tree response failed: %v", err)
+	}
+	if len(response.Items) == 0 {
+		t.Fatalf("expected at least one managed folder in tree response")
+	}
+	if response.Items[0].SyncState == "" {
+		t.Fatalf("expected sync_state in folder tree response, got %+v", response.Items[0])
+	}
+}

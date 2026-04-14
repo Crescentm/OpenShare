@@ -35,13 +35,14 @@ type OpenedFile struct {
 }
 
 type ScannedEntry struct {
-	AbsolutePath string
-	RelativePath string
-	Name         string
-	IsDir        bool
-	Size         int64
-	Extension    string
-	MimeType     string
+	AbsolutePath    string
+	RelativePath    string
+	Name            string
+	IsDir           bool
+	Size            int64
+	ModTimeUnixNano int64
+	Extension       string
+	MimeType        string
 }
 
 func NewService(cfg config.StorageConfig) *Service {
@@ -425,11 +426,12 @@ func (s *Service) ScanDirectory(rootPath string) ([]ScannedEntry, error) {
 			IsDir:        d.IsDir(),
 		}
 
+		fileInfo, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("read file info: %w", err)
+		}
+		entry.ModTimeUnixNano = fileInfo.ModTime().UTC().UnixNano()
 		if !d.IsDir() {
-			fileInfo, err := d.Info()
-			if err != nil {
-				return fmt.Errorf("read file info: %w", err)
-			}
 			entry.Size = fileInfo.Size()
 			entry.Extension = strings.ToLower(filepath.Ext(d.Name()))
 			entry.MimeType = mime.TypeByExtension(entry.Extension)
@@ -450,6 +452,60 @@ func (s *Service) ScanDirectory(rootPath string) ([]ScannedEntry, error) {
 
 func shouldIgnoreImportEntry(name string) bool {
 	return name == ".DS_Store"
+}
+
+func (s *Service) ReadDirectory(dirPath string) ([]ScannedEntry, error) {
+	dirPath = filepath.Clean(strings.TrimSpace(dirPath))
+	if dirPath == "" {
+		return nil, fmt.Errorf("directory path must not be empty")
+	}
+
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat managed directory: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("managed path is not a directory")
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("read managed directory: %w", err)
+	}
+
+	results := make([]ScannedEntry, 0, len(entries))
+	for _, entry := range entries {
+		if shouldIgnoreImportEntry(entry.Name()) {
+			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			return nil, fmt.Errorf("read managed entry info: %w", err)
+		}
+
+		item := ScannedEntry{
+			AbsolutePath:    filepath.Join(dirPath, entry.Name()),
+			RelativePath:    entry.Name(),
+			Name:            entry.Name(),
+			IsDir:           entry.IsDir(),
+			ModTimeUnixNano: info.ModTime().UTC().UnixNano(),
+		}
+		if !entry.IsDir() {
+			item.Size = info.Size()
+			item.Extension = strings.ToLower(filepath.Ext(entry.Name()))
+			item.MimeType = mime.TypeByExtension(item.Extension)
+			if item.MimeType == "" {
+				item.MimeType = "application/octet-stream"
+			}
+		}
+		results = append(results, item)
+	}
+
+	return results, nil
 }
 
 func (s *Service) claimStoredPath(tempPath, extension string) (string, string, error) {

@@ -3,21 +3,25 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type FolderTreeNode struct {
-	ID         string               `json:"id"`
-	Name       string               `json:"name"`
-	SourcePath string               `json:"source_path"`
-	Folders    []FolderTreeNode     `json:"folders"`
-	Files      []FolderTreeFile     `json:"files"`
+	ID            string           `json:"id"`
+	Name          string           `json:"name"`
+	SourcePath    string           `json:"source_path"`
+	SyncState     string           `json:"sync_state"`
+	SyncError     string           `json:"sync_error"`
+	LastScannedAt *string          `json:"last_scanned_at"`
+	Folders       []FolderTreeNode `json:"folders"`
+	Files         []FolderTreeFile `json:"files"`
 }
 
 type FolderTreeFile struct {
-	ID            string               `json:"id"`
-	Name          string               `json:"name"`
-	Size          int64                `json:"size"`
-	DownloadCount int64                `json:"download_count"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Size          int64  `json:"size"`
+	DownloadCount int64  `json:"download_count"`
 }
 
 func (s *ImportService) GetFolderTree(ctx context.Context) ([]FolderTreeNode, error) {
@@ -36,11 +40,14 @@ func (s *ImportService) GetFolderTree(ctx context.Context) ([]FolderTreeNode, er
 
 	for _, folder := range folders {
 		nodes[folder.ID] = &FolderTreeNode{
-			ID:         folder.ID,
-			Name:       folder.Name,
-			SourcePath: derefString(folder.SourcePath),
-			Folders:    []FolderTreeNode{},
-			Files:      []FolderTreeFile{},
+			ID:            folder.ID,
+			Name:          folder.Name,
+			SourcePath:    derefString(folder.SourcePath),
+			SyncState:     folder.SyncState,
+			SyncError:     folder.SyncError,
+			LastScannedAt: formatOptionalUTCTime(folder.LastScannedAt),
+			Folders:       []FolderTreeNode{},
+			Files:         []FolderTreeFile{},
 		}
 	}
 	for _, folder := range folders {
@@ -83,4 +90,12 @@ func (s *ImportService) GetFolderTree(ctx context.Context) ([]FolderTreeNode, er
 	}
 
 	return result, nil
+}
+
+func formatOptionalUTCTime(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+	formatted := value.UTC().Format(time.RFC3339)
+	return &formatted
 }

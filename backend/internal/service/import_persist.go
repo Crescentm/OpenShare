@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"openshare/backend/internal/model"
@@ -33,13 +34,19 @@ func (s *ImportService) ensureFolder(ctx context.Context, parentID *string, name
 	}
 
 	sourcePathCopy := sourcePath
+	folderInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		return nil, false, "", fmt.Errorf("stat imported folder: %w", err)
+	}
 	folder := &model.Folder{
-		ID:         id,
-		ParentID:   parentID,
-		SourcePath: &sourcePathCopy,
-		Name:       name,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:           id,
+		ParentID:     parentID,
+		SourcePath:   &sourcePathCopy,
+		Name:         name,
+		FsDirMtimeNs: folderInfo.ModTime().UTC().UnixNano(),
+		SyncState:    string(model.FolderSyncStatePending),
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := s.repository.CreateFolder(ctx, folder); err != nil {
 		return nil, false, "", fmt.Errorf("create folder: %w", err)
@@ -79,6 +86,7 @@ func (s *ImportService) ensureFile(ctx context.Context, folderID *string, entry 
 		MimeType:      entry.MimeType,
 		Size:          entry.Size,
 		DownloadCount: 0,
+		FsFileMtimeNs: entry.ModTimeUnixNano,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}

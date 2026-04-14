@@ -48,6 +48,16 @@ const (
 	FeedbackStatusRejected FeedbackStatus = "rejected"
 )
 
+// FolderSyncState represents background synchronization state for a managed folder.
+type FolderSyncState string
+
+const (
+	FolderSyncStatePending FolderSyncState = "pending"
+	FolderSyncStateClean   FolderSyncState = "clean"
+	FolderSyncStateDirty   FolderSyncState = "dirty"
+	FolderSyncStateError   FolderSyncState = "error"
+)
+
 // ---------------------------------------------------------------------------
 // Core entities
 // ---------------------------------------------------------------------------
@@ -70,16 +80,20 @@ type Admin struct {
 
 // Folder is the hierarchical container for files and subfolders.
 type Folder struct {
-	ID            EntityID  `gorm:"column:id;type:text;primaryKey"`
-	ParentID      *EntityID `gorm:"column:parent_id;type:text;index:idx_folders_parent_id_status"`
-	SourcePath    *string   `gorm:"column:source_path;type:text;uniqueIndex:ux_folders_source_path"`
-	Name          string    `gorm:"column:name;type:text;not null"`
-	Description   string    `gorm:"column:description;type:text;not null;default:''"`
-	FileCount     int64     `gorm:"column:file_count;type:integer;not null;default:0"`
-	TotalSize     int64     `gorm:"column:total_size;type:integer;not null;default:0"`
-	DownloadCount int64     `gorm:"column:download_count;type:integer;not null;default:0"`
-	CreatedAt     time.Time `gorm:"column:created_at;autoCreateTime;index:idx_folders_created_at,sort:desc"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;autoUpdateTime"`
+	ID            EntityID   `gorm:"column:id;type:text;primaryKey"`
+	ParentID      *EntityID  `gorm:"column:parent_id;type:text;index:idx_folders_parent_id_status"`
+	SourcePath    *string    `gorm:"column:source_path;type:text;uniqueIndex:ux_folders_source_path"`
+	Name          string     `gorm:"column:name;type:text;not null"`
+	Description   string     `gorm:"column:description;type:text;not null;default:''"`
+	FileCount     int64      `gorm:"column:file_count;type:integer;not null;default:0"`
+	TotalSize     int64      `gorm:"column:total_size;type:integer;not null;default:0"`
+	DownloadCount int64      `gorm:"column:download_count;type:integer;not null;default:0"`
+	FsDirMtimeNs  int64      `gorm:"column:fs_dir_mtime_ns;type:integer;not null;default:0"`
+	LastScannedAt *time.Time `gorm:"column:last_scanned_at;type:datetime"`
+	SyncState     string     `gorm:"column:sync_state;type:text;not null;default:'pending';index:idx_folders_sync_state"`
+	SyncError     string     `gorm:"column:sync_error;type:text;not null;default:''"`
+	CreatedAt     time.Time  `gorm:"column:created_at;autoCreateTime;index:idx_folders_created_at,sort:desc"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;autoUpdateTime"`
 
 	// Relations
 	Parent   *Folder  `gorm:"foreignKey:ParentID"`
@@ -89,16 +103,18 @@ type Folder struct {
 
 // File is the managed resource metadata stored in SQLite.
 type File struct {
-	ID            EntityID  `gorm:"column:id;type:text;primaryKey"`
-	FolderID      *EntityID `gorm:"column:folder_id;type:text;index:idx_files_folder_id"`
-	Name          string    `gorm:"column:name;type:text;not null;default:''"`
-	Description   string    `gorm:"column:description;type:text;not null;default:''"`
-	Extension     string    `gorm:"column:extension;type:text;not null;default:''"`
-	MimeType      string    `gorm:"column:mime_type;type:text;not null;default:''"`
-	Size          int64     `gorm:"column:size;type:integer;not null;default:0"`
-	DownloadCount int64     `gorm:"column:download_count;type:integer;not null;default:0"`
-	CreatedAt     time.Time `gorm:"column:created_at;autoCreateTime;index:idx_files_created_at,sort:desc"`
-	UpdatedAt     time.Time `gorm:"column:updated_at;autoUpdateTime"`
+	ID             EntityID   `gorm:"column:id;type:text;primaryKey"`
+	FolderID       *EntityID  `gorm:"column:folder_id;type:text;index:idx_files_folder_id"`
+	Name           string     `gorm:"column:name;type:text;not null;default:''"`
+	Description    string     `gorm:"column:description;type:text;not null;default:''"`
+	Extension      string     `gorm:"column:extension;type:text;not null;default:''"`
+	MimeType       string     `gorm:"column:mime_type;type:text;not null;default:''"`
+	Size           int64      `gorm:"column:size;type:integer;not null;default:0"`
+	DownloadCount  int64      `gorm:"column:download_count;type:integer;not null;default:0"`
+	FsFileMtimeNs  int64      `gorm:"column:fs_file_mtime_ns;type:integer;not null;default:0"`
+	LastVerifiedAt *time.Time `gorm:"column:last_verified_at;type:datetime"`
+	CreatedAt      time.Time  `gorm:"column:created_at;autoCreateTime;index:idx_files_created_at,sort:desc"`
+	UpdatedAt      time.Time  `gorm:"column:updated_at;autoUpdateTime"`
 
 	// Relations
 	Folder *Folder `gorm:"foreignKey:FolderID"`
