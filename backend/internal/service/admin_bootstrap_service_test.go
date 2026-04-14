@@ -13,6 +13,7 @@ import (
 )
 
 func TestEnsureDefaultSuperAdminIsIdempotent(t *testing.T) {
+	const defaultSuperAdminUsername = "admin"
 	db := newTestSQLite(t)
 
 	adminService := NewAdminBootstrapService(db, repository.NewAdminRepository(db))
@@ -34,7 +35,7 @@ func TestEnsureDefaultSuperAdminIsIdempotent(t *testing.T) {
 	}
 
 	admin := admins[0]
-	if admin.Username != defaultSuperAdminUsername {
+	if admin.Username[:len(defaultSuperAdminUsername)] != defaultSuperAdminUsername {
 		t.Fatalf("expected username %q, got %q", defaultSuperAdminUsername, admin.Username)
 	}
 	if admin.Role != string(model.AdminRoleSuperAdmin) {

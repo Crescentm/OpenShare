@@ -188,7 +188,7 @@ function statusBadgeClass(status: string) {
         />
 
         <div class="mt-6 rounded-xl border border-slate-200 bg-[#fafafa] px-4 py-3 text-sm leading-7 text-slate-600">
-          本会话回执码为：<span class="font-semibold text-slate-900">{{ receiptCode || "暂未同步" }}</span>。请妥善保存该回执码，若清除浏览器缓存或更换浏览器/设备，该回执码将会改变。
+          本会话回执码为：<span class="font-semibold text-slate-900">{{ receiptCode || "暂未同步" }}</span>。请妥善保存该回执码；若清除本站点数据或 Cookie，或更换浏览器/设备，该回执码可能会改变。
         </div>
 
         <div class="mt-6 flex flex-col gap-3 sm:flex-row">
