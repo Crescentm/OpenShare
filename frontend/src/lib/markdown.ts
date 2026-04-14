@@ -1,79 +1,85 @@
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+import DOMPurify from "dompurify";
+import MarkdownIt from "markdown-it";
+
+const markdownRenderer = new MarkdownIt({
+  html: true,
+  linkify: true,
+  typographer: true,
+  breaks: true,
+});
+
+interface RenderSimpleMarkdownOptions {
+  resolveURL?: (rawURL: string, tagName: "a" | "img") => string | null;
 }
 
-function renderInlineMarkdown(value: string) {
-  const escaped = escapeHtml(value);
-  return escaped
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-}
-
-export function renderSimpleMarkdown(source: string) {
+export function renderSimpleMarkdown(
+  source: string,
+  options: RenderSimpleMarkdownOptions = {},
+) {
   const normalized = source.replace(/\r\n/g, "\n").trim();
   if (!normalized) {
     return "";
   }
 
-  const lines = normalized.split("\n");
-  const html: string[] = [];
-  let paragraph: string[] = [];
-  let listItems: string[] = [];
-
-  function flushParagraph() {
-    if (paragraph.length === 0) {
-      return;
-    }
-    html.push(`<p>${paragraph.map((line) => renderInlineMarkdown(line)).join("<br />")}</p>`);
-    paragraph = [];
+  const rendered = markdownRenderer.render(normalized);
+  const sanitized = DOMPurify.sanitize(rendered, {
+    USE_PROFILES: { html: true },
+  });
+  if (!options.resolveURL) {
+    return sanitized;
   }
 
-  function flushList() {
-    if (listItems.length === 0) {
-      return;
+  const transformed = rewriteRelativeMarkdownURLs(sanitized, options.resolveURL);
+  return DOMPurify.sanitize(transformed, {
+    USE_PROFILES: { html: true },
+  });
+}
+
+function rewriteRelativeMarkdownURLs(
+  html: string,
+  resolveURL: NonNullable<RenderSimpleMarkdownOptions["resolveURL"]>,
+) {
+  const documentFragment = new DOMParser().parseFromString(html, "text/html");
+
+  for (const element of documentFragment.querySelectorAll("a[href], img[src]")) {
+    if (element instanceof HTMLAnchorElement) {
+      rewriteElementURL(element, "href", "a", resolveURL);
+      continue;
     }
-    html.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
-    listItems = [];
+    if (element instanceof HTMLImageElement) {
+      rewriteElementURL(element, "src", "img", resolveURL);
+    }
   }
 
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    const trimmed = line.trim();
+  return documentFragment.body.innerHTML;
+}
 
-    if (!trimmed) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      flushList();
-      const level = heading[1].length;
-      html.push(`<h${level}>${renderInlineMarkdown(heading[2].trim())}</h${level}>`);
-      continue;
-    }
-
-    if (trimmed.startsWith("- ")) {
-      flushParagraph();
-      listItems.push(trimmed.slice(2).trim());
-      continue;
-    }
-
-    flushList();
-    paragraph.push(trimmed);
+function rewriteElementURL(
+  element: HTMLAnchorElement | HTMLImageElement,
+  attributeName: "href" | "src",
+  tagName: "a" | "img",
+  resolveURL: NonNullable<RenderSimpleMarkdownOptions["resolveURL"]>,
+) {
+  const rawURL = element.getAttribute(attributeName)?.trim();
+  if (!rawURL || !isRelativeMarkdownURL(rawURL)) {
+    return;
   }
 
-  flushParagraph();
-  flushList();
+  const nextURL = resolveURL(rawURL, tagName);
+  if (!nextURL) {
+    return;
+  }
 
-  return html.join("");
+  element.setAttribute(attributeName, nextURL);
+}
+
+function isRelativeMarkdownURL(rawURL: string) {
+  if (!rawURL || rawURL.startsWith("#") || rawURL.startsWith("/")) {
+    return false;
+  }
+  if (rawURL.startsWith("//")) {
+    return false;
+  }
+
+  return !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(rawURL);
 }

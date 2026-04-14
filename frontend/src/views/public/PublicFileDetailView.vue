@@ -47,9 +47,21 @@ const feedbackMessage = ref("");
 const feedbackError = ref("");
 const currentReceiptCode = ref("");
 const fileID = computed(() => String(route.params.fileID ?? ""));
-const downloadURL = computed(() => `/api/public/files/${encodeURIComponent(fileID.value)}/download`);
+const buildFileContentURL = (view: "download" | "inline" | "text") =>
+  `/api/public/files/${encodeURIComponent(fileID.value)}/content?${new URLSearchParams({ view }).toString()}`;
+const downloadURL = computed(() => buildFileContentURL("download"));
+const previewURL = computed(() => buildFileContentURL("inline"));
 const descriptionHTML = computed(() => renderSimpleMarkdown(detail.value?.description ?? ""));
 const feedbackSubmitDisabled = computed(() => feedbackSubmitting.value || !feedbackDescription.value.trim());
+const supportsPDFPreview = computed(() => {
+  if (!detail.value) {
+    return false;
+  }
+
+  const extension = detail.value.extension?.trim().toLowerCase() ?? "";
+  const mimeType = detail.value.mime_type?.trim().toLowerCase() ?? "";
+  return extension === "pdf" || mimeType === "application/pdf";
+});
 const primaryDetailRows = computed(() => {
   if (!detail.value) {
     return [];
@@ -394,6 +406,46 @@ function downloadFile() {
                 v-html="descriptionHTML"
               />
               <p v-else class="text-sm text-slate-400">该文件暂无简介orz</p>
+            </div>
+
+            <div
+              v-if="supportsPDFPreview"
+              class="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5"
+            >
+              <div class="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <p
+                    class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
+                  >
+                    PDF Preview
+                  </p>
+                  <p class="mt-1 text-sm text-slate-500">
+                    可直接在线预览 PDF 内容。
+                  </p>
+                </div>
+              </div>
+
+              <object
+                :data="previewURL"
+                type="application/pdf"
+                class="h-[70vh] min-h-[560px] w-full rounded-2xl border border-slate-200"
+              >
+                <div
+                  class="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-6 text-center"
+                >
+                  <p class="text-sm text-slate-600">
+                    当前浏览器不支持内嵌 PDF 预览。
+                  </p>
+                  <a
+                    :href="previewURL"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-secondary"
+                  >
+                    在新标签页打开 PDF
+                  </a>
+                </div>
+              </object>
             </div>
           </section>
         </template>

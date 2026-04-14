@@ -22,14 +22,23 @@ import {
   Upload,
 } from "lucide-vue-next";
 
-import InfoPanelCard, { type InfoPanelCardItem } from "../../components/shared/InfoPanelCard.vue";
+import InfoPanelCard, {
+  type InfoPanelCardItem,
+} from "../../components/shared/InfoPanelCard.vue";
 import SearchSection from "../../components/resources/SearchSection.vue";
 import { HttpError, httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
-import { ensureSessionReceiptCode, readStoredReceiptCode } from "../../lib/receiptCode";
+import {
+  ensureSessionReceiptCode,
+  readStoredReceiptCode,
+} from "../../lib/receiptCode";
 import { hasAdminPermission } from "../../lib/admin/session";
 import { renderSimpleMarkdown } from "../../lib/markdown";
-import { collectDroppedEntries, normalizeFiles, type UploadSelectionEntry } from "../../lib/uploads/fileDrop";
+import {
+  collectDroppedEntries,
+  normalizeFiles,
+  type UploadSelectionEntry,
+} from "../../lib/uploads/fileDrop";
 
 interface AnnouncementItem {
   id: string;
@@ -129,7 +138,7 @@ const announcementListOpen = ref(false);
 const hotDownloadItems = ref<HotDownloadItem[]>([]);
 const latestItems = ref<LatestItem[]>([]);
 const sidebarDetailModal = ref<SidebarDetailModalState | null>(null);
-const viewMode = ref<"cards" | "table">("cards");
+const viewMode = ref<"cards" | "table">("table");
 const sortMode = ref<"name" | "download" | "format">("name");
 const sortDirection = ref<"asc" | "desc">("desc");
 const sortMenuOpen = ref(false);
@@ -153,12 +162,18 @@ const uploadDropActive = ref(false);
 const uploadCollecting = ref(false);
 const feedbackModalOpen = ref(false);
 const feedbackSuccessModalOpen = ref(false);
-const feedbackTarget = ref<{ id: string; type: "file" | "folder"; name: string } | null>(null);
+const feedbackTarget = ref<{
+  id: string;
+  type: "file" | "folder";
+  name: string;
+} | null>(null);
 const feedbackDescription = ref("");
 const feedbackSubmitting = ref(false);
 const feedbackMessage = ref("");
 const feedbackError = ref("");
-const feedbackSubmitDisabled = computed(() => feedbackSubmitting.value || !feedbackDescription.value.trim());
+const feedbackSubmitDisabled = computed(
+  () => feedbackSubmitting.value || !feedbackDescription.value.trim(),
+);
 
 const loading = ref(false);
 const error = ref("");
@@ -181,7 +196,11 @@ const folderNameDraft = ref("");
 const folderDescriptionDraft = ref("");
 const folderDescriptionSaving = ref(false);
 const folderDescriptionError = ref("");
-const deleteResourceTarget = ref<{ id: string; kind: "folder"; name: string } | null>(null);
+const deleteResourceTarget = ref<{
+  id: string;
+  kind: "folder";
+  name: string;
+} | null>(null);
 const deleteResourcePassword = ref("");
 const deleteResourceSubmitting = ref(false);
 const deleteResourceError = ref("");
@@ -189,21 +208,29 @@ const currentFolderID = computed(() => {
   const raw = route.query.folder;
   return typeof raw === "string" && raw.trim() ? raw.trim() : "";
 });
-const canUploadToCurrentFolder = computed(() => currentFolderID.value.length > 0);
+const canUploadToCurrentFolder = computed(
+  () => currentFolderID.value.length > 0,
+);
 const rootViewLocked = computed(() => route.query.root === "1");
-const hotDownloads = computed(() => hotDownloadItems.value.slice(0, 5).map((item) => ({
-  id: item.id,
-  label: item.name,
-})));
-const latestTitles = computed(() => latestItems.value.slice(0, 5).map((item) => ({
-  id: item.id,
-  label: item.name,
-})));
-const recentAnnouncements = computed(() => announcements.value.slice(0, 5).map((item) => ({
-  id: item.id,
-  label: item.title,
-  badge: item.is_pinned ? "置顶" : undefined,
-})));
+const hotDownloads = computed(() =>
+  hotDownloadItems.value.slice(0, 5).map((item) => ({
+    id: item.id,
+    label: item.name,
+  })),
+);
+const latestTitles = computed(() =>
+  latestItems.value.slice(0, 5).map((item) => ({
+    id: item.id,
+    label: item.name,
+  })),
+);
+const recentAnnouncements = computed(() =>
+  announcements.value.slice(0, 5).map((item) => ({
+    id: item.id,
+    label: item.title,
+    badge: item.is_pinned ? "置顶" : undefined,
+  })),
+);
 
 type DirectoryRow = {
   id: string;
@@ -217,6 +244,11 @@ type DirectoryRow = {
   updatedAt: string;
   downloadURL: string;
 };
+
+function buildPublicFileContentURL(fileID: string, view: "download" | "inline" | "text") {
+  const query = new URLSearchParams({ view });
+  return `/api/public/files/${encodeURIComponent(fileID)}/content?${query.toString()}`;
+}
 
 const rows = computed<DirectoryRow[]>(() => [
   ...folders.value.map((folder) => ({
@@ -242,21 +274,54 @@ const rows = computed<DirectoryRow[]>(() => [
         fileCount: 0,
         sizeText: formatSize(file.size),
         updatedAt: formatDateTime(file.uploaded_at),
-        downloadURL: `/api/public/files/${encodeURIComponent(file.id)}/download`,
+        downloadURL: buildPublicFileContentURL(file.id, "download"),
       }))
     : []),
 ]);
-const displayedRows = computed<DirectoryRow[]>(() => (searchKeyword.value ? searchRows.value : rows.value));
+const displayedRows = computed<DirectoryRow[]>(() =>
+  searchKeyword.value ? searchRows.value : rows.value,
+);
 
 const sortedRows = computed(() => {
-  const next = [...displayedRows.value];
-  next.sort((left, right) => compareRows(left, right, sortMode.value, sortDirection.value));
-  return next;
+  const folders = displayedRows.value
+    .filter((row) => row.kind === "folder")
+    .sort((left, right) =>
+      compareRows(left, right, sortMode.value, sortDirection.value),
+    );
+  const files = displayedRows.value
+    .filter((row) => row.kind === "file")
+    .sort((left, right) =>
+      compareRows(left, right, sortMode.value, sortDirection.value),
+    );
+
+  return [...folders, ...files];
 });
-const selectedRows = computed(() => sortedRows.value.filter((row) => selectedResourceKeys.value.includes(selectionKey(row))));
+const selectedRows = computed(() =>
+  sortedRows.value.filter((row) =>
+    selectedResourceKeys.value.includes(selectionKey(row)),
+  ),
+);
 const hasSelectedRows = computed(() => selectedRows.value.length > 0);
-const allVisibleRowsSelected = computed(() => sortedRows.value.length > 0 && selectedRows.value.length === sortedRows.value.length);
-const currentFolderDescriptionHTML = computed(() => renderSimpleMarkdown(currentFolderDetail.value?.description ?? ""));
+const allVisibleRowsSelected = computed(
+  () =>
+    sortedRows.value.length > 0 &&
+    selectedRows.value.length === sortedRows.value.length,
+);
+const currentFolderDescriptionHTML = computed(() => {
+  const desc = currentFolderDetail.value?.description;
+  if (desc) {
+    return renderSimpleMarkdown(desc);
+  }
+  if (readmePreviewHTML.value) {
+    return readmePreviewHTML.value;
+  }
+  return "";
+});
+const readmePreviewName = ref("");
+const readmePreviewHTML = ref("");
+const readmePreviewLoading = ref(false);
+const readmePreviewError = ref("");
+let readmePreviewRequestID = 0;
 const folderEditorDirty = computed(() => {
   if (!currentFolderDetail.value) {
     return false;
@@ -264,7 +329,8 @@ const folderEditorDirty = computed(() => {
 
   return (
     folderNameDraft.value.trim() !== currentFolderDetail.value.name ||
-    folderDescriptionDraft.value.trim() !== (currentFolderDetail.value.description ?? "")
+    folderDescriptionDraft.value.trim() !==
+      (currentFolderDetail.value.description ?? "")
   );
 });
 const currentFolderStats = computed(() => {
@@ -274,15 +340,31 @@ const currentFolderStats = computed(() => {
 
   return [
     { label: "文件夹名", value: currentFolderDetail.value.name },
-    { label: "下载量", value: String(currentFolderDetail.value.download_count ?? 0) },
-    { label: "文件数", value: `${currentFolderDetail.value.file_count ?? 0} 个文件` },
-    { label: "文件夹大小", value: formatSize(currentFolderDetail.value.total_size ?? 0) },
-    { label: "更新时间", value: formatDateTime(currentFolderDetail.value.updated_at) },
+    {
+      label: "下载量",
+      value: String(currentFolderDetail.value.download_count ?? 0),
+    },
+    {
+      label: "文件数",
+      value: `${currentFolderDetail.value.file_count ?? 0} 个文件`,
+    },
+    {
+      label: "文件夹大小",
+      value: formatSize(currentFolderDetail.value.total_size ?? 0),
+    },
+    {
+      label: "更新时间",
+      value: formatDateTime(currentFolderDetail.value.updated_at),
+    },
   ];
 });
 const canGoUp = computed(() => currentFolderID.value.length > 0);
-const backButtonLabel = computed(() => (searchKeyword.value ? "返回所在目录" : "返回上一级"));
-const canUseBackButton = computed(() => searchKeyword.value.length > 0 || canGoUp.value);
+const backButtonLabel = computed(() =>
+  searchKeyword.value ? "返回所在目录" : "返回上一级",
+);
+const canUseBackButton = computed(
+  () => searchKeyword.value.length > 0 || canGoUp.value,
+);
 
 function downloadResource(row: DirectoryRow) {
   actionMessage.value = "";
@@ -314,7 +396,9 @@ function isRowSelected(row: DirectoryRow) {
 function toggleRowSelection(row: DirectoryRow) {
   const key = selectionKey(row);
   if (selectedResourceKeys.value.includes(key)) {
-    selectedResourceKeys.value = selectedResourceKeys.value.filter((item) => item !== key);
+    selectedResourceKeys.value = selectedResourceKeys.value.filter(
+      (item) => item !== key,
+    );
     return;
   }
   selectedResourceKeys.value = [...selectedResourceKeys.value, key];
@@ -348,8 +432,12 @@ async function downloadSelectedResources() {
     return;
   }
 
-  const fileIDs = selectedRows.value.filter((row) => row.kind === "file").map((row) => row.id);
-  const folderIDs = selectedRows.value.filter((row) => row.kind === "folder").map((row) => row.id);
+  const fileIDs = selectedRows.value
+    .filter((row) => row.kind === "file")
+    .map((row) => row.id);
+  const folderIDs = selectedRows.value
+    .filter((row) => row.kind === "folder")
+    .map((row) => row.id);
 
   batchDownloadSubmitting.value = true;
   try {
@@ -394,15 +482,15 @@ async function downloadSelectedResources() {
 
 function syncBodyScrollLock() {
   const shouldLock = Boolean(
-    announcementDetail.value
-      || announcementListOpen.value
-      || sidebarDetailModal.value
-      || uploadModalOpen.value
-      || uploadSuccessModalOpen.value
-      || feedbackModalOpen.value
-      || feedbackSuccessModalOpen.value
-      || folderDescriptionEditorOpen.value
-      || deleteResourceTarget.value,
+    announcementDetail.value ||
+    announcementListOpen.value ||
+    sidebarDetailModal.value ||
+    uploadModalOpen.value ||
+    uploadSuccessModalOpen.value ||
+    feedbackModalOpen.value ||
+    feedbackSuccessModalOpen.value ||
+    folderDescriptionEditorOpen.value ||
+    deleteResourceTarget.value,
   );
   document.body.style.overflow = shouldLock ? "hidden" : "";
 }
@@ -413,15 +501,27 @@ onMounted(async () => {
     viewMode.value = storedViewMode;
   }
   const storedSortMode = window.localStorage.getItem("public-home-sort-mode");
-  if (storedSortMode === "name" || storedSortMode === "download" || storedSortMode === "format") {
+  if (
+    storedSortMode === "name" ||
+    storedSortMode === "download" ||
+    storedSortMode === "format"
+  ) {
     sortMode.value = storedSortMode;
   }
-  const storedSortDirection = window.localStorage.getItem("public-home-sort-direction");
+  const storedSortDirection = window.localStorage.getItem(
+    "public-home-sort-direction",
+  );
   if (storedSortDirection === "asc" || storedSortDirection === "desc") {
     sortDirection.value = storedSortDirection;
   }
   currentReceiptCode.value = await syncSessionReceiptCode();
-  await Promise.all([loadAnnouncements(), loadHotDownloads(), loadLatestTitles(), loadDirectory(), loadAdminPermission()]);
+  await Promise.all([
+    loadAnnouncements(),
+    loadHotDownloads(),
+    loadLatestTitles(),
+    loadDirectory(),
+    loadAdminPermission(),
+  ]);
 });
 
 onBeforeUnmount(() => {
@@ -438,7 +538,9 @@ watch(currentFolderID, () => {
 
 async function loadAnnouncements() {
   try {
-    const response = await httpClient.get<{ items: AnnouncementItem[] }>("/public/announcements");
+    const response = await httpClient.get<{ items: AnnouncementItem[] }>(
+      "/public/announcements",
+    );
     announcements.value = response.items ?? [];
   } catch {
     announcements.value = [];
@@ -477,7 +579,11 @@ function closeAnnouncementList() {
 }
 
 function announcementAuthorName(item: AnnouncementItem) {
-  return item.creator?.display_name?.trim() || item.creator?.username?.trim() || "未知用户";
+  return (
+    item.creator?.display_name?.trim() ||
+    item.creator?.username?.trim() ||
+    "未知用户"
+  );
 }
 
 function announcementAuthorInitial(item: AnnouncementItem) {
@@ -531,7 +637,9 @@ function openLatestItemsModal() {
 
 async function loadHotDownloads() {
   try {
-    const response = await httpClient.get<{ items: PublicFileItem[] }>("/public/files/hot?limit=20");
+    const response = await httpClient.get<{ items: PublicFileItem[] }>(
+      "/public/files/hot?limit=20",
+    );
     hotDownloadItems.value = (response.items ?? []).map((item) => ({
       id: item.id,
       name: item.name,
@@ -544,7 +652,9 @@ async function loadHotDownloads() {
 
 async function loadLatestTitles() {
   try {
-    const response = await httpClient.get<{ items: PublicFileItem[] }>("/public/files/latest?limit=20");
+    const response = await httpClient.get<{ items: PublicFileItem[] }>(
+      "/public/files/latest?limit=20",
+    );
     latestItems.value = (response.items ?? []).map((item) => ({
       id: item.id,
       name: item.name,
@@ -555,10 +665,12 @@ async function loadLatestTitles() {
 }
 
 async function loadDirectory() {
+  const requestID = ++readmePreviewRequestID;
   loading.value = true;
   error.value = "";
   actionMessage.value = "";
   actionError.value = "";
+  resetReadmePreview();
   try {
     const directoryParams = new URLSearchParams();
     if (currentFolderID.value) {
@@ -566,7 +678,9 @@ async function loadDirectory() {
     }
 
     const requests: Array<Promise<unknown>> = [
-      httpClient.get<{ items: PublicFolderItem[] }>(`/public/folders${directoryParams.toString() ? `?${directoryParams.toString()}` : ""}`),
+      httpClient.get<{ items: PublicFolderItem[] }>(
+        `/public/folders${directoryParams.toString() ? `?${directoryParams.toString()}` : ""}`,
+      ),
     ];
 
     if (currentFolderID.value) {
@@ -575,19 +689,41 @@ async function loadDirectory() {
         page_size: "100",
         sort: "name_asc",
       });
-      requests.push(httpClient.get<{ items: PublicFileItem[] }>(`/public/folders/${encodeURIComponent(currentFolderID.value)}/files?${folderParams.toString()}`));
+      requests.push(
+        httpClient.get<{ items: PublicFileItem[] }>(
+          `/public/folders/${encodeURIComponent(currentFolderID.value)}/files?${folderParams.toString()}`,
+        ),
+      );
     }
 
     if (currentFolderID.value) {
-      requests.push(httpClient.get<FolderDetailResponse>(`/public/folders/${encodeURIComponent(currentFolderID.value)}`));
+      requests.push(
+        httpClient.get<FolderDetailResponse>(
+          `/public/folders/${encodeURIComponent(currentFolderID.value)}`,
+        ),
+      );
     }
 
-    const [folderResponse, fileResponse, folderDetail] = await Promise.all(requests);
-    folders.value = (folderResponse as { items: PublicFolderItem[] }).items ?? [];
-    files.value = currentFolderID.value ? ((fileResponse as { items: PublicFileItem[] } | undefined)?.items ?? []) : [];
+    const [folderResponse, fileResponse, folderDetail] =
+      await Promise.all(requests);
+    if (requestID !== readmePreviewRequestID) {
+      return;
+    }
+    folders.value =
+      (folderResponse as { items: PublicFolderItem[] }).items ?? [];
+    files.value = currentFolderID.value
+      ? ((fileResponse as { items: PublicFileItem[] } | undefined)?.items ?? [])
+      : [];
 
-    if (!currentFolderID.value && !rootViewLocked.value && folders.value.length === 1) {
-      void router.replace({ name: "public-home", query: { folder: folders.value[0].id } });
+    if (
+      !currentFolderID.value &&
+      !rootViewLocked.value &&
+      folders.value.length === 1
+    ) {
+      void router.replace({
+        name: "public-home",
+        query: { folder: folders.value[0].id },
+      });
       return;
     }
 
@@ -603,6 +739,8 @@ async function loadDirectory() {
       folderDescriptionDraft.value = "";
       breadcrumbs.value = [];
     }
+
+    await loadReadmePreview(files.value, requestID);
   } catch (err: unknown) {
     folders.value = [];
     files.value = [];
@@ -610,6 +748,7 @@ async function loadDirectory() {
     currentFolderDetail.value = null;
     folderNameDraft.value = "";
     folderDescriptionDraft.value = "";
+    resetReadmePreview();
     if (err instanceof HttpError && err.status === 404) {
       error.value = "目录不存在或未公开。";
     } else {
@@ -620,8 +759,80 @@ async function loadDirectory() {
   }
 }
 
+function resetReadmePreview() {
+  readmePreviewName.value = "";
+  readmePreviewHTML.value = "";
+  readmePreviewLoading.value = false;
+  readmePreviewError.value = "";
+}
+
+function pickReadmeFile(entries: PublicFileItem[]) {
+  return entries.find((item) => item.name.trim().toLowerCase() === "readme.md");
+}
+
+function buildReadmeAssetURL(rawURL: string) {
+  if (!currentFolderID.value) {
+    return rawURL;
+  }
+
+  const query = new URLSearchParams({ path: rawURL });
+  return `/api/public/folders/${encodeURIComponent(currentFolderID.value)}/assets?${query.toString()}`;
+}
+
+async function loadReadmePreview(entries: PublicFileItem[], requestID: number) {
+  if (!currentFolderID.value) {
+    return;
+  }
+
+  const readmeFile = pickReadmeFile(entries);
+  if (!readmeFile) {
+    return;
+  }
+
+  readmePreviewName.value = readmeFile.name;
+  readmePreviewLoading.value = true;
+  readmePreviewError.value = "";
+
+  try {
+    const response = await fetch(
+      buildPublicFileContentURL(readmeFile.id, "text"),
+      {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Accept: "text/plain",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error("readme preview failed");
+    }
+
+    const markdownText = await response.text();
+    if (requestID !== readmePreviewRequestID) {
+      return;
+    }
+
+    readmePreviewHTML.value = renderSimpleMarkdown(markdownText, {
+      resolveURL: (rawURL) => buildReadmeAssetURL(rawURL),
+    });
+  } catch {
+    if (requestID !== readmePreviewRequestID) {
+      return;
+    }
+    readmePreviewError.value = "README 预览加载失败。";
+  } finally {
+    if (requestID === readmePreviewRequestID) {
+      readmePreviewLoading.value = false;
+    }
+  }
+}
+
 async function loadAdminPermission() {
-  canManageResourceDescriptions.value = await hasAdminPermission("resource_moderation");
+  canManageResourceDescriptions.value = await hasAdminPermission(
+    "resource_moderation",
+  );
 }
 
 function openRoot() {
@@ -708,10 +919,13 @@ async function confirmDeleteResource() {
   deleteResourceSubmitting.value = true;
   deleteResourceError.value = "";
   try {
-    await httpClient.request(`/admin/resources/folders/${encodeURIComponent(deleteResourceTarget.value.id)}`, {
-      method: "DELETE",
-      body: { password: deleteResourcePassword.value },
-    });
+    await httpClient.request(
+      `/admin/resources/folders/${encodeURIComponent(deleteResourceTarget.value.id)}`,
+      {
+        method: "DELETE",
+        body: { password: deleteResourcePassword.value },
+      },
+    );
     const parentID = currentFolderDetail.value?.parent_id ?? "";
     closeDeleteResourceDialog();
     actionMessage.value = `文件夹 ${currentFolderDetail.value?.name ?? ""} 已删除。`;
@@ -748,20 +962,26 @@ async function runSearch(keyword: string) {
     if (currentFolderID.value) {
       query.set("folder_id", currentFolderID.value);
     }
-    const response = await httpClient.get<SearchResultResponse>(`/public/search?${query.toString()}`);
+    const response = await httpClient.get<SearchResultResponse>(
+      `/public/search?${query.toString()}`,
+    );
     searchRows.value = response.items.map((item) => ({
       id: item.id,
       kind: item.entity_type,
       name: item.name,
-      extension: item.entity_type === "file" ? (item.extension || extractExtension(item.name)) : "",
+      extension:
+        item.entity_type === "file"
+          ? item.extension || extractExtension(item.name)
+          : "",
       description: "",
       downloadCount: item.download_count ?? 0,
       fileCount: 0,
       sizeText: item.entity_type === "file" ? formatSize(item.size ?? 0) : "-",
       updatedAt: item.uploaded_at ? formatDateTime(item.uploaded_at) : "-",
-      downloadURL: item.entity_type === "file"
-        ? `/api/public/files/${encodeURIComponent(item.id)}/download`
-        : `/api/public/folders/${encodeURIComponent(item.id)}/download`,
+      downloadURL:
+        item.entity_type === "file"
+          ? buildPublicFileContentURL(item.id, "download")
+          : `/api/public/folders/${encodeURIComponent(item.id)}/download`,
     }));
   } catch (err: unknown) {
     searchRows.value = [];
@@ -809,8 +1029,13 @@ function closeUploadSuccessModal() {
 
 function onUploadFileChange(event: Event) {
   const target = event.target as HTMLInputElement;
-  uploadForm.value.entries = normalizeFiles(Array.from(target.files ?? []).slice(0, 1));
-  if (uploadForm.value.entries.length === 0 && (target.files?.length ?? 0) > 0) {
+  uploadForm.value.entries = normalizeFiles(
+    Array.from(target.files ?? []).slice(0, 1),
+  );
+  if (
+    uploadForm.value.entries.length === 0 &&
+    (target.files?.length ?? 0) > 0
+  ) {
     uploadError.value = "已自动忽略 .DS_Store，请重新选择可上传文件。";
   }
 }
@@ -832,7 +1057,11 @@ function onUploadDragEnter() {
 
 function onUploadDragLeave(event: DragEvent) {
   const currentTarget = event.currentTarget as HTMLElement | null;
-  if (currentTarget && event.relatedTarget instanceof Node && currentTarget.contains(event.relatedTarget)) {
+  if (
+    currentTarget &&
+    event.relatedTarget instanceof Node &&
+    currentTarget.contains(event.relatedTarget)
+  ) {
     return;
   }
   uploadDropActive.value = false;
@@ -869,17 +1098,30 @@ async function submitUpload() {
     const formData = new FormData();
     formData.set("folder_id", currentFolderID.value);
     formData.set("description", uploadForm.value.description.trim());
-    formData.set("manifest", JSON.stringify(uploadForm.value.entries.map((entry) => ({
-      relative_path: entry.relativePath,
-    }))));
+    formData.set(
+      "manifest",
+      JSON.stringify(
+        uploadForm.value.entries.map((entry) => ({
+          relative_path: entry.relativePath,
+        })),
+      ),
+    );
     uploadForm.value.entries.forEach((entry) => {
       formData.append("files", entry.file, entry.file.name);
     });
-    const response = await httpClient.post<{ receipt_code: string; item_count: number; status: string }>("/public/submissions", formData);
-    uploadMessage.value = response.status === "approved"
-      ? `已上传 ${response.item_count} 个文件，请保存回执码 ${response.receipt_code}。`
-      : `已提交 ${response.item_count} 个文件进入审核，请保存回执码 ${response.receipt_code}。`;
-    window.sessionStorage.setItem("openshare_receipt_code", response.receipt_code);
+    const response = await httpClient.post<{
+      receipt_code: string;
+      item_count: number;
+      status: string;
+    }>("/public/submissions", formData);
+    uploadMessage.value =
+      response.status === "approved"
+        ? `已上传 ${response.item_count} 个文件，请保存回执码 ${response.receipt_code}。`
+        : `已提交 ${response.item_count} 个文件进入审核，请保存回执码 ${response.receipt_code}。`;
+    window.sessionStorage.setItem(
+      "openshare_receipt_code",
+      response.receipt_code,
+    );
     currentReceiptCode.value = response.receipt_code;
     uploadForm.value.description = "";
     clearUploadEntries();
@@ -931,7 +1173,9 @@ function allowDownloadRequest() {
   const now = Date.now();
   const windowMs = 10_000;
   const limit = 10;
-  downloadTimestamps.value = downloadTimestamps.value.filter((timestamp) => now - timestamp < windowMs);
+  downloadTimestamps.value = downloadTimestamps.value.filter(
+    (timestamp) => now - timestamp < windowMs,
+  );
   if (downloadTimestamps.value.length >= limit) {
     return false;
   }
@@ -961,10 +1205,16 @@ function setViewMode(mode: "cards" | "table") {
   window.localStorage.setItem("public-home-view-mode", mode);
 }
 
-watch(sortedRows, (rows) => {
-  const allowedKeys = new Set(rows.map((row) => selectionKey(row)));
-  selectedResourceKeys.value = selectedResourceKeys.value.filter((key) => allowedKeys.has(key));
-}, { immediate: true });
+watch(
+  sortedRows,
+  (rows) => {
+    const allowedKeys = new Set(rows.map((row) => selectionKey(row)));
+    selectedResourceKeys.value = selectedResourceKeys.value.filter((key) =>
+      allowedKeys.has(key),
+    );
+  },
+  { immediate: true },
+);
 
 function setSortMode(mode: "name" | "download" | "format") {
   sortMode.value = mode;
@@ -996,7 +1246,11 @@ function viewModeLabel(mode: "cards" | "table") {
   return mode === "cards" ? "卡片" : "表格";
 }
 
-function openFeedbackModal(target: { id: string; type: "file" | "folder"; name: string }) {
+function openFeedbackModal(target: {
+  id: string;
+  type: "file" | "folder";
+  name: string;
+}) {
   feedbackModalOpen.value = true;
   feedbackTarget.value = target;
   feedbackDescription.value = "";
@@ -1042,23 +1296,26 @@ async function saveFolderDescription() {
   folderDescriptionSaving.value = true;
   folderDescriptionError.value = "";
   try {
-    await httpClient.request(`/admin/resources/folders/${encodeURIComponent(currentFolderDetail.value.id)}`, {
-      method: "PUT",
-      body: {
-        name: folderNameDraft.value.trim(),
-        description: folderDescriptionDraft.value.trim(),
+    await httpClient.request(
+      `/admin/resources/folders/${encodeURIComponent(currentFolderDetail.value.id)}`,
+      {
+        method: "PUT",
+        body: {
+          name: folderNameDraft.value.trim(),
+          description: folderDescriptionDraft.value.trim(),
+        },
       },
-    });
+    );
     currentFolderDetail.value = {
       ...currentFolderDetail.value,
       name: folderNameDraft.value.trim(),
       description: folderDescriptionDraft.value.trim(),
     };
-    breadcrumbs.value = breadcrumbs.value.map((item, index) => (
+    breadcrumbs.value = breadcrumbs.value.map((item, index) =>
       index === breadcrumbs.value.length - 1
         ? { ...item, name: folderNameDraft.value.trim() }
-        : item
-    ));
+        : item,
+    );
     folderDescriptionEditorOpen.value = false;
     syncBodyScrollLock();
   } catch (err: unknown) {
@@ -1081,13 +1338,21 @@ async function submitFeedback() {
   feedbackMessage.value = "";
   feedbackError.value = "";
   try {
-    const response = await httpClient.post<{ receipt_code: string }>("/public/feedback", {
-      file_id: feedbackTarget.value.type === "file" ? feedbackTarget.value.id : "",
-      folder_id: feedbackTarget.value.type === "folder" ? feedbackTarget.value.id : "",
-      description: feedbackDescription.value.trim(),
-    });
+    const response = await httpClient.post<{ receipt_code: string }>(
+      "/public/feedback",
+      {
+        file_id:
+          feedbackTarget.value.type === "file" ? feedbackTarget.value.id : "",
+        folder_id:
+          feedbackTarget.value.type === "folder" ? feedbackTarget.value.id : "",
+        description: feedbackDescription.value.trim(),
+      },
+    );
     feedbackMessage.value = `反馈已提交，请保存回执码 ${response.receipt_code}。`;
-    window.sessionStorage.setItem("openshare_receipt_code", response.receipt_code);
+    window.sessionStorage.setItem(
+      "openshare_receipt_code",
+      response.receipt_code,
+    );
     currentReceiptCode.value = response.receipt_code;
     closeFeedbackModal();
     feedbackSuccessModalOpen.value = true;
@@ -1108,7 +1373,8 @@ async function submitFeedback() {
 function formatSize(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
-  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+  if (size < 1024 * 1024 * 1024)
+    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
   return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
@@ -1134,13 +1400,41 @@ function extractExtension(name: string) {
 
 function fileIconComponent(extension: string) {
   const ext = extension.toLowerCase();
-  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) return FileImage;
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext))
+    return FileImage;
   if (["mp4", "mov", "avi", "mkv", "webm"].includes(ext)) return FileVideo;
-  if (["mp3", "wav", "flac", "aac", "m4a", "ogg"].includes(ext)) return FileAudio;
-  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz"].includes(ext)) return FileArchive;
+  if (["mp3", "wav", "flac", "aac", "m4a", "ogg"].includes(ext))
+    return FileAudio;
+  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz"].includes(ext))
+    return FileArchive;
   if (["xls", "xlsx", "csv", "numbers"].includes(ext)) return FileSpreadsheet;
-  if (["js", "ts", "jsx", "tsx", "json", "html", "css", "go", "py", "java", "c", "cpp", "h", "hpp", "rs", "sh", "yaml", "yml", "toml", "xml"].includes(ext)) return FileCode2;
-  if (["pdf", "doc", "docx", "ppt", "pptx", "txt", "md", "rtf"].includes(ext)) return FileText;
+  if (
+    [
+      "js",
+      "ts",
+      "jsx",
+      "tsx",
+      "json",
+      "html",
+      "css",
+      "go",
+      "py",
+      "java",
+      "c",
+      "cpp",
+      "h",
+      "hpp",
+      "rs",
+      "sh",
+      "yaml",
+      "yml",
+      "toml",
+      "xml",
+    ].includes(ext)
+  )
+    return FileCode2;
+  if (["pdf", "doc", "docx", "ppt", "pptx", "txt", "md", "rtf"].includes(ext))
+    return FileText;
   return FileType2;
 }
 
@@ -1202,10 +1496,17 @@ async function syncSessionReceiptCode() {
 
 <template>
   <Teleport to="body">
-    <div v-if="transientWarning" class="fixed inset-0 z-[130] flex items-center justify-center px-4">
+    <div
+      v-if="transientWarning"
+      class="fixed inset-0 z-[130] flex items-center justify-center px-4"
+    >
       <div
         class="rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm text-rose-700 shadow-lg shadow-rose-100/70"
-        :class="transientWarningLeaving ? 'animate-[warning-fade-out_1.2s_ease_forwards]' : 'animate-[warning-fade-in_0.18s_ease-out_forwards]'"
+        :class="
+          transientWarningLeaving
+            ? 'animate-[warning-fade-out_1.2s_ease_forwards]'
+            : 'animate-[warning-fade-in_0.18s_ease-out_forwards]'
+        "
       >
         {{ transientWarning }}
       </div>
@@ -1216,27 +1517,34 @@ async function syncSessionReceiptCode() {
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_248px]">
       <section class="order-1 min-w-0">
         <div class="panel overflow-hidden">
-          <div class="border-b border-slate-200 px-4 py-3 sm:px-6 dark:border-slate-800">
+          <div
+            class="border-b border-slate-200 px-4 py-3 sm:px-6 dark:border-slate-800"
+          >
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="min-w-0 max-w-full overflow-x-auto">
-                <div class="flex min-w-max items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                <button type="button" class="inline-flex items-center gap-2 rounded-full px-2 py-1 transition hover:bg-slate-100 hover:text-slate-900" @click="openRoot">
-                  <Home class="h-4 w-4" />
-                  <span>主页</span>
-                </button>
-                <template v-for="item in breadcrumbs" :key="item.id">
-                  <ChevronRight class="h-4 w-4 text-slate-300" />
+                <div
+                  class="flex min-w-max items-center gap-2 text-sm text-slate-500 dark:text-slate-400"
+                >
                   <button
                     type="button"
-                    class="rounded-full px-2 py-1 transition hover:bg-slate-100 hover:text-slate-900"
-                    @click="openFolder(item.id)"
+                    class="inline-flex items-center gap-2 rounded-full px-2 py-1 transition hover:bg-slate-100 hover:text-slate-900"
+                    @click="openRoot"
                   >
-                    {{ item.name }}
+                    <Home class="h-4 w-4" />
+                    <span>主页</span>
                   </button>
-                </template>
+                  <template v-for="item in breadcrumbs" :key="item.id">
+                    <ChevronRight class="h-4 w-4 text-slate-300" />
+                    <button
+                      type="button"
+                      class="rounded-full px-2 py-1 transition hover:bg-slate-100 hover:text-slate-900"
+                      @click="openFolder(item.id)"
+                    >
+                      {{ item.name }}
+                    </button>
+                  </template>
                 </div>
               </div>
-
             </div>
           </div>
 
@@ -1250,19 +1558,26 @@ async function syncSessionReceiptCode() {
             />
           </div>
 
-          <p v-if="searchError" class="mx-5 mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:mx-6">
+          <p
+            v-if="searchError"
+            class="mx-5 mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:mx-6"
+          >
             {{ searchError }}
           </p>
           <div
             v-else-if="searchKeyword"
             class="mx-5 mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 sm:mx-6"
           >
-            当前搜索：<span class="font-medium text-slate-900">{{ searchKeyword }}</span>
+            当前搜索：<span class="font-medium text-slate-900">{{
+              searchKeyword
+            }}</span>
             <span class="ml-2">共 {{ searchRows.length }} 条结果</span>
           </div>
 
           <div class="px-4 pb-2 sm:px-6">
-            <div class="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
+            <div
+              class="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3"
+            >
               <button
                 type="button"
                 class="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-45"
@@ -1277,11 +1592,17 @@ async function syncSessionReceiptCode() {
                 type="button"
                 class="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
                 :disabled="!canUploadToCurrentFolder"
-                :class="!canUploadToCurrentFolder ? 'cursor-not-allowed opacity-45 hover:border-slate-200 hover:text-slate-600' : ''"
+                :class="
+                  !canUploadToCurrentFolder
+                    ? 'cursor-not-allowed opacity-45 hover:border-slate-200 hover:text-slate-600'
+                    : ''
+                "
                 @click="openUpload"
               >
                 <Upload class="h-4 w-4" />
-                {{ canUploadToCurrentFolder ? "在该目录上传" : "进入目录后上传" }}
+                {{
+                  canUploadToCurrentFolder ? "在该目录上传" : "进入目录后上传"
+                }}
               </button>
 
               <button
@@ -1293,170 +1614,265 @@ async function syncSessionReceiptCode() {
                 {{ allVisibleRowsSelected ? "取消全选" : "全选" }}
               </button>
 
-              <div class="flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto sm:justify-end">
-              <div class="relative">
-                <button
-                  type="button"
-                  class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 sm:w-auto"
-                  @click="sortMenuOpen = !sortMenuOpen; viewMenuOpen = false"
-                >
-                  {{ sortModeLabel(sortMode) }} · {{ sortDirectionLabel(sortDirection) }}
-                  <ChevronRight class="h-4 w-4 rotate-90" />
-                </button>
-                <div v-if="sortMenuOpen" class="absolute left-0 top-full z-20 mt-2 min-w-[176px] rounded-2xl border border-slate-200 bg-white p-1 shadow-lg">
+              <div
+                class="flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto sm:justify-end"
+              >
+                <div class="relative">
                   <button
                     type="button"
-                    class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                    :class="sortMode === 'download' ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
-                    @click="setSortMode('download')"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 sm:w-auto"
+                    @click="
+                      sortMenuOpen = !sortMenuOpen;
+                      viewMenuOpen = false;
+                    "
                   >
-                    下载量排序
+                    {{ sortModeLabel(sortMode) }} ·
+                    {{ sortDirectionLabel(sortDirection) }}
+                    <ChevronRight class="h-4 w-4 rotate-90" />
                   </button>
-                  <button
-                    type="button"
-                    class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                    :class="sortMode === 'name' ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
-                    @click="setSortMode('name')"
+                  <div
+                    v-if="sortMenuOpen"
+                    class="absolute left-0 top-full z-20 mt-2 min-w-[176px] rounded-2xl border border-slate-200 bg-white p-1 shadow-lg"
                   >
-                    名称排序
-                  </button>
-                  <button
-                    type="button"
-                    class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                    :class="sortMode === 'format' ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
-                    @click="setSortMode('format')"
-                  >
-                    格式排序
-                  </button>
-                  <div class="mx-2 my-1 border-t border-slate-100"></div>
-                  <button
-                    type="button"
-                    class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                    :class="sortDirection === 'desc' ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
-                    @click="setSortDirection('desc')"
-                  >
-                    降序
-                  </button>
-                  <button
-                    type="button"
-                    class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                    :class="sortDirection === 'asc' ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
-                    @click="setSortDirection('asc')"
-                  >
-                    升序
-                  </button>
+                    <button
+                      type="button"
+                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
+                      :class="
+                        sortMode === 'download'
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      "
+                      @click="setSortMode('download')"
+                    >
+                      下载量排序
+                    </button>
+                    <button
+                      type="button"
+                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
+                      :class="
+                        sortMode === 'name'
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      "
+                      @click="setSortMode('name')"
+                    >
+                      名称排序
+                    </button>
+                    <button
+                      type="button"
+                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
+                      :class="
+                        sortMode === 'format'
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      "
+                      @click="setSortMode('format')"
+                    >
+                      格式排序
+                    </button>
+                    <div class="mx-2 my-1 border-t border-slate-100"></div>
+                    <button
+                      type="button"
+                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
+                      :class="
+                        sortDirection === 'desc'
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      "
+                      @click="setSortDirection('desc')"
+                    >
+                      降序
+                    </button>
+                    <button
+                      type="button"
+                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
+                      :class="
+                        sortDirection === 'asc'
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      "
+                      @click="setSortDirection('asc')"
+                    >
+                      升序
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <div class="relative">
-                <button
-                  type="button"
-                  class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 sm:w-auto"
-                  @click="viewMenuOpen = !viewMenuOpen; sortMenuOpen = false"
-                >
-                  <LayoutGrid v-if="viewMode === 'cards'" class="h-4 w-4" />
-                  <List v-else class="h-4 w-4" />
-                  {{ viewModeLabel(viewMode) }}
-                  <ChevronRight class="h-4 w-4 rotate-90" />
-                </button>
-                <div v-if="viewMenuOpen" class="absolute left-0 top-full z-20 mt-2 min-w-[124px] rounded-2xl border border-slate-200 bg-white p-1 shadow-lg">
+                <div class="relative">
                   <button
                     type="button"
-                    class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition"
-                    :class="viewMode === 'cards' ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
-                    @click="setViewMode('cards')"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 sm:w-auto"
+                    @click="
+                      viewMenuOpen = !viewMenuOpen;
+                      sortMenuOpen = false;
+                    "
                   >
-                    <LayoutGrid class="h-4 w-4" />
-                    卡片
+                    <LayoutGrid v-if="viewMode === 'cards'" class="h-4 w-4" />
+                    <List v-else class="h-4 w-4" />
+                    {{ viewModeLabel(viewMode) }}
+                    <ChevronRight class="h-4 w-4 rotate-90" />
                   </button>
-                  <button
-                    type="button"
-                    class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition"
-                    :class="viewMode === 'table' ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
-                    @click="setViewMode('table')"
+                  <div
+                    v-if="viewMenuOpen"
+                    class="absolute left-0 top-full z-20 mt-2 min-w-[124px] rounded-2xl border border-slate-200 bg-white p-1 shadow-lg"
                   >
-                    <List class="h-4 w-4" />
-                    表格
-                  </button>
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition"
+                      :class="
+                        viewMode === 'cards'
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      "
+                      @click="setViewMode('cards')"
+                    >
+                      <LayoutGrid class="h-4 w-4" />
+                      卡片
+                    </button>
+                    <button
+                      type="button"
+                      class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition"
+                      :class="
+                        viewMode === 'table'
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      "
+                      @click="setViewMode('table')"
+                    >
+                      <List class="h-4 w-4" />
+                      表格
+                    </button>
+                  </div>
                 </div>
-              </div>
               </div>
             </div>
           </div>
 
-          <p v-if="actionMessage" class="mx-4 mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 sm:mx-6">{{ actionMessage }}</p>
-          <p v-if="actionError" class="mx-4 mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:mx-6">{{ actionError }}</p>
+          <p
+            v-if="actionMessage"
+            class="mx-4 mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 sm:mx-6"
+          >
+            {{ actionMessage }}
+          </p>
+          <p
+            v-if="actionError"
+            class="mx-4 mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:mx-6"
+          >
+            {{ actionError }}
+          </p>
 
-          <div v-if="loading" class="px-4 py-8 text-sm text-slate-500 sm:px-6">加载中…</div>
-          <div v-else-if="error" class="px-4 py-8 text-sm text-rose-600 sm:px-6">{{ error }}</div>
-          <div v-else-if="sortedRows.length === 0" class="px-4 py-8 text-sm text-slate-500 sm:px-6">
+          <div v-if="loading" class="px-4 py-8 text-sm text-slate-500 sm:px-6">
+            加载中…
+          </div>
+          <div
+            v-else-if="error"
+            class="px-4 py-8 text-sm text-rose-600 sm:px-6"
+          >
+            {{ error }}
+          </div>
+          <div
+            v-else-if="sortedRows.length === 0"
+            class="px-4 py-8 text-sm text-slate-500 sm:px-6"
+          >
             {{ searchKeyword ? "没有找到匹配结果。" : "当前目录为空。" }}
           </div>
-          <div v-else-if="viewMode === 'cards'" class="grid gap-4 px-4 py-3 xl:grid-cols-2 sm:px-6 2xl:grid-cols-3">
+          <div
+            v-else-if="viewMode === 'cards'"
+            class="grid gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-3 sm:px-6 2xl:grid-cols-4"
+          >
             <article
               v-for="row in sortedRows"
               :key="`${row.kind}-${row.id}`"
-              class="group relative min-w-0 flex min-h-[168px] cursor-pointer flex-col rounded-3xl border border-slate-200 bg-white px-4 pt-3.5 transition hover:border-slate-300 hover:shadow-sm sm:px-5"
-              @click="row.kind === 'folder' ? openFolder(row.id) : openFile(row.id)"
+              class="group relative min-w-0 flex min-h-[132px] cursor-pointer flex-col rounded-2xl border border-slate-200 bg-white px-3.5 pt-3 transition hover:border-slate-300 hover:shadow-sm sm:px-4"
+              @click="
+                row.kind === 'folder' ? openFolder(row.id) : openFile(row.id)
+              "
             >
-              <div class="absolute right-5 top-4 z-10">
+              <div class="absolute right-4 top-3.5 z-10">
                 <input
                   :checked="isRowSelected(row)"
                   type="checkbox"
-                  class="h-5 w-5 rounded-lg border-slate-300 text-slate-900 focus:ring-slate-300"
+                  class="h-4.5 w-4.5 rounded-md border-slate-300 text-slate-900 focus:ring-slate-300"
                   @click.stop
                   @change="toggleRowSelection(row)"
                 />
               </div>
-              <div class="flex items-start gap-4">
-                <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-                  <Folder v-if="row.kind === 'folder'" class="h-7 w-7 text-blue-500" />
-                  <component v-else :is="fileIconComponent(row.extension)" class="h-7 w-7" />
+              <div class="flex items-start gap-3">
+                <div
+                  class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500"
+                >
+                  <Folder
+                    v-if="row.kind === 'folder'"
+                    class="h-5.5 w-5.5 text-blue-500"
+                  />
+                  <component
+                    v-else
+                    :is="fileIconComponent(row.extension)"
+                    class="h-5.5 w-5.5"
+                  />
                 </div>
-                <div class="min-w-0 flex-1 pr-10 pt-0.5">
-                  <h3 class="truncate text-base font-semibold leading-6 text-slate-900">{{ row.name }}</h3>
-                  <p v-if="row.kind === 'file' && row.description" class="mt-1 line-clamp-1 text-sm leading-5 text-slate-500">
+                <div class="min-w-0 flex-1 pr-8 pt-0.5">
+                  <h3
+                    class="truncate text-sm font-semibold leading-5 text-slate-900"
+                  >
+                    {{ row.name }}
+                  </h3>
+                  <div
+                    class="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500"
+                  >
+                    <template v-if="row.kind === 'file'">
+                      <span class="inline-flex items-center gap-1.5">
+                        <Download class="h-3 w-3" />
+                        {{ row.downloadCount }}
+                      </span>
+                      <span>{{ row.sizeText }}</span>
+                    </template>
+                    <template v-else>
+                      <span class="inline-flex items-center gap-1.5">
+                        <Download class="h-3 w-3" />
+                        {{ row.downloadCount }}
+                      </span>
+                      <span>{{ row.fileCount }} 个文件</span>
+                      <span>{{ row.sizeText }}</span>
+                    </template>
+                    <span
+                      class="inline-flex min-w-0 max-w-full items-center gap-1.5"
+                    >
+                      <Clock3 class="h-3 w-3" />
+                      <span class="truncate">{{ row.updatedAt }}</span>
+                    </span>
+                  </div>
+                  <p
+                    v-if="row.kind === 'file' && row.description"
+                    class="mt-0.5 line-clamp-1 text-xs leading-4.5 text-slate-500"
+                  >
                     {{ row.description }}
                   </p>
                 </div>
               </div>
 
-              <div class="mt-3 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                <template v-if="row.kind === 'file'">
-                  <span class="inline-flex items-center gap-1.5">
-                    <Download class="h-3.5 w-3.5" />
-                    {{ row.downloadCount }}
-                  </span>
-                  <span>{{ row.sizeText }}</span>
-                </template>
-                <template v-else>
-                  <span class="inline-flex items-center gap-1.5">
-                    <Download class="h-3.5 w-3.5" />
-                    {{ row.downloadCount }}
-                  </span>
-                  <span>{{ row.fileCount }} 个文件</span>
-                  <span>{{ row.sizeText }}</span>
-                </template>
-                <span class="inline-flex min-w-0 max-w-full items-center gap-1.5">
-                  <Clock3 class="h-3.5 w-3.5" />
-                  <span class="truncate">{{ row.updatedAt }}</span>
-                </span>
-              </div>
-
-              <div class="mt-auto flex items-center justify-between border-t border-slate-100 py-2.5">
+              <div
+                class="mt-auto flex items-center justify-between border-t border-slate-100 py-2"
+              >
                 <button
                   type="button"
-                  class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-                  @click.stop="openFeedbackModal({ id: row.id, type: row.kind, name: row.name })"
+                  class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                  @click.stop="
+                    openFeedbackModal({
+                      id: row.id,
+                      type: row.kind,
+                      name: row.name,
+                    })
+                  "
                 >
-                  <Flag class="h-4 w-4" />
+                  <Flag class="h-3.5 w-3.5" />
                 </button>
                 <button
                   type="button"
-                  class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white p-2.5 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                  class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
                   @click.stop="downloadResource(row)"
                 >
-                  <Download class="h-4 w-4" />
+                  <Download class="h-3.5 w-3.5" />
                 </button>
               </div>
             </article>
@@ -1468,7 +1884,9 @@ async function syncSessionReceiptCode() {
                   <th class="w-10"></th>
                   <th class="text-left">名称</th>
                   <th class="w-[120px] text-right">大小</th>
-                  <th class="hidden w-[220px] text-right xl:table-cell">修改时间</th>
+                  <th class="hidden w-[220px] text-right xl:table-cell">
+                    修改时间
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -1476,7 +1894,11 @@ async function syncSessionReceiptCode() {
                   v-for="row in sortedRows"
                   :key="`${row.kind}-${row.id}`"
                   class="cursor-pointer transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                  @click="row.kind === 'folder' ? openFolder(row.id) : openFile(row.id)"
+                  @click="
+                    row.kind === 'folder'
+                      ? openFolder(row.id)
+                      : openFile(row.id)
+                  "
                 >
                   <td @click.stop>
                     <input
@@ -1492,36 +1914,68 @@ async function syncSessionReceiptCode() {
                       class="flex min-w-0 items-center gap-3 text-left"
                     >
                       <Folder class="h-5 w-5 shrink-0 text-blue-500" />
-                      <span class="truncate text-slate-900 dark:text-slate-100" :title="row.name">{{ row.name }}</span>
+                      <span
+                        class="truncate text-slate-900 dark:text-slate-100"
+                        :title="row.name"
+                        >{{ row.name }}</span
+                      >
                     </div>
                     <div
                       v-else
                       class="flex min-w-0 items-center gap-3 text-left"
                     >
-                      <component :is="fileIconComponent(row.extension)" class="h-5 w-5 shrink-0 text-slate-500" />
-                      <span class="truncate text-slate-900 dark:text-slate-100" :title="row.name">{{ row.name }}</span>
+                      <component
+                        :is="fileIconComponent(row.extension)"
+                        class="h-5 w-5 shrink-0 text-slate-500"
+                      />
+                      <span
+                        class="truncate text-slate-900 dark:text-slate-100"
+                        :title="row.name"
+                        >{{ row.name }}</span
+                      >
                     </div>
                   </td>
-                  <td class="w-[120px] whitespace-nowrap text-right tabular-nums">{{ row.sizeText }}</td>
-                  <td class="hidden w-[220px] whitespace-nowrap text-right tabular-nums xl:table-cell">{{ row.updatedAt }}</td>
+                  <td
+                    class="w-[120px] whitespace-nowrap text-right tabular-nums"
+                  >
+                    {{ row.sizeText }}
+                  </td>
+                  <td
+                    class="hidden w-[220px] whitespace-nowrap text-right tabular-nums xl:table-cell"
+                  >
+                    {{ row.updatedAt }}
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <div v-if="currentFolderDetail" class="border-t border-slate-200 px-4 py-5 sm:px-6">
+          <div
+            v-if="currentFolderDetail"
+            class="border-t border-slate-200 px-4 py-5 sm:px-6"
+          >
             <section>
-              <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div
+                class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
+              >
                 <div class="min-w-0 flex-1 space-y-3">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Folder Info</p>
-                  <div class="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm text-slate-500">
+                  <p
+                    class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
+                  >
+                    Folder Info
+                  </p>
+                  <div
+                    class="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm text-slate-500"
+                  >
                     <div
                       v-for="item in currentFolderStats"
                       :key="item.label"
                       class="inline-flex items-center gap-2"
                     >
                       <span>{{ item.label }}</span>
-                      <span class="font-medium text-slate-900">{{ item.value }}</span>
+                      <span class="font-medium text-slate-900">{{
+                        item.value
+                      }}</span>
                     </div>
                   </div>
                 </div>
@@ -1546,7 +2000,13 @@ async function syncSessionReceiptCode() {
                     type="button"
                     class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-[transform,background-color,border-color,box-shadow,color] duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-[#fafafa] hover:text-slate-900 hover:shadow-sm hover:shadow-slate-950/[0.08]"
                     aria-label="反馈文件夹"
-                    @click="openFeedbackModal({ id: currentFolderDetail.id, type: 'folder', name: currentFolderDetail.name })"
+                    @click="
+                      openFeedbackModal({
+                        id: currentFolderDetail.id,
+                        type: 'folder',
+                        name: currentFolderDetail.name,
+                      })
+                    "
                   >
                     <Flag class="h-4 w-4" />
                   </button>
@@ -1561,7 +2021,9 @@ async function syncSessionReceiptCode() {
                 </div>
               </div>
 
-              <div class="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5">
+              <div
+                class="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5"
+              >
                 <div
                   v-if="currentFolderDescriptionHTML"
                   class="markdown-content"
@@ -1569,9 +2031,40 @@ async function syncSessionReceiptCode() {
                 />
                 <p v-else class="text-sm text-slate-400">该文件夹暂无简介orz</p>
               </div>
+
+              <div
+                v-if="
+                  (readmePreviewLoading ||
+                    readmePreviewError ||
+                    readmePreviewHTML) &&
+                  currentFolderDetail?.description
+                "
+                class="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5"
+              >
+                <div class="mb-3 flex items-center justify-between gap-2">
+                  <p
+                    class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
+                  >
+                    README Preview
+                  </p>
+                  <p class="text-xs text-slate-400">
+                    {{ readmePreviewName || "README.md" }}
+                  </p>
+                </div>
+                <p v-if="readmePreviewLoading" class="text-sm text-slate-500">
+                  README 加载中…
+                </p>
+                <p v-else-if="readmePreviewError" class="text-sm text-rose-600">
+                  {{ readmePreviewError }}
+                </p>
+                <div
+                  v-else
+                  class="markdown-content"
+                  v-html="readmePreviewHTML"
+                />
+              </div>
             </section>
           </div>
-
         </div>
       </section>
 
@@ -1620,12 +2113,26 @@ async function syncSessionReceiptCode() {
         v-if="hasSelectedRows"
         class="pointer-events-none fixed inset-x-0 bottom-6 z-[130] flex justify-center px-4"
       >
-        <div class="pointer-events-auto flex w-full max-w-3xl flex-col gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-[0_0_0_1px_rgba(15,23,42,0.06),0_22px_60px_-18px_rgba(15,23,42,0.34)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div
+          class="pointer-events-auto flex w-full max-w-3xl flex-col gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-[0_0_0_1px_rgba(15,23,42,0.06),0_22px_60px_-18px_rgba(15,23,42,0.34)] sm:flex-row sm:items-center sm:justify-between sm:px-6"
+        >
           <p class="text-sm text-slate-600">
-            已选 <span class="font-semibold text-slate-900">{{ selectedRows.length }}</span> 项
+            已选
+            <span class="font-semibold text-slate-900">{{
+              selectedRows.length
+            }}</span>
+            项
           </p>
-          <div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-            <button type="button" class="btn-secondary w-full sm:w-auto" @click="clearSelection">取消选择</button>
+          <div
+            class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center"
+          >
+            <button
+              type="button"
+              class="btn-secondary w-full sm:w-auto"
+              @click="clearSelection"
+            >
+              取消选择
+            </button>
             <button
               type="button"
               class="inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
@@ -1642,415 +2149,730 @@ async function syncSessionReceiptCode() {
 
   <Teleport to="body">
     <Transition name="modal-shell">
-    <div v-if="sidebarDetailModal" class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4">
-      <div class="modal-card panel w-full max-w-3xl p-6">
-        <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-          <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">{{ sidebarDetailModal.eyebrow }}</p>
-            <h3 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{{ sidebarDetailModal.title }}</h3>
-            <p class="mt-2 text-sm text-slate-500">{{ sidebarDetailModal.description }}</p>
-          </div>
-          <button type="button" class="btn-secondary" @click="closeSidebarDetailModal">关闭</button>
-        </div>
-        <div class="mt-5 max-h-[70vh] overflow-y-auto pr-1">
-          <div v-if="sidebarDetailModal.items.length === 0" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
-            暂无数据
-          </div>
-          <div v-else class="space-y-3">
-            <button
-              v-for="(item, index) in sidebarDetailModal.items"
-              :key="item.id"
-              type="button"
-              class="flex w-full items-center gap-4 rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
-              @click="openSidebarDetailItem({ id: item.id, label: item.label })"
-            >
-              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-semibold text-slate-600">
-                {{ index + 1 }}
-              </span>
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-medium text-slate-900">{{ item.label }}</p>
-              </div>
-              <span v-if="item.meta" class="shrink-0 text-sm text-slate-500">{{ item.meta }}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-    <div v-if="announcementListOpen" class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4">
-      <div class="modal-card panel w-full max-w-3xl p-6">
-        <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-          <div class="min-w-0">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Announcements</p>
-            <h3 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900">全部公告</h3>
-          </div>
-          <button type="button" class="btn-secondary" @click="closeAnnouncementList">关闭</button>
-        </div>
-        <div class="mt-5 max-h-[70vh] space-y-3 overflow-auto pr-1">
-          <button
-            v-for="item in announcements"
-            :key="item.id"
-            type="button"
-            class="flex w-full items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left transition hover:border-blue-200 hover:bg-blue-50/40"
-            @click="openAnnouncementDetail({ id: item.id, label: item.title })"
+      <div
+        v-if="sidebarDetailModal"
+        class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4"
+      >
+        <div class="modal-card panel w-full max-w-3xl p-6">
+          <div
+            class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"
           >
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <span
-                  v-if="item.is_pinned"
-                  class="rounded-md bg-[#dcecff] px-2 py-0.5 text-xs font-semibold text-[#4f8ff7]"
-                >
-                  置顶
-                </span>
-                <p class="text-base font-semibold text-slate-900">{{ item.title }}</p>
-              </div>
-              <div class="mt-3 flex flex-wrap items-center gap-2">
-                <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
-                  <img v-if="item.creator?.avatar_url" :src="item.creator.avatar_url" alt="发布人头像" class="h-full w-full object-cover" />
-                  <span v-else>{{ announcementAuthorInitial(item) }}</span>
-                </div>
-                <span class="text-sm font-medium text-slate-700">{{ announcementAuthorName(item) }}</span>
-                <span
-                  v-if="announcementAuthorIsSuperAdmin(item)"
-                  class="rounded-full bg-[#fff1e4] px-2.5 py-1 text-xs font-semibold text-[#d07a2d]"
-                >
-                  超级管理员
-                </span>
-              </div>
-              <p class="mt-2 line-clamp-2 text-sm text-slate-500">{{ item.content }}</p>
-            </div>
-            <span class="shrink-0 text-sm text-slate-400">
-              {{ formatDateTime(item.published_at || item.updated_at) }}
-            </span>
-          </button>
-          <p v-if="announcements.length === 0" class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-            暂无公告
-          </p>
-        </div>
-      </div>
-    </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-    <div v-if="announcementDetail" class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4">
-      <div class="modal-card panel w-full max-w-2xl p-6">
-        <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-          <div class="min-w-0">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Announcement</p>
-            <h3 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{{ announcementDetail.title }}</h3>
-            <div class="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-500">
-              <div class="flex items-center gap-2">
-                <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
-                  <img v-if="announcementDetail.creator?.avatar_url" :src="announcementDetail.creator.avatar_url" alt="发布人头像" class="h-full w-full object-cover" />
-                  <span v-else>{{ announcementAuthorInitial(announcementDetail) }}</span>
-                </div>
-                <span class="font-medium text-slate-700">{{ announcementAuthorName(announcementDetail) }}</span>
-              </div>
-              <span
-                v-if="announcementAuthorIsSuperAdmin(announcementDetail)"
-                class="rounded-full bg-[#fff1e4] px-2.5 py-1 text-xs font-semibold text-[#d07a2d]"
+            <div>
+              <p
+                class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
               >
-                超级管理员
-              </span>
-              <span>{{ formatDateTime(announcementDetail.published_at || announcementDetail.updated_at) }}</span>
+                {{ sidebarDetailModal.eyebrow }}
+              </p>
+              <h3
+                class="mt-2 text-2xl font-semibold tracking-tight text-slate-900"
+              >
+                {{ sidebarDetailModal.title }}
+              </h3>
+              <p class="mt-2 text-sm text-slate-500">
+                {{ sidebarDetailModal.description }}
+              </p>
             </div>
-          </div>
-          <div class="flex items-center gap-3">
-            <button type="button" class="btn-secondary" @click="returnToAnnouncementList">返回</button>
-            <button type="button" class="btn-secondary" @click="closeAnnouncementDetail">关闭</button>
-          </div>
-        </div>
-        <div class="mt-5 rounded-3xl border border-slate-200 bg-white px-5 py-5">
-          <div class="markdown-content" v-html="renderSimpleMarkdown(announcementDetail.content)" />
-        </div>
-      </div>
-    </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-    <div v-if="deleteResourceTarget" class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4">
-      <div class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <div>
-          <h3 class="text-lg font-semibold text-slate-900">确认删除文件夹</h3>
-          <p class="mt-2 text-sm leading-6 text-slate-500">
-            删除后会清除该文件夹及其子目录、文件，无法恢复。确认删除
-            <span class="font-medium text-slate-900">{{ deleteResourceTarget.name }}</span>
-            吗？
-          </p>
-        </div>
-        <div class="mt-6 space-y-4">
-          <input v-model="deleteResourcePassword" type="password" class="field" placeholder="输入当前管理员密码确认删除" />
-          <p v-if="deleteResourceError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {{ deleteResourceError }}
-          </p>
-          <div class="flex justify-end gap-3">
-            <button type="button" class="btn-secondary" @click="closeDeleteResourceDialog">取消</button>
             <button
               type="button"
-              class="inline-flex h-11 items-center rounded-xl bg-rose-600 px-5 text-sm font-medium text-white transition hover:bg-rose-700"
-              :disabled="deleteResourceSubmitting"
-              @click="confirmDeleteResource"
+              class="btn-secondary"
+              @click="closeSidebarDetailModal"
             >
-              {{ deleteResourceSubmitting ? "删除中…" : "确认删除" }}
+              关闭
             </button>
           </div>
-        </div>
-      </div>
-    </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-    <div v-if="uploadSuccessModalOpen" class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm">
-      <div class="flex min-h-screen items-center justify-center px-4 py-6">
-        <div class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-          <div class="space-y-3">
-            <h3 class="text-lg font-semibold text-slate-900">提交成功</h3>
-            <p class="text-sm leading-6 text-slate-600">{{ uploadMessage }}</p>
-          </div>
-          <div class="mt-6 flex justify-end">
-            <button type="button" class="btn-primary" @click="closeUploadSuccessModal">知道了</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-    <div v-if="uploadModalOpen" class="fixed inset-0 z-[120] overflow-y-auto bg-slate-950/40 backdrop-blur-sm">
-      <div class="flex min-h-screen items-start justify-center px-4 py-6">
-        <div class="modal-card panel w-full max-w-2xl overflow-hidden">
-          <div class="max-h-[calc(100vh-3rem)] overflow-y-auto p-6">
-            <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-              <div>
-                <h3 class="text-lg font-semibold text-slate-900">上传资料</h3>
-                <p class="mt-1 text-sm text-slate-500">当前目录下直接上传资料，提交后会进入审核池。</p>
-              </div>
-              <button type="button" class="btn-secondary" @click="closeUploadModal">关闭</button>
+          <div class="mt-5 max-h-[70vh] overflow-y-auto pr-1">
+            <div
+              v-if="sidebarDetailModal.items.length === 0"
+              class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500"
+            >
+              暂无数据
             </div>
-
-            <form class="mt-5 space-y-4" @submit.prevent="submitUpload">
-            <div class="panel-muted px-4 py-3 text-sm text-slate-600">
-              <p class="text-xs text-slate-400">目标目录</p>
-              <p class="mt-1 font-medium text-slate-900">{{ breadcrumbs.length ? breadcrumbs.map((item) => item.name).join(" / ") : "主页根目录" }}</p>
-            </div>
-
-            <label class="space-y-2">
-              <span class="text-sm font-medium text-slate-700">回执码</span>
-              <div class="rounded-xl bg-slate-50 px-4 py-3">
-                <p class="text-sm font-semibold tracking-[0.12em] text-slate-900">
-                  {{ currentReceiptCode || "当前会话回执码暂未同步" }}
-                </p>
-              </div>
-            </label>
-
-            <label class="space-y-2">
-              <span class="text-sm font-medium text-slate-700">资料简介</span>
-              <textarea
-                v-model="uploadForm.description"
-                rows="4"
-                class="field-area"
-                placeholder="可选，简要介绍资料内容和适用场景，支持简单 Markdown 语法"
-              />
-            </label>
-
-            <div class="space-y-2">
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-sm font-medium text-slate-700">上传内容</span>
-              </div>
-
-              <input ref="uploadFileInput" type="file" class="hidden" @change="onUploadFileChange" />
-
-              <div
-                class="rounded-[28px] border-2 border-dashed px-6 py-10 text-center transition"
-                :class="uploadDropActive ? 'border-blue-400 bg-blue-50/60' : 'border-slate-200 bg-slate-50/60'"
-                @dragenter.prevent="onUploadDragEnter"
-                @dragover.prevent="uploadDropActive = true"
-                @dragleave="onUploadDragLeave"
-                @drop="onUploadDrop"
+            <div v-else class="space-y-3">
+              <button
+                v-for="(item, index) in sidebarDetailModal.items"
+                :key="item.id"
+                type="button"
+                class="flex w-full items-center gap-4 rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                @click="
+                  openSidebarDetailItem({ id: item.id, label: item.label })
+                "
               >
-                <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white text-slate-300 shadow-sm">
-                  <Upload class="h-8 w-8" />
-                </div>
-                <p class="mt-5 text-lg text-slate-600">
-                  拖拽文件或整个文件夹到这里，或
-                  <button type="button" class="font-semibold text-blue-600 transition hover:text-blue-700" @click="triggerUploadFileSelect">点击选择</button>
-                </p>
-                <p class="mt-2 text-sm text-slate-400">拖拽支持多文件和文件夹。</p>
-                <p v-if="uploadCollecting" class="mt-4 text-sm text-slate-500">正在解析拖拽内容…</p>
-              </div>
-
-              <div class="panel-muted px-4 py-3 text-sm text-slate-600">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <p>
-                    已选择
-                    <span class="font-semibold text-slate-900">{{ uploadForm.entries.length }}</span>
-                    个文件
+                <span
+                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-semibold text-slate-600"
+                >
+                  {{ index + 1 }}
+                </span>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium text-slate-900">
+                    {{ item.label }}
                   </p>
-                  <button v-if="uploadForm.entries.length > 0" type="button" class="text-sm text-slate-500 transition hover:text-slate-900" @click="clearUploadEntries">
-                    清空列表
-                  </button>
                 </div>
-                <div v-if="uploadForm.entries.length > 0" class="mt-3 max-h-48 space-y-2 overflow-auto pr-1">
-                  <div
-                    v-for="entry in uploadForm.entries"
-                    :key="entry.relativePath"
-                    class="rounded-xl bg-white px-3 py-2 text-sm text-slate-700"
-                  >
-                    {{ entry.relativePath }}
-                  </div>
-                </div>
-                <p v-else class="mt-2 text-sm text-slate-400">当前还没有选择任何文件。</p>
-              </div>
-            </div>
-
-            <p v-if="uploadMessage" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              {{ uploadMessage }}
-            </p>
-            <p v-if="uploadError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {{ uploadError }}
-            </p>
-
-              <div class="flex justify-end gap-3">
-                <button type="button" class="btn-secondary" @click="closeUploadModal">取消</button>
-                <button type="submit" class="btn-primary" :disabled="uploadSubmitting || uploadCollecting || uploadForm.entries.length === 0">
-                  {{ uploadSubmitting ? "提交中…" : "提交上传" }}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-    <div v-if="feedbackSuccessModalOpen" class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm">
-      <div class="flex min-h-screen items-center justify-center px-4 py-6">
-        <div class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-          <div class="space-y-3">
-            <h3 class="text-lg font-semibold text-slate-900">提交成功</h3>
-            <p class="text-sm leading-6 text-slate-600">{{ feedbackMessage }}</p>
-          </div>
-          <div class="mt-6 flex justify-end">
-            <button type="button" class="btn-primary" @click="closeFeedbackSuccessModal">知道了</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-    <div v-if="feedbackModalOpen" class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm">
-      <div class="flex min-h-screen items-center justify-center px-4 py-6">
-        <div class="modal-card panel w-full max-w-2xl overflow-hidden p-6">
-          <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-5">
-            <div class="space-y-1">
-              <h3 class="text-lg font-semibold text-slate-900">反馈中心</h3>
-              <p class="text-sm text-slate-500">填写问题说明后提交，我们会尽快处理。</p>
-            </div>
-            <button type="button" class="btn-secondary" @click="closeFeedbackModal">关闭</button>
-          </div>
-
-          <div class="mt-6 space-y-5">
-            <div v-if="feedbackTarget" class="rounded-2xl border border-slate-200 bg-[#fafafafa] px-4 py-3">
-              <p class="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">当前对象</p>
-              <p class="mt-1 text-sm leading-6 text-slate-700">{{ feedbackTarget.name }}</p>
-            </div>
-
-            <label class="space-y-2">
-              <span class="text-sm font-medium text-slate-700">回执码</span>
-              <div class="rounded-2xl border border-slate-200 bg-[#fafafafa] px-4 py-3">
-                <p class="text-sm font-semibold tracking-[0.12em] text-slate-900">
-                  {{ currentReceiptCode || "当前会话回执码暂未同步" }}
-                </p>
-              </div>
-            </label>
-
-            <label class="space-y-2">
-              <span class="text-sm font-medium text-slate-700">问题说明</span>
-              <textarea
-                v-model="feedbackDescription"
-                rows="5"
-                class="field-area"
-              placeholder="信息不当/侵权/内容错误……描述您遇到的问题，我们会尽快改进！"
-              />
-            </label>
-
-            <p v-if="feedbackMessage" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ feedbackMessage }}</p>
-            <p v-if="feedbackError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ feedbackError }}</p>
-
-            <div class="flex justify-end gap-3 pt-1">
-              <button type="button" class="btn-secondary" @click="closeFeedbackModal">取消</button>
-              <button type="button" class="btn-primary" :disabled="feedbackSubmitDisabled" @click="submitFeedback">
-                {{ feedbackSubmitting ? "提交中…" : "提交反馈" }}
+                <span
+                  v-if="item.meta"
+                  class="shrink-0 text-sm text-slate-500"
+                  >{{ item.meta }}</span
+                >
               </button>
             </div>
           </div>
         </div>
       </div>
-    </div>
     </Transition>
   </Teleport>
 
   <Teleport to="body">
     <Transition name="modal-shell">
-    <div v-if="folderDescriptionEditorOpen" class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm">
-      <div class="flex min-h-screen items-center justify-center px-4 py-6">
-          <div class="modal-card panel w-full max-w-3xl overflow-hidden p-6">
-            <div class="border-b border-slate-200 pb-4">
-                  <div>
-                    <h3 class="text-lg font-semibold text-slate-900">编辑文件夹信息</h3>
-                  </div>
+      <div
+        v-if="announcementListOpen"
+        class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4"
+      >
+        <div class="modal-card panel w-full max-w-3xl p-6">
+          <div
+            class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"
+          >
+            <div class="min-w-0">
+              <p
+                class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
+              >
+                Announcements
+              </p>
+              <h3
+                class="mt-2 text-2xl font-semibold tracking-tight text-slate-900"
+              >
+                全部公告
+              </h3>
             </div>
-
-          <div class="mt-5 space-y-4">
-            <label class="space-y-2">
-              <span class="text-sm font-medium text-slate-700">文件夹名</span>
-              <input
-                v-model="folderNameDraft"
-                class="field"
-                :disabled="!canManageResourceDescriptions"
-                placeholder="输入文件夹名"
-              />
-            </label>
-
-            <textarea
-              v-model="folderDescriptionDraft"
-              rows="10"
-              class="field-area"
-              placeholder="输入文件夹简介，简介支持简单 Markdown。"
-            />
-
-            <p v-if="folderDescriptionError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {{ folderDescriptionError }}
-            </p>
-
-              <div class="flex justify-end gap-3">
-                <button type="button" class="btn-secondary" @click="closeFolderDescriptionEditor">取消</button>
-                <button type="button" class="btn-primary" :disabled="folderDescriptionSaving || !folderEditorDirty" @click="saveFolderDescription">
-                  {{ folderDescriptionSaving ? "保存中…" : "保存更改" }}
-                </button>
+            <button
+              type="button"
+              class="btn-secondary"
+              @click="closeAnnouncementList"
+            >
+              关闭
+            </button>
+          </div>
+          <div class="mt-5 max-h-[70vh] space-y-3 overflow-auto pr-1">
+            <button
+              v-for="item in announcements"
+              :key="item.id"
+              type="button"
+              class="flex w-full items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left transition hover:border-blue-200 hover:bg-blue-50/40"
+              @click="
+                openAnnouncementDetail({ id: item.id, label: item.title })
+              "
+            >
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span
+                    v-if="item.is_pinned"
+                    class="rounded-md bg-[#dcecff] px-2 py-0.5 text-xs font-semibold text-[#4f8ff7]"
+                  >
+                    置顶
+                  </span>
+                  <p class="text-base font-semibold text-slate-900">
+                    {{ item.title }}
+                  </p>
+                </div>
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                  <div
+                    class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-semibold text-slate-600"
+                  >
+                    <img
+                      v-if="item.creator?.avatar_url"
+                      :src="item.creator.avatar_url"
+                      alt="发布人头像"
+                      class="h-full w-full object-cover"
+                    />
+                    <span v-else>{{ announcementAuthorInitial(item) }}</span>
+                  </div>
+                  <span class="text-sm font-medium text-slate-700">{{
+                    announcementAuthorName(item)
+                  }}</span>
+                  <span
+                    v-if="announcementAuthorIsSuperAdmin(item)"
+                    class="rounded-full bg-[#fff1e4] px-2.5 py-1 text-xs font-semibold text-[#d07a2d]"
+                  >
+                    超级管理员
+                  </span>
+                </div>
+                <p class="mt-2 line-clamp-2 text-sm text-slate-500">
+                  {{ item.content }}
+                </p>
               </div>
+              <span class="shrink-0 text-sm text-slate-400">
+                {{ formatDateTime(item.published_at || item.updated_at) }}
+              </span>
+            </button>
+            <p
+              v-if="announcements.length === 0"
+              class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500"
+            >
+              暂无公告
+            </p>
           </div>
         </div>
       </div>
-    </div>
+    </Transition>
+  </Teleport>
+
+  <Teleport to="body">
+    <Transition name="modal-shell">
+      <div
+        v-if="announcementDetail"
+        class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4"
+      >
+        <div class="modal-card panel w-full max-w-2xl p-6">
+          <div
+            class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"
+          >
+            <div class="min-w-0">
+              <p
+                class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
+              >
+                Announcement
+              </p>
+              <h3
+                class="mt-2 text-2xl font-semibold tracking-tight text-slate-900"
+              >
+                {{ announcementDetail.title }}
+              </h3>
+              <div
+                class="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-500"
+              >
+                <div class="flex items-center gap-2">
+                  <div
+                    class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-semibold text-slate-600"
+                  >
+                    <img
+                      v-if="announcementDetail.creator?.avatar_url"
+                      :src="announcementDetail.creator.avatar_url"
+                      alt="发布人头像"
+                      class="h-full w-full object-cover"
+                    />
+                    <span v-else>{{
+                      announcementAuthorInitial(announcementDetail)
+                    }}</span>
+                  </div>
+                  <span class="font-medium text-slate-700">{{
+                    announcementAuthorName(announcementDetail)
+                  }}</span>
+                </div>
+                <span
+                  v-if="announcementAuthorIsSuperAdmin(announcementDetail)"
+                  class="rounded-full bg-[#fff1e4] px-2.5 py-1 text-xs font-semibold text-[#d07a2d]"
+                >
+                  超级管理员
+                </span>
+                <span>{{
+                  formatDateTime(
+                    announcementDetail.published_at ||
+                      announcementDetail.updated_at,
+                  )
+                }}</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                class="btn-secondary"
+                @click="returnToAnnouncementList"
+              >
+                返回
+              </button>
+              <button
+                type="button"
+                class="btn-secondary"
+                @click="closeAnnouncementDetail"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+          <div
+            class="mt-5 rounded-3xl border border-slate-200 bg-white px-5 py-5"
+          >
+            <div
+              class="markdown-content"
+              v-html="renderSimpleMarkdown(announcementDetail.content)"
+            />
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <Teleport to="body">
+    <Transition name="modal-shell">
+      <div
+        v-if="deleteResourceTarget"
+        class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4"
+      >
+        <div
+          class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+        >
+          <div>
+            <h3 class="text-lg font-semibold text-slate-900">确认删除文件夹</h3>
+            <p class="mt-2 text-sm leading-6 text-slate-500">
+              删除后会清除该文件夹及其子目录、文件，无法恢复。确认删除
+              <span class="font-medium text-slate-900">{{
+                deleteResourceTarget.name
+              }}</span>
+              吗？
+            </p>
+          </div>
+          <div class="mt-6 space-y-4">
+            <input
+              v-model="deleteResourcePassword"
+              type="password"
+              class="field"
+              placeholder="输入当前管理员密码确认删除"
+            />
+            <p
+              v-if="deleteResourceError"
+              class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+            >
+              {{ deleteResourceError }}
+            </p>
+            <div class="flex justify-end gap-3">
+              <button
+                type="button"
+                class="btn-secondary"
+                @click="closeDeleteResourceDialog"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                class="inline-flex h-11 items-center rounded-xl bg-rose-600 px-5 text-sm font-medium text-white transition hover:bg-rose-700"
+                :disabled="deleteResourceSubmitting"
+                @click="confirmDeleteResource"
+              >
+                {{ deleteResourceSubmitting ? "删除中…" : "确认删除" }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <Teleport to="body">
+    <Transition name="modal-shell">
+      <div
+        v-if="uploadSuccessModalOpen"
+        class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm"
+      >
+        <div class="flex min-h-screen items-center justify-center px-4 py-6">
+          <div
+            class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <div class="space-y-3">
+              <h3 class="text-lg font-semibold text-slate-900">提交成功</h3>
+              <p class="text-sm leading-6 text-slate-600">
+                {{ uploadMessage }}
+              </p>
+            </div>
+            <div class="mt-6 flex justify-end">
+              <button
+                type="button"
+                class="btn-primary"
+                @click="closeUploadSuccessModal"
+              >
+                知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <Teleport to="body">
+    <Transition name="modal-shell">
+      <div
+        v-if="uploadModalOpen"
+        class="fixed inset-0 z-[120] overflow-y-auto bg-slate-950/40 backdrop-blur-sm"
+      >
+        <div class="flex min-h-screen items-start justify-center px-4 py-6">
+          <div class="modal-card panel w-full max-w-2xl overflow-hidden">
+            <div class="max-h-[calc(100vh-3rem)] overflow-y-auto p-6">
+              <div
+                class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"
+              >
+                <div>
+                  <h3 class="text-lg font-semibold text-slate-900">上传资料</h3>
+                  <p class="mt-1 text-sm text-slate-500">
+                    当前目录下直接上传资料，提交后会进入审核池。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  @click="closeUploadModal"
+                >
+                  关闭
+                </button>
+              </div>
+
+              <form class="mt-5 space-y-4" @submit.prevent="submitUpload">
+                <div class="panel-muted px-4 py-3 text-sm text-slate-600">
+                  <p class="text-xs text-slate-400">目标目录</p>
+                  <p class="mt-1 font-medium text-slate-900">
+                    {{
+                      breadcrumbs.length
+                        ? breadcrumbs.map((item) => item.name).join(" / ")
+                        : "主页根目录"
+                    }}
+                  </p>
+                </div>
+
+                <label class="space-y-2">
+                  <span class="text-sm font-medium text-slate-700">回执码</span>
+                  <div class="rounded-xl bg-slate-50 px-4 py-3">
+                    <p
+                      class="text-sm font-semibold tracking-[0.12em] text-slate-900"
+                    >
+                      {{ currentReceiptCode || "当前会话回执码暂未同步" }}
+                    </p>
+                  </div>
+                </label>
+
+                <label class="space-y-2">
+                  <span class="text-sm font-medium text-slate-700"
+                    >资料简介</span
+                  >
+                  <textarea
+                    v-model="uploadForm.description"
+                    rows="4"
+                    class="field-area"
+                    placeholder="可选，简要介绍资料内容和适用场景，支持简单 Markdown 语法"
+                  />
+                </label>
+
+                <div class="space-y-2">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-sm font-medium text-slate-700"
+                      >上传内容</span
+                    >
+                  </div>
+
+                  <input
+                    ref="uploadFileInput"
+                    type="file"
+                    class="hidden"
+                    @change="onUploadFileChange"
+                  />
+
+                  <div
+                    class="rounded-[28px] border-2 border-dashed px-6 py-10 text-center transition"
+                    :class="
+                      uploadDropActive
+                        ? 'border-blue-400 bg-blue-50/60'
+                        : 'border-slate-200 bg-slate-50/60'
+                    "
+                    @dragenter.prevent="onUploadDragEnter"
+                    @dragover.prevent="uploadDropActive = true"
+                    @dragleave="onUploadDragLeave"
+                    @drop="onUploadDrop"
+                  >
+                    <div
+                      class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white text-slate-300 shadow-sm"
+                    >
+                      <Upload class="h-8 w-8" />
+                    </div>
+                    <p class="mt-5 text-lg text-slate-600">
+                      拖拽文件或整个文件夹到这里，或
+                      <button
+                        type="button"
+                        class="font-semibold text-blue-600 transition hover:text-blue-700"
+                        @click="triggerUploadFileSelect"
+                      >
+                        点击选择
+                      </button>
+                    </p>
+                    <p class="mt-2 text-sm text-slate-400">
+                      拖拽支持多文件和文件夹。
+                    </p>
+                    <p
+                      v-if="uploadCollecting"
+                      class="mt-4 text-sm text-slate-500"
+                    >
+                      正在解析拖拽内容…
+                    </p>
+                  </div>
+
+                  <div class="panel-muted px-4 py-3 text-sm text-slate-600">
+                    <div
+                      class="flex flex-wrap items-center justify-between gap-3"
+                    >
+                      <p>
+                        已选择
+                        <span class="font-semibold text-slate-900">{{
+                          uploadForm.entries.length
+                        }}</span>
+                        个文件
+                      </p>
+                      <button
+                        v-if="uploadForm.entries.length > 0"
+                        type="button"
+                        class="text-sm text-slate-500 transition hover:text-slate-900"
+                        @click="clearUploadEntries"
+                      >
+                        清空列表
+                      </button>
+                    </div>
+                    <div
+                      v-if="uploadForm.entries.length > 0"
+                      class="mt-3 max-h-48 space-y-2 overflow-auto pr-1"
+                    >
+                      <div
+                        v-for="entry in uploadForm.entries"
+                        :key="entry.relativePath"
+                        class="rounded-xl bg-white px-3 py-2 text-sm text-slate-700"
+                      >
+                        {{ entry.relativePath }}
+                      </div>
+                    </div>
+                    <p v-else class="mt-2 text-sm text-slate-400">
+                      当前还没有选择任何文件。
+                    </p>
+                  </div>
+                </div>
+
+                <p
+                  v-if="uploadMessage"
+                  class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+                >
+                  {{ uploadMessage }}
+                </p>
+                <p
+                  v-if="uploadError"
+                  class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+                >
+                  {{ uploadError }}
+                </p>
+
+                <div class="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    class="btn-secondary"
+                    @click="closeUploadModal"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    class="btn-primary"
+                    :disabled="
+                      uploadSubmitting ||
+                      uploadCollecting ||
+                      uploadForm.entries.length === 0
+                    "
+                  >
+                    {{ uploadSubmitting ? "提交中…" : "提交上传" }}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <Teleport to="body">
+    <Transition name="modal-shell">
+      <div
+        v-if="feedbackSuccessModalOpen"
+        class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm"
+      >
+        <div class="flex min-h-screen items-center justify-center px-4 py-6">
+          <div
+            class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <div class="space-y-3">
+              <h3 class="text-lg font-semibold text-slate-900">提交成功</h3>
+              <p class="text-sm leading-6 text-slate-600">
+                {{ feedbackMessage }}
+              </p>
+            </div>
+            <div class="mt-6 flex justify-end">
+              <button
+                type="button"
+                class="btn-primary"
+                @click="closeFeedbackSuccessModal"
+              >
+                知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <Teleport to="body">
+    <Transition name="modal-shell">
+      <div
+        v-if="feedbackModalOpen"
+        class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm"
+      >
+        <div class="flex min-h-screen items-center justify-center px-4 py-6">
+          <div class="modal-card panel w-full max-w-2xl overflow-hidden p-6">
+            <div
+              class="flex items-start justify-between gap-4 border-b border-slate-200 pb-5"
+            >
+              <div class="space-y-1">
+                <h3 class="text-lg font-semibold text-slate-900">反馈中心</h3>
+                <p class="text-sm text-slate-500">
+                  填写问题说明后提交，我们会尽快处理。
+                </p>
+              </div>
+              <button
+                type="button"
+                class="btn-secondary"
+                @click="closeFeedbackModal"
+              >
+                关闭
+              </button>
+            </div>
+
+            <div class="mt-6 space-y-5">
+              <div
+                v-if="feedbackTarget"
+                class="rounded-2xl border border-slate-200 bg-[#fafafafa] px-4 py-3"
+              >
+                <p
+                  class="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400"
+                >
+                  当前对象
+                </p>
+                <p class="mt-1 text-sm leading-6 text-slate-700">
+                  {{ feedbackTarget.name }}
+                </p>
+              </div>
+
+              <label class="space-y-2">
+                <span class="text-sm font-medium text-slate-700">回执码</span>
+                <div
+                  class="rounded-2xl border border-slate-200 bg-[#fafafafa] px-4 py-3"
+                >
+                  <p
+                    class="text-sm font-semibold tracking-[0.12em] text-slate-900"
+                  >
+                    {{ currentReceiptCode || "当前会话回执码暂未同步" }}
+                  </p>
+                </div>
+              </label>
+
+              <label class="space-y-2">
+                <span class="text-sm font-medium text-slate-700">问题说明</span>
+                <textarea
+                  v-model="feedbackDescription"
+                  rows="5"
+                  class="field-area"
+                  placeholder="信息不当/侵权/内容错误……描述您遇到的问题，我们会尽快改进！"
+                />
+              </label>
+
+              <p
+                v-if="feedbackMessage"
+                class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+              >
+                {{ feedbackMessage }}
+              </p>
+              <p
+                v-if="feedbackError"
+                class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+              >
+                {{ feedbackError }}
+              </p>
+
+              <div class="flex justify-end gap-3 pt-1">
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  @click="closeFeedbackModal"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  class="btn-primary"
+                  :disabled="feedbackSubmitDisabled"
+                  @click="submitFeedback"
+                >
+                  {{ feedbackSubmitting ? "提交中…" : "提交反馈" }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <Teleport to="body">
+    <Transition name="modal-shell">
+      <div
+        v-if="folderDescriptionEditorOpen"
+        class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm"
+      >
+        <div class="flex min-h-screen items-center justify-center px-4 py-6">
+          <div class="modal-card panel w-full max-w-3xl overflow-hidden p-6">
+            <div class="border-b border-slate-200 pb-4">
+              <div>
+                <h3 class="text-lg font-semibold text-slate-900">
+                  编辑文件夹信息
+                </h3>
+              </div>
+            </div>
+
+            <div class="mt-5 space-y-4">
+              <label class="space-y-2">
+                <span class="text-sm font-medium text-slate-700">文件夹名</span>
+                <input
+                  v-model="folderNameDraft"
+                  class="field"
+                  :disabled="!canManageResourceDescriptions"
+                  placeholder="输入文件夹名"
+                />
+              </label>
+
+              <textarea
+                v-model="folderDescriptionDraft"
+                rows="10"
+                class="field-area"
+                placeholder="输入文件夹简介，简介支持简单 Markdown。"
+              />
+
+              <p
+                v-if="folderDescriptionError"
+                class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+              >
+                {{ folderDescriptionError }}
+              </p>
+
+              <div class="flex justify-end gap-3">
+                <button
+                  type="button"
+                  class="btn-secondary"
+                  @click="closeFolderDescriptionEditor"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  class="btn-primary"
+                  :disabled="folderDescriptionSaving || !folderEditorDirty"
+                  @click="saveFolderDescription"
+                >
+                  {{ folderDescriptionSaving ? "保存中…" : "保存更改" }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </Transition>
   </Teleport>
 </template>

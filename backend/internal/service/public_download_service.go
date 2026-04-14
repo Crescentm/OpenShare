@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -134,6 +135,60 @@ func (s *PublicDownloadService) GetFileDetail(ctx context.Context, fileID string
 		Size:          file.Size,
 		UploadedAt:    file.CreatedAt,
 		DownloadCount: file.DownloadCount,
+	}, nil
+}
+
+func (s *PublicDownloadService) PrepareFolderAssetDownload(ctx context.Context, folderID string, relativePath string) (*DownloadableFile, error) {
+	folderID = strings.TrimSpace(folderID)
+	relativePath = strings.TrimSpace(relativePath)
+	if folderID == "" {
+		return nil, ErrDownloadFolderNotFound
+	}
+	if relativePath == "" {
+		return nil, ErrDownloadFileNotFound
+	}
+
+	folder, err := s.repository.FindManagedFolderByID(ctx, folderID)
+	if err != nil {
+		return nil, fmt.Errorf("find asset folder: %w", err)
+	}
+	if folder == nil || folder.SourcePath == nil || strings.TrimSpace(*folder.SourcePath) == "" {
+		return nil, ErrDownloadFolderNotFound
+	}
+
+	rootPath, err := s.resolveManagedRootPath(ctx, folder)
+	if err != nil {
+		return nil, fmt.Errorf("resolve asset root path: %w", err)
+	}
+
+	targetPath := filepath.Clean(filepath.Join(strings.TrimSpace(*folder.SourcePath), filepath.FromSlash(relativePath)))
+	if !isWithinManagedRoot(targetPath, rootPath) {
+		return nil, ErrDownloadFileNotFound
+	}
+
+	file, err := s.repository.FindManagedFileBySourcePath(ctx, targetPath)
+	if err != nil {
+		return nil, fmt.Errorf("find asset file: %w", err)
+	}
+	if file == nil {
+		return nil, ErrDownloadFileNotFound
+	}
+
+	opened, err := s.storage.OpenManagedFile(targetPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrDownloadFileUnavailable
+		}
+		return nil, fmt.Errorf("open asset file: %w", err)
+	}
+
+	return &DownloadableFile{
+		FileID:   file.ID,
+		FileName: file.Name,
+		MimeType: file.MimeType,
+		Size:     opened.Info.Size(),
+		ModTime:  opened.Info.ModTime(),
+		Content:  opened.File,
 	}, nil
 }
 
@@ -396,6 +451,25 @@ func (s *PublicDownloadService) PrepareFolderDownload(ctx context.Context, folde
 	}, nil
 }
 
+func (s *PublicDownloadService) resolveManagedRootPath(ctx context.Context, folder *model.Folder) (string, error) {
+	current := folder
+	for current != nil && current.ParentID != nil && strings.TrimSpace(*current.ParentID) != "" {
+		parent, err := s.repository.FindManagedFolderByID(ctx, strings.TrimSpace(*current.ParentID))
+		if err != nil {
+			return "", err
+		}
+		if parent == nil {
+			return "", ErrDownloadFolderNotFound
+		}
+		current = parent
+	}
+
+	if current == nil || current.SourcePath == nil || strings.TrimSpace(*current.SourcePath) == "" {
+		return "", ErrDownloadFolderNotFound
+	}
+	return filepath.Clean(strings.TrimSpace(*current.SourcePath)), nil
+}
+
 func (s *PublicDownloadService) RecordDownload(ctx context.Context, fileID string) error {
 	return s.repository.IncrementDownloadCount(ctx, fileID)
 }
@@ -463,4 +537,23 @@ func buildFolderZipPath(fileName string, folderID *string, parentByFolder map[st
 	}
 
 	return strings.Join(parts, "/")
+}
+
+func isWithinManagedRoot(targetPath string, rootPath string) bool {
+	targetPath = filepath.Clean(strings.TrimSpace(targetPath))
+	rootPath = filepath.Clean(strings.TrimSpace(rootPath))
+	if targetPath == "" || rootPath == "" {
+		return false
+	}
+
+	relativePath, err := filepath.Rel(rootPath, targetPath)
+	if err != nil {
+		return false
+	}
+	if relativePath == "." {
+		return true
+	}
+
+	return relativePath != ".." &&
+		!strings.HasPrefix(relativePath, ".."+string(filepath.Separator))
 }

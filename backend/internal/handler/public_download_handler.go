@@ -14,6 +14,8 @@ import (
 	"openshare/backend/internal/service"
 )
 
+const maxPublicPreviewBytes = 512 * 1024
+
 type PublicDownloadHandler struct {
 	service *service.PublicDownloadService
 }
@@ -32,32 +34,13 @@ func NewPublicDownloadHandler(service *service.PublicDownloadService) *PublicDow
 }
 
 func (h *PublicDownloadHandler) DownloadFile(ctx *gin.Context) {
-	download, err := h.service.PrepareDownload(ctx.Request.Context(), ctx.Param("fileID"))
+	download, err := h.prepareFileDownload(ctx, "failed to download file")
 	if err != nil {
-		switch {
-		case errors.Is(err, service.ErrDownloadFileNotFound):
-			ctx.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
-		case errors.Is(err, service.ErrDownloadFileUnavailable):
-			ctx.JSON(http.StatusGone, gin.H{"error": "file is unavailable"})
-		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to download file"})
-		}
 		return
 	}
 	defer download.Content.Close()
 
-	if download.MimeType != "" {
-		ctx.Header("Content-Type", download.MimeType)
-	}
-	ctx.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", download.FileName))
-	ctx.Header("Content-Length", strconv.FormatInt(download.Size, 10))
-
-	if err := h.service.RecordDownload(ctx.Request.Context(), download.FileID); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record download"})
-		return
-	}
-
-	http.ServeContent(ctx.Writer, ctx.Request, download.FileName, download.ModTime, download.Content)
+	h.serveAttachmentDownload(ctx, download)
 }
 
 func (h *PublicDownloadHandler) DownloadFolder(ctx *gin.Context) {
@@ -124,6 +107,142 @@ func (h *PublicDownloadHandler) GetFileDetail(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, detail)
+}
+
+func (h *PublicDownloadHandler) ServeFileContent(ctx *gin.Context) {
+	view := strings.TrimSpace(strings.ToLower(ctx.DefaultQuery("view", "inline")))
+	download, err := h.prepareFileDownload(ctx, "failed to load file content")
+	if err != nil {
+		return
+	}
+	defer download.Content.Close()
+
+	switch view {
+	case "inline", "":
+		h.serveInlineContent(ctx, download)
+	case "text":
+		h.serveTextPreview(ctx, download)
+	case "download":
+		h.serveAttachmentDownload(ctx, download)
+	default:
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid view"})
+	}
+}
+
+func (h *PublicDownloadHandler) PreviewFile(ctx *gin.Context) {
+	download, err := h.prepareFileDownload(ctx, "failed to preview file")
+	if err != nil {
+		return
+	}
+	defer download.Content.Close()
+
+	h.serveTextPreview(ctx, download)
+}
+
+func (h *PublicDownloadHandler) prepareFileDownload(
+	ctx *gin.Context,
+	internalErrorMessage string,
+) (*service.DownloadableFile, error) {
+	download, err := h.service.PrepareDownload(ctx.Request.Context(), ctx.Param("fileID"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrDownloadFileNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		case errors.Is(err, service.ErrDownloadFileUnavailable):
+			ctx.JSON(http.StatusGone, gin.H{"error": "file is unavailable"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": internalErrorMessage})
+		}
+		return nil, err
+	}
+
+	return download, nil
+}
+
+func (h *PublicDownloadHandler) serveAttachmentDownload(
+	ctx *gin.Context,
+	download *service.DownloadableFile,
+) {
+	if download.MimeType != "" {
+		ctx.Header("Content-Type", download.MimeType)
+	}
+	ctx.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", download.FileName))
+	ctx.Header("Content-Length", strconv.FormatInt(download.Size, 10))
+
+	if err := h.service.RecordDownload(ctx.Request.Context(), download.FileID); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record download"})
+		return
+	}
+
+	http.ServeContent(ctx.Writer, ctx.Request, download.FileName, download.ModTime, download.Content)
+}
+
+func (h *PublicDownloadHandler) serveInlineContent(
+	ctx *gin.Context,
+	download *service.DownloadableFile,
+) {
+	if download.MimeType != "" {
+		ctx.Header("Content-Type", download.MimeType)
+	}
+	ctx.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", download.FileName))
+	ctx.Header("Content-Length", strconv.FormatInt(download.Size, 10))
+
+	http.ServeContent(ctx.Writer, ctx.Request, download.FileName, download.ModTime, download.Content)
+}
+
+func (h *PublicDownloadHandler) serveTextPreview(
+	ctx *gin.Context,
+	download *service.DownloadableFile,
+) {
+	if download.Size > maxPublicPreviewBytes {
+		ctx.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file is too large to preview"})
+		return
+	}
+
+	content, readErr := io.ReadAll(io.LimitReader(download.Content, maxPublicPreviewBytes+1))
+	if readErr != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file preview"})
+		return
+	}
+	if len(content) > maxPublicPreviewBytes {
+		ctx.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file is too large to preview"})
+		return
+	}
+
+	ctx.Data(http.StatusOK, "text/plain; charset=utf-8", content)
+}
+
+func (h *PublicDownloadHandler) ServeFolderAsset(ctx *gin.Context) {
+	download, err := h.service.PrepareFolderAssetDownload(
+		ctx.Request.Context(),
+		ctx.Param("folderID"),
+		ctx.Query("path"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrDownloadFolderNotFound), errors.Is(err, service.ErrDownloadFileNotFound):
+			ctx.JSON(http.StatusNotFound, gin.H{"error": "asset not found"})
+		case errors.Is(err, service.ErrDownloadFileUnavailable):
+			ctx.JSON(http.StatusGone, gin.H{"error": "asset is unavailable"})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load asset"})
+		}
+		return
+	}
+	defer download.Content.Close()
+
+	if download.MimeType != "" {
+		ctx.Header("Content-Type", download.MimeType)
+	}
+	ctx.Header("Content-Length", strconv.FormatInt(download.Size, 10))
+
+	http.ServeContent(
+		ctx.Writer,
+		ctx.Request,
+		download.FileName,
+		download.ModTime,
+		download.Content,
+	)
 }
 
 func (h *PublicDownloadHandler) DownloadBatch(ctx *gin.Context) {

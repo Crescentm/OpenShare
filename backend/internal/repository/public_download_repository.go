@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -41,6 +42,29 @@ func (r *PublicDownloadRepository) FindManagedFileByID(ctx context.Context, file
 			return nil, nil
 		}
 		return nil, fmt.Errorf("find managed file by id: %w", err)
+	}
+
+	return &file, nil
+}
+
+func (r *PublicDownloadRepository) FindManagedFileBySourcePath(ctx context.Context, sourcePath string) (*model.File, error) {
+	sourcePath = filepath.Clean(strings.TrimSpace(sourcePath))
+	fileName := filepath.Base(sourcePath)
+	folderPath := filepath.Dir(sourcePath)
+
+	var file model.File
+	err := r.db.WithContext(ctx).
+		Model(&model.File{}).
+		Joins("JOIN folders ON folders.id = files.folder_id").
+		Where("files.name = ?", fileName).
+		Where("folders.source_path = ?", folderPath).
+		Take(&file).
+		Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find managed file by source path: %w", err)
 	}
 
 	return &file, nil

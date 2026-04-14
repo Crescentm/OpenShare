@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -43,6 +44,97 @@ func TestPublicDownloadServesManagedFile(t *testing.T) {
 
 	assertEventuallyDownloadCount(t, db, file.ID, 1)
 	assertEventuallyRecentFileHotDownloads(t, db, file.ID, 1)
+}
+
+func TestPublicFileContentServesManagedFileInline(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
+	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("pdf-content"))
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=inline", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/pdf" {
+		t.Fatalf("unexpected content-type %q", got)
+	}
+	if got := recorder.Header().Get("Content-Disposition"); got != `inline; filename="lecture.pdf"` {
+		t.Fatalf("unexpected content-disposition %q", got)
+	}
+	if recorder.Body.String() != "pdf-content" {
+		t.Fatalf("unexpected response body %q", recorder.Body.String())
+	}
+
+	assertEventuallyDownloadCount(t, db, file.ID, 0)
+}
+
+func TestPublicFileContentServesManagedFileTextPreview(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
+	file := createRepositoryFileForDownload(t, cfg, db, folder, "README.md", []byte("# hello\npreview body"))
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=text", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content-type %q", got)
+	}
+	if recorder.Body.String() != "# hello\npreview body" {
+		t.Fatalf("unexpected response body %q", recorder.Body.String())
+	}
+
+	assertEventuallyDownloadCount(t, db, file.ID, 0)
+}
+
+func TestPublicFileContentDownloadsManagedFile(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
+	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("download-content"))
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=download", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Disposition"); got != `attachment; filename="lecture.pdf"` {
+		t.Fatalf("unexpected content-disposition %q", got)
+	}
+	if recorder.Body.String() != "download-content" {
+		t.Fatalf("unexpected response body %q", recorder.Body.String())
+	}
+
+	assertEventuallyDownloadCount(t, db, file.ID, 1)
+}
+
+func TestPublicFileContentRejectsInvalidView(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
+	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("pdf-content"))
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=unknown", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestPublicDownloadReturnsGoneWhenRepositoryFileMissing(t *testing.T) {
@@ -101,6 +193,114 @@ func TestPublicFileDetailReturnsMetadata(t *testing.T) {
 	}
 	if response.FolderID != folder.ID {
 		t.Fatalf("expected folder_id %q for managed file, got %q", folder.ID, response.FolderID)
+	}
+}
+
+func TestPublicFolderAssetServesRelativeManagedFile(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+
+	rootSourcePath := filepath.Join(t.TempDir(), "课程资料")
+	childSourcePath := filepath.Join(rootSourcePath, "指南")
+	if err := os.MkdirAll(childSourcePath, 0o755); err != nil {
+		t.Fatalf("create nested folder path failed: %v", err)
+	}
+
+	now := time.Date(2026, 3, 12, 15, 0, 0, 0, time.UTC)
+	rootFolder := &model.Folder{
+		ID:         mustNewID(t),
+		Name:       "课程资料",
+		SourcePath: &rootSourcePath,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := db.Create(rootFolder).Error; err != nil {
+		t.Fatalf("create root folder failed: %v", err)
+	}
+
+	childFolder := &model.Folder{
+		ID:         mustNewID(t),
+		ParentID:   &rootFolder.ID,
+		Name:       "指南",
+		SourcePath: &childSourcePath,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := db.Create(childFolder).Error; err != nil {
+		t.Fatalf("create child folder failed: %v", err)
+	}
+
+	asset := createRepositoryFileForDownload(t, cfg, db, rootFolder, "diagram.png", []byte("png-data"))
+	asset.MimeType = "image/png"
+	if err := db.Save(asset).Error; err != nil {
+		t.Fatalf("save asset file failed: %v", err)
+	}
+
+	engine := New(db, cfg, newRouterSessionManager(db))
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/public/folders/"+childFolder.ID+"/assets?path="+url.QueryEscape("../diagram.png"),
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("unexpected content-type %q", got)
+	}
+	if recorder.Body.String() != "png-data" {
+		t.Fatalf("unexpected response body %q", recorder.Body.String())
+	}
+}
+
+func TestPublicFolderAssetRejectsPathEscapingManagedRoot(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+
+	rootSourcePath := filepath.Join(t.TempDir(), "课程资料")
+	childSourcePath := filepath.Join(rootSourcePath, "指南")
+	if err := os.MkdirAll(childSourcePath, 0o755); err != nil {
+		t.Fatalf("create nested folder path failed: %v", err)
+	}
+
+	now := time.Date(2026, 3, 12, 15, 0, 0, 0, time.UTC)
+	rootFolder := &model.Folder{
+		ID:         mustNewID(t),
+		Name:       "课程资料",
+		SourcePath: &rootSourcePath,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := db.Create(rootFolder).Error; err != nil {
+		t.Fatalf("create root folder failed: %v", err)
+	}
+
+	childFolder := &model.Folder{
+		ID:         mustNewID(t),
+		ParentID:   &rootFolder.ID,
+		Name:       "指南",
+		SourcePath: &childSourcePath,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := db.Create(childFolder).Error; err != nil {
+		t.Fatalf("create child folder failed: %v", err)
+	}
+
+	engine := New(db, cfg, newRouterSessionManager(db))
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/public/folders/"+childFolder.ID+"/assets?path="+url.QueryEscape("../../secret.txt"),
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d, body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -203,7 +403,7 @@ func TestPublicFolderDownloadStreamsZip(t *testing.T) {
 	assertEventuallyDownloadCount(t, db, nestedFile.ID, 1)
 }
 
-func createRepositoryFileForDownload(t *testing.T, cfg config.Config, db *gorm.DB, folder *model.Folder, originalName string, content []byte) *model.File {
+func createRepositoryFileForDownload(t *testing.T, _ config.Config, db *gorm.DB, folder *model.Folder, originalName string, content []byte) *model.File {
 	t.Helper()
 
 	now := time.Date(2026, 3, 12, 15, 0, 0, 0, time.UTC)
