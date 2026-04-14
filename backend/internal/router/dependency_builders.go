@@ -11,10 +11,15 @@ import (
 	"openshare/backend/internal/storage"
 )
 
-func buildRouteHandlers(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *routeHandlers {
+func buildRouteHandlers(
+	db *gorm.DB,
+	cfg config.Config,
+	sessionManager *session.Manager,
+	importSyncNotifier handler.ManagedRootSyncNotifier,
+) *routeHandlers {
 	repos := buildRouteRepositories(db)
 	services := buildRouteServices(db, cfg, repos, sessionManager)
-	return buildHandlers(cfg, sessionManager, services)
+	return buildHandlers(cfg, sessionManager, services, importSyncNotifier)
 }
 
 func buildRouteRepositories(db *gorm.DB) *routeRepositories {
@@ -71,14 +76,19 @@ func buildRouteServices(
 	}
 }
 
-func buildHandlers(cfg config.Config, sessionManager *session.Manager, services *routeServices) *routeHandlers {
+func buildHandlers(
+	_ config.Config,
+	sessionManager *session.Manager,
+	services *routeServices,
+	importSyncNotifier handler.ManagedRootSyncNotifier,
+) *routeHandlers {
 	return &routeHandlers{
 		adminAuth:          handler.NewAdminAuthHandler(services.adminAuth, sessionManager),
 		adminDashboard:     handler.NewAdminDashboardHandler(services.adminDashboard),
 		announcement:       handler.NewAnnouncementHandler(services.announcement),
 		adminManagement:    handler.NewAdminManagementHandler(services.adminManagement, services.adminAuth),
 		feedback:           handler.NewFeedbackHandler(services.feedback),
-		imports:            handler.NewImportHandler(services.imports, services.adminAuth),
+		imports:            handler.NewImportHandler(services.imports, services.adminAuth, importSyncNotifier),
 		moderation:         handler.NewModerationHandler(services.moderation),
 		operationLog:       handler.NewOperationLogHandler(services.operationLog),
 		publicCatalog:      handler.NewPublicCatalogHandler(services.publicCatalog),

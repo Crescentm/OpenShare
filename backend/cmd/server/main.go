@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"openshare/backend/internal/bootstrap"
 	"openshare/backend/internal/config"
@@ -32,6 +37,7 @@ func main() {
 	if err := storage.EnsureLayout(cfg.Storage); err != nil {
 		log.Fatalf("init storage layout: %v", err)
 	}
+	storageService := storage.NewService(cfg.Storage)
 
 	if err := bootstrap.EnsureSchema(db); err != nil {
 		log.Fatalf("init schema: %v", err)
@@ -42,11 +48,34 @@ func main() {
 		log.Fatalf("init default super admin: %v", err)
 	}
 
+	importService := service.NewImportService(repository.NewImportRepository(db), storageService)
+	syncManager := service.NewImportSyncManager(importService)
+
+	serverCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := syncManager.Start(serverCtx); err != nil {
+		log.Fatalf("start import sync manager: %v", err)
+	}
+
 	sessionManager := session.NewManager(db, cfg.Session, repository.NewAdminSessionRepository())
-	engine := router.New(db, cfg, sessionManager)
+	engine := router.New(db, cfg, sessionManager, syncManager)
+	server := &http.Server{
+		Addr:    cfg.Server.Address(),
+		Handler: engine,
+	}
 
 	log.Printf("OpenShare server listening on :%d", cfg.Server.Port)
-	if err := engine.Run(cfg.Server.Address()); err != nil {
+	go func() {
+		<-serverCtx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("shutdown server: %v", err)
+		}
+	}()
+
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("run server: %v", err)
 	}
 }

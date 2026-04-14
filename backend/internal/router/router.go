@@ -7,17 +7,28 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/config"
+	"openshare/backend/internal/handler"
 	"openshare/backend/internal/middleware"
 	"openshare/backend/internal/session"
 	webui "openshare/backend/web"
 )
 
-func New(db *gorm.DB, cfg config.Config, sessionManager *session.Manager) *gin.Engine {
+func New(
+	db *gorm.DB,
+	cfg config.Config,
+	sessionManager *session.Manager,
+	importSyncNotifiers ...handler.ManagedRootSyncNotifier,
+) *gin.Engine {
 	engine := gin.New()
 	engine.Use(gin.Logger(), gin.Recovery())
 	engine.Use(middleware.SessionLoader(sessionManager))
 
-	handlers := buildRouteHandlers(db, cfg, sessionManager)
+	var importSyncNotifier handler.ManagedRootSyncNotifier
+	if len(importSyncNotifiers) > 0 {
+		importSyncNotifier = importSyncNotifiers[0]
+	}
+
+	handlers := buildRouteHandlers(db, cfg, sessionManager, importSyncNotifier)
 	registerHealthRoutes(engine, func(ctx *gin.Context) {
 		sqlDB, err := db.DB()
 		if err != nil {

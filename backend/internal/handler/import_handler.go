@@ -11,8 +11,13 @@ import (
 )
 
 type ImportHandler struct {
-	service     *service.ImportService
-	authService *service.AdminAuthService
+	service      *service.ImportService
+	authService  *service.AdminAuthService
+	syncNotifier ManagedRootSyncNotifier
+}
+
+type ManagedRootSyncNotifier interface {
+	NotifyManagedRootsChanged()
 }
 
 type importLocalRequest struct {
@@ -38,8 +43,12 @@ func (h *ImportHandler) ListDirectories(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, result)
 }
 
-func NewImportHandler(service *service.ImportService, authService *service.AdminAuthService) *ImportHandler {
-	return &ImportHandler{service: service, authService: authService}
+func NewImportHandler(
+	service *service.ImportService,
+	authService *service.AdminAuthService,
+	syncNotifier ManagedRootSyncNotifier,
+) *ImportHandler {
+	return &ImportHandler{service: service, authService: authService, syncNotifier: syncNotifier}
 }
 
 func (h *ImportHandler) ImportLocalDirectory(ctx *gin.Context) {
@@ -71,6 +80,10 @@ func (h *ImportHandler) ImportLocalDirectory(ctx *gin.Context) {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to import local directory"})
 		}
 		return
+	}
+
+	if h.syncNotifier != nil {
+		h.syncNotifier.NotifyManagedRootsChanged()
 	}
 
 	ctx.JSON(http.StatusOK, result)
@@ -149,6 +162,10 @@ func (h *ImportHandler) UnmanageManagedDirectory(ctx *gin.Context) {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unmanage managed directory"})
 		}
 		return
+	}
+
+	if h.syncNotifier != nil {
+		h.syncNotifier.NotifyManagedRootsChanged()
 	}
 
 	ctx.Status(http.StatusNoContent)
