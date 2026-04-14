@@ -185,6 +185,89 @@ func TestPublicFolderFilesSupportsNameSort(t *testing.T) {
 	}
 }
 
+func TestPublicCatalogHidesHiddenFilesAndFolders(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+
+	visibleFolderID := createPublicTestFolderWithParent(t, db, publicTestFolder{
+		name:       "公开资料",
+		sourcePath: filepath.Join(t.TempDir(), "公开资料"),
+	})
+	hiddenFolderID := createPublicTestFolderWithParent(t, db, publicTestFolder{
+		name:       ".secret",
+		sourcePath: filepath.Join(t.TempDir(), ".secret"),
+	})
+
+	createPublicTestFile(t, db, publicTestFile{title: "可见文件", folderID: &visibleFolderID})
+	createPublicTestFileWithName(t, db, publicTestFile{
+		folderID: &visibleFolderID,
+	}, ".env")
+	createPublicTestFile(t, db, publicTestFile{
+		title:    "隐藏目录中的文件",
+		folderID: &hiddenFolderID,
+	})
+
+	engine := New(db, cfg, newRouterSessionManager(db))
+
+	foldersRequest := httptest.NewRequest(http.MethodGet, "/api/public/folders", nil)
+	foldersRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(foldersRecorder, foldersRequest)
+	if foldersRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for folders, got %d, body=%s", foldersRecorder.Code, foldersRecorder.Body.String())
+	}
+
+	var foldersResponse struct {
+		Items []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(foldersRecorder.Body.Bytes(), &foldersResponse); err != nil {
+		t.Fatalf("decode folders response failed: %v", err)
+	}
+	if len(foldersResponse.Items) != 1 || foldersResponse.Items[0].ID != visibleFolderID {
+		t.Fatalf("expected only visible folder, got %+v", foldersResponse.Items)
+	}
+
+	filesRequest := httptest.NewRequest(http.MethodGet, "/api/public/folders/"+visibleFolderID+"/files", nil)
+	filesRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(filesRecorder, filesRequest)
+	if filesRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for files, got %d, body=%s", filesRecorder.Code, filesRecorder.Body.String())
+	}
+
+	var filesResponse struct {
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(filesRecorder.Body.Bytes(), &filesResponse); err != nil {
+		t.Fatalf("decode files response failed: %v", err)
+	}
+	if len(filesResponse.Items) != 1 || filesResponse.Items[0].Name != "可见文件.pdf" {
+		t.Fatalf("expected only visible file, got %+v", filesResponse.Items)
+	}
+
+	latestRequest := httptest.NewRequest(http.MethodGet, "/api/public/files/latest?limit=10", nil)
+	latestRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(latestRecorder, latestRequest)
+	if latestRecorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for latest files, got %d, body=%s", latestRecorder.Code, latestRecorder.Body.String())
+	}
+
+	var latestResponse struct {
+		Items []struct {
+			Name string `json:"name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(latestRecorder.Body.Bytes(), &latestResponse); err != nil {
+		t.Fatalf("decode latest response failed: %v", err)
+	}
+	if len(latestResponse.Items) != 1 || latestResponse.Items[0].Name != "可见文件.pdf" {
+		t.Fatalf("expected only visible latest file, got %+v", latestResponse.Items)
+	}
+}
+
 func TestPublicFoldersReturnsBreadcrumbs(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
@@ -301,9 +384,16 @@ type publicTestFile struct {
 	downloadCount int64
 	size          int64
 	createdAt     time.Time
+	name          string
 }
 
 func createPublicTestFile(t *testing.T, db *gorm.DB, input publicTestFile) *model.File {
+	t.Helper()
+
+	return createPublicTestFileWithName(t, db, input, "")
+}
+
+func createPublicTestFileWithName(t *testing.T, db *gorm.DB, input publicTestFile, name ...string) *model.File {
 	t.Helper()
 
 	fileID := mustNewID(t)
@@ -312,10 +402,18 @@ func createPublicTestFile(t *testing.T, db *gorm.DB, input publicTestFile) *mode
 		createdAt = time.Date(2026, 3, 11, 9, 0, 0, 0, time.UTC)
 	}
 
+	fileName := input.name
+	if len(name) > 0 {
+		fileName = name[0]
+	}
+	if fileName == "" {
+		fileName = input.title + ".pdf"
+	}
+
 	file := &model.File{
 		ID:            fileID,
 		FolderID:      input.folderID,
-		Name:          input.title + ".pdf",
+		Name:          fileName,
 		Extension:     "pdf",
 		MimeType:      "application/pdf",
 		Size:          input.size,
@@ -349,6 +447,7 @@ type publicTestFolder struct {
 	name        string
 	parentID    *string
 	description string
+	sourcePath  string
 }
 
 func createPublicTestFolder(t *testing.T, db *gorm.DB, name string) string {
@@ -360,7 +459,10 @@ func createPublicTestFolderWithParent(t *testing.T, db *gorm.DB, input publicTes
 	t.Helper()
 
 	folderID := mustNewID(t)
-	sourcePath := filepath.Join(t.TempDir(), input.name)
+	sourcePath := input.sourcePath
+	if sourcePath == "" {
+		sourcePath = filepath.Join(t.TempDir(), input.name)
+	}
 	if err := os.MkdirAll(sourcePath, 0o755); err != nil {
 		t.Fatalf("create public test folder path failed: %v", err)
 	}

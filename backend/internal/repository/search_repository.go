@@ -93,13 +93,15 @@ func (r *SearchRepository) SearchCandidates(ctx context.Context, query SearchCan
 
 func (r *SearchRepository) searchFilesForCandidates(ctx context.Context, query SearchCandidateQuery) ([]model.File, int64, error) {
 	db := r.db.WithContext(ctx).
-		Model(&model.File{})
+		Model(&model.File{}).
+		Joins("LEFT JOIN folders ON folders.id = files.folder_id")
+	db = applyVisibleManagedFileFilter(db, "files.name", "files.folder_id", "folders.source_path")
 
 	if query.ScopeFolderIDs != nil {
 		db = db.Where("folder_id IN ?", query.ScopeFolderIDs)
 	}
 
-	db = applySearchTermFilters(db, []string{"name", "description"}, query.Terms)
+	db = applySearchTermFilters(db, []string{"files.name", "files.description"}, query.Terms)
 
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
@@ -110,7 +112,14 @@ func (r *SearchRepository) searchFilesForCandidates(ctx context.Context, query S
 	}
 
 	var files []model.File
-	findDB := applyCandidateOrder(db, []string{"name"}, "description", "download_count", "updated_at", query.FullQuery)
+	findDB := applyCandidateOrder(
+		db,
+		[]string{"files.name"},
+		"files.description",
+		"files.download_count",
+		"files.updated_at",
+		query.FullQuery,
+	)
 	if query.Limit > 0 {
 		findDB = findDB.Limit(query.Limit)
 	}
@@ -124,12 +133,13 @@ func (r *SearchRepository) searchFilesForCandidates(ctx context.Context, query S
 func (r *SearchRepository) searchFoldersForCandidates(ctx context.Context, query SearchCandidateQuery) ([]model.Folder, int64, error) {
 	db := r.db.WithContext(ctx).
 		Model(&model.Folder{})
+	db = applyVisibleManagedFolderFilter(db, "folders.name", "folders.source_path")
 
 	if query.ScopeFolderIDs != nil {
 		db = db.Where("id IN ?", query.ScopeFolderIDs)
 	}
 
-	db = applySearchTermFilters(db, []string{"name", "description"}, query.Terms)
+	db = applySearchTermFilters(db, []string{"folders.name", "folders.description"}, query.Terms)
 
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
@@ -140,7 +150,14 @@ func (r *SearchRepository) searchFoldersForCandidates(ctx context.Context, query
 	}
 
 	var folders []model.Folder
-	findDB := applyCandidateOrder(db, []string{"name"}, "description", "download_count", "updated_at", query.FullQuery)
+	findDB := applyCandidateOrder(
+		db,
+		[]string{"folders.name"},
+		"folders.description",
+		"folders.download_count",
+		"folders.updated_at",
+		query.FullQuery,
+	)
 	if query.Limit > 0 {
 		findDB = findDB.Limit(query.Limit)
 	}

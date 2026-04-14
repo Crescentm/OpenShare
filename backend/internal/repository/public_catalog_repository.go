@@ -50,6 +50,7 @@ func (r *PublicCatalogRepository) ListPublicFolderFiles(ctx context.Context, que
 	base := r.db.WithContext(ctx).
 		Model(&model.File{}).
 		Where("folder_id = ?", query.FolderID)
+	base = applyVisibleManagedFileFilter(base, "files.name", "files.folder_id", "")
 
 	var total int64
 	if err := base.Count(&total).Error; err != nil {
@@ -70,7 +71,10 @@ func (r *PublicCatalogRepository) ListPublicFolderFiles(ctx context.Context, que
 }
 
 func (r *PublicCatalogRepository) ListManagedFileFeed(ctx context.Context, query PublicFileFeedQuery) ([]model.File, error) {
-	listQuery := r.db.WithContext(ctx).Model(&model.File{})
+	listQuery := r.db.WithContext(ctx).
+		Model(&model.File{}).
+		Joins("LEFT JOIN folders ON folders.id = files.folder_id")
+	listQuery = applyVisibleManagedFileFilter(listQuery, "files.name", "files.folder_id", "folders.source_path")
 	for _, orderBy := range query.OrderBy {
 		listQuery = listQuery.Order(orderBy)
 	}
@@ -93,7 +97,11 @@ func (r *PublicCatalogRepository) ListRecentHotManagedFiles(ctx context.Context,
 	if err := r.db.WithContext(ctx).
 		Model(&model.File{}).
 		Select("files.*").
+		Joins("LEFT JOIN folders ON folders.id = files.folder_id").
 		Joins("JOIN (?) AS hot ON hot.file_id = files.id", aggregated).
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			return applyVisibleManagedFileFilter(db, "files.name", "files.folder_id", "folders.source_path")
+		}).
 		Order("hot.hot_downloads DESC").
 		Order("files.created_at DESC").
 		Order("files.id DESC").
@@ -105,12 +113,13 @@ func (r *PublicCatalogRepository) ListRecentHotManagedFiles(ctx context.Context,
 }
 
 func (r *PublicCatalogRepository) FolderExists(ctx context.Context, folderID string) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Model(&model.Folder{}).
-		Where("id = ?", folderID).
-		Count(&count).
-		Error
+		Where("id = ?", folderID)
+	query = applyVisibleManagedFolderFilter(query, "folders.name", "folders.source_path")
+
+	var count int64
+	err := query.Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("check folder existence: %w", err)
 	}
@@ -122,6 +131,7 @@ func (r *PublicCatalogRepository) ListPublicFolders(ctx context.Context, parentI
 	query := r.db.WithContext(ctx).
 		Model(&model.Folder{}).
 		Select("id, parent_id, name, description, updated_at, file_count, download_count, total_size")
+	query = applyVisibleManagedFolderFilter(query, "folders.name", "folders.source_path")
 
 	if parentID == nil {
 		query = query.Where("parent_id IS NULL")
@@ -138,11 +148,13 @@ func (r *PublicCatalogRepository) ListPublicFolders(ctx context.Context, parentI
 }
 
 func (r *PublicCatalogRepository) FindPublicFolderByID(ctx context.Context, folderID string) (*model.Folder, error) {
+	query := r.db.WithContext(ctx).
+		Model(&model.Folder{}).
+		Where("id = ?", folderID)
+	query = applyVisibleManagedFolderFilter(query, "folders.name", "folders.source_path")
+
 	var folder model.Folder
-	err := r.db.WithContext(ctx).
-		Where("id = ?", folderID).
-		Take(&folder).
-		Error
+	err := query.Take(&folder).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil

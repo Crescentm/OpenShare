@@ -2,17 +2,20 @@ package service
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
 
+	"openshare/backend/internal/bootstrap"
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/repository"
+	"openshare/backend/pkg/database"
 )
 
 func TestSearchPrefersNameMatchesOverDescription(t *testing.T) {
-	db := newTestSQLite(t)
+	db := newSearchTestSQLite(t)
 	service := NewSearchService(repository.NewSearchRepository(db))
 
 	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
@@ -58,7 +61,7 @@ func TestSearchPrefersNameMatchesOverDescription(t *testing.T) {
 }
 
 func TestSearchRequiresAllTerms(t *testing.T) {
-	db := newTestSQLite(t)
+	db := newSearchTestSQLite(t)
 	service := NewSearchService(repository.NewSearchRepository(db))
 
 	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
@@ -104,7 +107,7 @@ func TestSearchRequiresAllTerms(t *testing.T) {
 }
 
 func TestSearchPrefersDirectFolderMatchesWithinScope(t *testing.T) {
-	db := newTestSQLite(t)
+	db := newSearchTestSQLite(t)
 	service := NewSearchService(repository.NewSearchRepository(db))
 
 	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
@@ -165,7 +168,7 @@ func TestSearchPrefersDirectFolderMatchesWithinScope(t *testing.T) {
 }
 
 func TestSearchEscapesLikeWildcards(t *testing.T) {
-	db := newTestSQLite(t)
+	db := newSearchTestSQLite(t)
 	service := NewSearchService(repository.NewSearchRepository(db))
 
 	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
@@ -192,6 +195,74 @@ func TestSearchEscapesLikeWildcards(t *testing.T) {
 	}
 }
 
+func TestSearchHidesHiddenFilesAndFolders(t *testing.T) {
+	db := newSearchTestSQLite(t)
+	service := NewSearchService(repository.NewSearchRepository(db))
+
+	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
+	visibleRootPath := "/srv/openshare/course"
+	hiddenFolderPath := "/srv/openshare/course/.secret"
+
+	mustCreateSearchFolder(t, db, model.Folder{
+		ID:         "visible-root",
+		Name:       "课程资料",
+		SourcePath: ptrString(visibleRootPath),
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	})
+	mustCreateSearchFolder(t, db, model.Folder{
+		ID:         "hidden-folder",
+		ParentID:   ptrString("visible-root"),
+		Name:       ".secret",
+		SourcePath: ptrString(hiddenFolderPath),
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	})
+	mustCreateSearchFile(t, db, model.File{
+		ID:        "visible-file",
+		FolderID:  ptrString("visible-root"),
+		Name:      "visible-logo.png",
+		Extension: "png",
+		Size:      1024,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	mustCreateSearchFile(t, db, model.File{
+		ID:        "hidden-dot-file",
+		FolderID:  ptrString("visible-root"),
+		Name:      ".hidden-logo.png",
+		Extension: "png",
+		Size:      1024,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	mustCreateSearchFile(t, db, model.File{
+		ID:        "hidden-folder-file",
+		FolderID:  ptrString("hidden-folder"),
+		Name:      "nested-logo.png",
+		Extension: "png",
+		Size:      1024,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+
+	result, err := service.Search(context.Background(), SearchInput{
+		Keyword:  "logo",
+		Page:     1,
+		PageSize: 10,
+	})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+
+	if result.Total != 1 {
+		t.Fatalf("expected 1 visible result, got %d", result.Total)
+	}
+	if len(result.Items) != 1 || result.Items[0].ID != "visible-file" {
+		t.Fatalf("expected only visible file in results, got %+v", result.Items)
+	}
+}
+
 func mustCreateSearchFile(t *testing.T, db *gorm.DB, file model.File) {
 	t.Helper()
 	if err := db.Create(&file).Error; err != nil {
@@ -208,4 +279,28 @@ func mustCreateSearchFolder(t *testing.T, db *gorm.DB, folder model.Folder) {
 
 func ptrString(value string) *string {
 	return &value
+}
+
+func newSearchTestSQLite(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "openshare-search-test.db")
+	db, err := database.NewSQLite(database.Options{
+		Path:      dbPath,
+		LogLevel:  "silent",
+		EnableWAL: true,
+		Pragmas: []database.Pragma{
+			{Name: "foreign_keys", Value: "ON"},
+			{Name: "busy_timeout", Value: "5000"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+
+	if err := bootstrap.EnsureSchema(db); err != nil {
+		t.Fatalf("ensure schema failed: %v", err)
+	}
+
+	return db
 }

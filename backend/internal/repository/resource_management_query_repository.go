@@ -56,6 +56,7 @@ func (r *ResourceManagementRepository) ListFiles(ctx context.Context, query stri
 			COALESCE(folders.name, '') AS folder_name
 		`).
 		Joins("LEFT JOIN folders ON folders.id = files.folder_id")
+	dbq = applyVisibleManagedFileFilter(dbq, "files.name", "files.folder_id", "folders.source_path")
 	if trimmed := strings.TrimSpace(query); trimmed != "" {
 		like := "%" + trimmed + "%"
 		dbq = dbq.Where("files.name LIKE ? OR files.description LIKE ?", like, like)

@@ -140,7 +140,7 @@ func (s *PublicCatalogService) ListHotFiles(ctx context.Context, limit int) (*Pu
 }
 
 func (s *PublicCatalogService) ListLatestFiles(ctx context.Context, limit int) (*PublicFileFeedResult, error) {
-	return s.listManagedFileFeed(ctx, limit, []string{"created_at DESC", "id DESC"})
+	return s.listManagedFileFeed(ctx, limit, []string{"files.created_at DESC", "files.id DESC"})
 }
 
 func (s *PublicCatalogService) ListPublicFolders(ctx context.Context, parentID string) ([]PublicFolderItem, error) {
