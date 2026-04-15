@@ -8,13 +8,13 @@ import (
 	"syscall"
 	"time"
 
+	"openshare/backend/internal/admin"
 	"openshare/backend/internal/bootstrap"
 	"openshare/backend/internal/config"
-	"openshare/backend/internal/repository"
 	"openshare/backend/internal/router"
-	"openshare/backend/internal/service"
 	"openshare/backend/internal/session"
 	"openshare/backend/internal/storage"
+	"openshare/backend/internal/worker"
 	"openshare/backend/pkg/database"
 )
 
@@ -37,29 +37,22 @@ func main() {
 	if err := storage.EnsureLayout(cfg.Storage); err != nil {
 		log.Fatalf("init storage layout: %v", err)
 	}
-	storageService := storage.NewService(cfg.Storage)
 
 	if err := bootstrap.EnsureSchema(db); err != nil {
 		log.Fatalf("init schema: %v", err)
 	}
 
-	adminBootstrap := service.NewAdminBootstrapService(db, repository.NewAdminRepository(db))
+	adminBootstrap := admin.NewAdminBootstrapService(db, admin.NewAdminRepository(db))
 	if err := adminBootstrap.EnsureDefaultSuperAdmin(); err != nil {
 		log.Fatalf("init default super admin: %v", err)
 	}
 
-	importService := service.NewImportService(repository.NewImportRepository(db), storageService)
-	syncManager := service.NewImportSyncManager(importService)
-
 	serverCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := syncManager.Start(serverCtx); err != nil {
-		log.Fatalf("start import sync manager: %v", err)
-	}
-
-	sessionManager := session.NewManager(db, cfg.Session, repository.NewAdminSessionRepository())
-	engine := router.New(db, cfg, sessionManager, syncManager)
+	sessionManager := session.NewManager(db, cfg.Session, admin.NewAdminSessionRepository())
+	managedSyncNotifier := worker.NewManagedSyncTaskNotifier(worker.NewTaskRepository(db))
+	engine := router.New(db, cfg, sessionManager, managedSyncNotifier)
 	server := &http.Server{
 		Addr:    cfg.Server.Address(),
 		Handler: engine,

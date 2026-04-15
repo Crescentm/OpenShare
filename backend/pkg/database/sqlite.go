@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -117,7 +118,15 @@ func newLogger(level string) gormlogger.Interface {
 		logLevel = gormlogger.Warn
 	}
 
-	return gormlogger.Default.LogMode(logLevel)
+	return gormlogger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		gormlogger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logLevel,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		},
+	)
 }
 
 func configurePool(sqlDB *sql.DB) {
