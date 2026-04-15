@@ -24,6 +24,7 @@ COPY backend/ ./
 COPY --from=frontend-builder /workspace/frontend/dist ./web/dist
 
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o /out/openshare ./cmd/server
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o /out/openshare-worker ./cmd/worker
 
 
 FROM debian:bookworm-slim AS runtime
@@ -35,6 +36,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=backend-builder /out/openshare ./openshare
+COPY --from=backend-builder /out/openshare-worker ./openshare-worker
 COPY --from=backend-builder /workspace/backend/config ./config
 
 RUN mkdir -p /data/openshare

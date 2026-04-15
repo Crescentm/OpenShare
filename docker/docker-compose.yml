@@ -14,3 +14,14 @@ services:
     volumes:
       - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
       - ${OPENSHARE_CONFIG:-./config/config.local.json}:/app/config/config.local.json
+  openshare-worker:
+    image: openshare:local
+    container_name: openshare-worker
+    restart: unless-stopped
+    command: ["./openshare-worker"]
+    environment:
+      OPENSHARE_SESSION_SECRET: ${OPENSHARE_SESSION_SECRET}
+      GIN_MODE: release
+    volumes:
+      - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
+      - ${OPENSHARE_CONFIG:-./config/config.local.json}:/app/config/config.local.json
