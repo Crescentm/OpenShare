@@ -1,16 +1,18 @@
-package router
+package router_test
 
 import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"openshare/backend/internal/router"
 )
 
 func TestPublicReceiptCodeEnsuresSessionCode(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/receipt-code", nil)
 	recorder := httptest.NewRecorder()
@@ -40,7 +42,7 @@ func TestPublicReceiptCodeEnsuresSessionCode(t *testing.T) {
 func TestPublicReceiptCodeReusesCookie(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/receipt-code", nil)
 	request.AddCookie(&http.Cookie{Name: "openshare_receipt_code", Value: "SESSION88"})

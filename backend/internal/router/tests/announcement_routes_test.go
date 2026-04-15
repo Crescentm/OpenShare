@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"bytes"
@@ -11,12 +11,13 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 )
 
 func TestPublicAnnouncementsPrioritizePinnedItems(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	now := time.Now().UTC()
 	createAnnouncementForTest(t, db, announcementSeed{
@@ -65,7 +66,7 @@ func TestAdminAnnouncementCreateRejectsPinnedForNormalAdmin(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
 		username:    "announcer",
 		password:    "s3cret-pass",
@@ -93,7 +94,7 @@ func TestAdminAnnouncementCreateAllowsPinnedForSuperAdmin(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 	admin := createRouterTestAdmin(t, db, "superadmin", "s3cret-pass")
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {

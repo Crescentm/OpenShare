@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"encoding/json"
@@ -10,12 +10,13 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 )
 
 func TestPublicSubmissionLookupByReceiptCode(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	submission := createPendingSubmissionForTest(t, db, "RECEIPT88")
 	request := httptest.NewRequest(http.MethodGet, "/api/public/submissions/RECEIPT88", nil)
@@ -56,7 +57,7 @@ func TestPublicSubmissionLookupByReceiptCode(t *testing.T) {
 func TestPublicSubmissionLookupReturns404WhenMissing(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/submissions/UNKNOWN88", nil)
 	recorder := httptest.NewRecorder()
@@ -71,7 +72,7 @@ func TestPublicSubmissionLookupReturns404WhenMissing(t *testing.T) {
 func TestPublicSubmissionLookupRejectsInvalidReceiptCode(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/submissions/invalid!*", nil)
 	recorder := httptest.NewRecorder()
@@ -86,7 +87,7 @@ func TestPublicSubmissionLookupRejectsInvalidReceiptCode(t *testing.T) {
 func TestPublicSubmissionLookupReturnsMultipleItems(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	createPendingSubmissionForTest(t, db, "SHARED99")
 	createPendingSubmissionForTest(t, db, "SHARED99")

@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"net/http"
@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 )
 
 func TestPublicUploadRejectsWhenTotalSizeExceedsLimit(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	cfg.Upload.MaxUploadTotalBytes = 16
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	folderID := createPublicTestFolder(t, db, "总量限制目录")
 
 	body, contentType := buildUploadBatchRequestBody(t, uploadBatchRequestBody{

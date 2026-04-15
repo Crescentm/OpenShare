@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 )
 
 func createFeedbackTestFile(t *testing.T, db *gorm.DB) *model.File {
@@ -64,7 +65,7 @@ func TestCreateFeedbackForFile(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 
 	file := createFeedbackTestFile(t, db)
 
@@ -103,7 +104,7 @@ func TestCreateFeedbackForFolder(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 
 	folder := createFeedbackTestFolder(t, db)
 
@@ -123,7 +124,7 @@ func TestLookupFeedbackReceiptCode(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 
 	file := createFeedbackTestFile(t, db)
 	now := time.Now().UTC()
@@ -204,7 +205,7 @@ func TestListFeedbackForAdmin(t *testing.T) {
 	}
 
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
@@ -265,7 +266,7 @@ func TestApproveFeedback(t *testing.T) {
 	}
 
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
@@ -326,7 +327,7 @@ func TestRejectFeedback(t *testing.T) {
 	}
 
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
@@ -387,7 +388,7 @@ func TestRejectFeedbackRequiresReviewReason(t *testing.T) {
 	}
 
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)

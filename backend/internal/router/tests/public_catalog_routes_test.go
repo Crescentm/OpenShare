@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
-	"openshare/backend/pkg/identity"
+	"openshare/backend/internal/router"
 )
 
 func TestPublicHotFilesListsMostDownloadedFiles(t *testing.T) {
@@ -35,7 +35,7 @@ func TestPublicHotFilesListsMostDownloadedFiles(t *testing.T) {
 	createFileDailyDownloadAggregate(t, db, secondFile.ID, now.AddDate(0, 0, -8), 100)
 	createFileDailyDownloadAggregate(t, db, secondFile.ID, now.AddDate(0, 0, -1), 2)
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/hot?limit=10", nil)
 	recorder := httptest.NewRecorder()
 
@@ -80,7 +80,7 @@ func TestPublicFolderFilesSupportsFolderBrowsing(t *testing.T) {
 		folderID: &folderID,
 	})
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/folders/"+folderID+"/files", nil)
 	recorder := httptest.NewRecorder()
 
@@ -123,7 +123,7 @@ func TestPublicLatestFilesReturnsNewestFirst(t *testing.T) {
 		createdAt:     time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC),
 	})
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/latest?limit=2", nil)
 	recorder := httptest.NewRecorder()
 
@@ -158,7 +158,7 @@ func TestPublicFolderFilesSupportsNameSort(t *testing.T) {
 	createPublicTestFile(t, db, publicTestFile{title: "a-file", folderID: &folderID})
 	createPublicTestFile(t, db, publicTestFile{title: "b-file", folderID: &folderID})
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/folders/"+folderID+"/files?sort=name_asc&page=1&page_size=10", nil)
 	recorder := httptest.NewRecorder()
 
@@ -207,7 +207,7 @@ func TestPublicCatalogHidesHiddenFilesAndFolders(t *testing.T) {
 		folderID: &hiddenFolderID,
 	})
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	foldersRequest := httptest.NewRequest(http.MethodGet, "/api/public/folders", nil)
 	foldersRecorder := httptest.NewRecorder()
@@ -280,7 +280,7 @@ func TestPublicFoldersReturnsBreadcrumbs(t *testing.T) {
 		description: "高数简介",
 	})
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/folders/"+childID, nil)
 	recorder := httptest.NewRecorder()
 
@@ -340,7 +340,7 @@ func TestPublicFoldersReturnsAggregatedStats(t *testing.T) {
 		size:          256,
 	})
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/folders", nil)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
@@ -482,13 +482,3 @@ func createPublicTestFolderWithParent(t *testing.T, db *gorm.DB, input publicTes
 	return folderID
 }
 
-func mustNewID(t *testing.T) string {
-	t.Helper()
-
-	id, err := identity.NewID()
-	if err != nil {
-		t.Fatalf("generate id failed: %v", err)
-	}
-
-	return id
-}

@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 )
 
 func TestAdminUpdateFolderAllowsSameNameInDifferentDirectories(t *testing.T) {
@@ -174,7 +175,7 @@ func newResourceManagementRouteEnv(t *testing.T) (*gorm.DB, *http.Cookie, http.H
 		},
 	})
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {

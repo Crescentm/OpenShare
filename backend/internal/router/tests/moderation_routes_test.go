@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 
 	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 )
 
 func TestListPendingSubmissions(t *testing.T) {
@@ -29,7 +30,7 @@ func TestListPendingSubmissions(t *testing.T) {
 	})
 	createPendingModerationRecord(t, cfg, db, "PENDING01")
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
@@ -76,7 +77,7 @@ func TestApproveSubmissionMovesFileAndUpdatesStatus(t *testing.T) {
 	})
 	submission, stagingPath := createPendingModerationRecord(t, cfg, db, "APPROVE01")
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {
@@ -144,7 +145,7 @@ func TestRejectSubmissionDeletesStagedFileAndStoresReason(t *testing.T) {
 	})
 	submission, stagingPath := createPendingModerationRecord(t, cfg, db, "REJECT01")
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {

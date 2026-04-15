@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 )
 
 func newImportRouteEnv(t *testing.T, access adminAccess) (*model.Admin, string, *http.Cookie, http.Handler, *gorm.DB) {
@@ -19,7 +20,7 @@ func newImportRouteEnv(t *testing.T, access adminAccess) (*model.Admin, string, 
 	db := newRouterTestDB(t)
 	admin := createRouterTestAdminWithAccess(t, db, access)
 	manager := newRouterSessionManager(db)
-	engine := New(db, cfg, manager)
+	engine := router.New(db, cfg, manager)
 
 	cookieValue, _, err := manager.Create(t.Context(), admin)
 	if err != nil {

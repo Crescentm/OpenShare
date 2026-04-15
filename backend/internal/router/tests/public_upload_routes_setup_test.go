@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 	"openshare/backend/internal/session"
 )
 
@@ -37,7 +38,7 @@ func newPublicUploadTestEnv(t *testing.T) (*gorm.DB, http.Handler) {
 
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	return db, New(db, cfg, newRouterSessionManager(db))
+	return db, router.New(db, cfg, newRouterSessionManager(db))
 }
 
 func newPublicUploadSessionEnv(t *testing.T) (*gorm.DB, *session.Manager, http.Handler) {
@@ -46,7 +47,7 @@ func newPublicUploadSessionEnv(t *testing.T) (*gorm.DB, *session.Manager, http.H
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	manager := newRouterSessionManager(db)
-	return db, manager, New(db, cfg, manager)
+	return db, manager, router.New(db, cfg, manager)
 }
 
 func buildUploadRequestBody(t *testing.T, input uploadRequestBody) (*bytes.Buffer, string) {

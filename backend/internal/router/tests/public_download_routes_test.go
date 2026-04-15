@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"archive/zip"
@@ -16,6 +16,7 @@ import (
 
 	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/router"
 )
 
 func TestPublicDownloadServesManagedFile(t *testing.T) {
@@ -23,7 +24,7 @@ func TestPublicDownloadServesManagedFile(t *testing.T) {
 	db := newRouterTestDB(t)
 	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
 	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("download-content"))
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/download", nil)
 	recorder := httptest.NewRecorder()
@@ -51,7 +52,7 @@ func TestPublicFileContentServesManagedFileInline(t *testing.T) {
 	db := newRouterTestDB(t)
 	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
 	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("pdf-content"))
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=inline", nil)
 	recorder := httptest.NewRecorder()
@@ -78,7 +79,7 @@ func TestPublicFileContentServesManagedFileTextPreview(t *testing.T) {
 	db := newRouterTestDB(t)
 	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
 	file := createRepositoryFileForDownload(t, cfg, db, folder, "README.md", []byte("# hello\npreview body"))
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=text", nil)
 	recorder := httptest.NewRecorder()
@@ -102,7 +103,7 @@ func TestPublicFileContentDownloadsManagedFile(t *testing.T) {
 	db := newRouterTestDB(t)
 	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
 	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("download-content"))
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=download", nil)
 	recorder := httptest.NewRecorder()
@@ -126,7 +127,7 @@ func TestPublicFileContentRejectsInvalidView(t *testing.T) {
 	db := newRouterTestDB(t)
 	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
 	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("pdf-content"))
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=unknown", nil)
 	recorder := httptest.NewRecorder()
@@ -145,7 +146,7 @@ func TestPublicDownloadReturnsGoneWhenRepositoryFileMissing(t *testing.T) {
 	if err := os.Remove(model.BuildManagedFilePath(folder.SourcePath, file.Name)); err != nil {
 		t.Fatalf("remove repository file failed: %v", err)
 	}
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/download", nil)
 	recorder := httptest.NewRecorder()
@@ -166,7 +167,7 @@ func TestPublicFileDetailReturnsMetadata(t *testing.T) {
 	if err := db.Save(file).Error; err != nil {
 		t.Fatalf("save detail file failed: %v", err)
 	}
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID, nil)
 	recorder := httptest.NewRecorder()
@@ -236,7 +237,7 @@ func TestPublicFolderAssetServesRelativeManagedFile(t *testing.T) {
 		t.Fatalf("save asset file failed: %v", err)
 	}
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(
 		http.MethodGet,
 		"/api/public/folders/"+childFolder.ID+"/assets?path="+url.QueryEscape("../diagram.png"),
@@ -290,7 +291,7 @@ func TestPublicFolderAssetRejectsPathEscapingManagedRoot(t *testing.T) {
 		t.Fatalf("create child folder failed: %v", err)
 	}
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(
 		http.MethodGet,
 		"/api/public/folders/"+childFolder.ID+"/assets?path="+url.QueryEscape("../../secret.txt"),
@@ -319,7 +320,7 @@ func TestPublicBatchDownloadStreamsZip(t *testing.T) {
 		t.Fatalf("save second batch file failed: %v", err)
 	}
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	body := bytes.NewBufferString(`{"file_ids":["` + first.ID + `","` + second.ID + `"]}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/public/files/batch-download", body)
 	request.Header.Set("Content-Type", "application/json")
@@ -362,7 +363,7 @@ func TestPublicFolderDownloadStreamsZip(t *testing.T) {
 		t.Fatalf("save nested folder file failed: %v", err)
 	}
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/api/public/folders/"+rootFolder.ID+"/download", nil)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)

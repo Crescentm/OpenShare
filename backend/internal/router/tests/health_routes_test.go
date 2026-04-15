@@ -1,4 +1,4 @@
-package router
+package router_test
 
 import (
 	"encoding/json"
@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"openshare/backend/internal/router"
 	"openshare/backend/internal/worker"
 )
 
 func TestWorkerHealthReturnsUnavailableWithoutHeartbeat(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 
 	request := httptest.NewRequest(http.MethodGet, "/healthz/worker", nil)
 	recorder := httptest.NewRecorder()
@@ -61,7 +62,7 @@ func TestWorkerHealthReturnsOkForFreshHeartbeat(t *testing.T) {
 		t.Fatalf("create unrelated worker task failed: %v", err)
 	}
 
-	engine := New(db, cfg, newRouterSessionManager(db))
+	engine := router.New(db, cfg, newRouterSessionManager(db))
 	request := httptest.NewRequest(http.MethodGet, "/healthz/worker", nil)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
