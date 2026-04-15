@@ -7,8 +7,9 @@ import (
 	"openshare/backend/internal/model"
 )
 
-func registerHealthRoutes(engine *gin.Engine, healthCheck gin.HandlerFunc) {
+func registerHealthRoutes(engine *gin.Engine, healthCheck gin.HandlerFunc, workerHealthCheck gin.HandlerFunc) {
 	engine.GET("/healthz", healthCheck)
+	engine.GET("/healthz/worker", workerHealthCheck)
 }
 
 func registerPublicRoutes(api *gin.RouterGroup, handlers *routeHandlers) {

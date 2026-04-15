@@ -17,7 +17,6 @@ import (
 
 	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
-	"openshare/backend/internal/repository"
 	"openshare/backend/pkg/identity"
 )
 
@@ -38,10 +37,18 @@ func (realClock) Now() time.Time {
 	return time.Now().UTC()
 }
 
+type sessionRepository interface {
+	Create(tx *gorm.DB, session *model.AdminSession) error
+	FindByTokenHash(tx *gorm.DB, tokenHash string) (*model.AdminSession, error)
+	UpdateActivityAndExpiry(tx *gorm.DB, sessionID string, lastActivityAt, expiresAt time.Time) error
+	DeleteByTokenHash(tx *gorm.DB, tokenHash string) error
+	DeleteExpired(tx *gorm.DB, now time.Time) error
+}
+
 type Manager struct {
 	db         *gorm.DB
 	config     config.SessionConfig
-	repository *repository.AdminSessionRepository
+	repository sessionRepository
 	clock      Clock
 	signingKey []byte
 }
@@ -63,13 +70,19 @@ type ResolveResult struct {
 	CookieValue string
 }
 
-func NewManager(db *gorm.DB, cfg config.SessionConfig, repo *repository.AdminSessionRepository) *Manager {
+func NewManager(db *gorm.DB, cfg config.SessionConfig, repo sessionRepository) *Manager {
 	return &Manager{
 		db:         db,
 		config:     cfg,
 		repository: repo,
 		clock:      realClock{},
 		signingKey: []byte(cfg.Secret),
+	}
+}
+
+func (m *Manager) SetClockForTest(clock Clock) {
+	if clock != nil {
+		m.clock = clock
 	}
 }
 

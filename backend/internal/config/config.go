@@ -13,12 +13,13 @@ import (
 const defaultStorageRoot = "/data/openshare"
 
 type Config struct {
-	Server    ServerConfig    `json:"server"`
-	Database  DatabaseConfig  `json:"database"`
-	Storage   StorageConfig   `json:"storage"`
-	Upload    UploadConfig    `json:"upload"`
-	Session   SessionConfig   `json:"session"`
-	RateLimit RateLimitConfig `json:"rate_limit"`
+	Server      ServerConfig      `json:"server"`
+	Database    DatabaseConfig    `json:"database"`
+	Storage     StorageConfig     `json:"storage"`
+	Upload      UploadConfig      `json:"upload"`
+	Session     SessionConfig     `json:"session"`
+	RateLimit   RateLimitConfig   `json:"rate_limit"`
+	ManagedSync ManagedSyncConfig `json:"managed_sync"`
 }
 
 type ServerConfig struct {
@@ -107,6 +108,11 @@ type RateLimitRule struct {
 	Window  int  `json:"window_seconds"`
 }
 
+type ManagedSyncConfig struct {
+	RefreshIntervalSeconds int `json:"refresh_interval_seconds"`
+	AuditIntervalSeconds   int `json:"audit_interval_seconds"`
+}
+
 func Default() Config {
 	return Config{
 		Server: ServerConfig{
@@ -145,6 +151,10 @@ func Default() Config {
 		RateLimit: RateLimitConfig{
 			Upload: RateLimitRule{Enabled: true, Limit: 10, Window: 60},
 			Search: RateLimitRule{Enabled: true, Limit: 60, Window: 60},
+		},
+		ManagedSync: ManagedSyncConfig{
+			RefreshIntervalSeconds: 60,
+			AuditIntervalSeconds:   21600,
 		},
 	}
 }
@@ -225,6 +235,8 @@ func applyEnv(cfg *Config) error {
 	overrideBool("OPENSHARE_RATE_LIMIT_SEARCH_ENABLED", &cfg.RateLimit.Search.Enabled, &errs)
 	overrideInt("OPENSHARE_RATE_LIMIT_SEARCH_LIMIT", &cfg.RateLimit.Search.Limit, &errs)
 	overrideInt("OPENSHARE_RATE_LIMIT_SEARCH_WINDOW_SECONDS", &cfg.RateLimit.Search.Window, &errs)
+	overrideInt("OPENSHARE_MANAGED_SYNC_REFRESH_INTERVAL_SECONDS", &cfg.ManagedSync.RefreshIntervalSeconds, &errs)
+	overrideInt("OPENSHARE_MANAGED_SYNC_AUDIT_INTERVAL_SECONDS", &cfg.ManagedSync.AuditIntervalSeconds, &errs)
 
 	return errors.Join(errs...)
 }
@@ -298,6 +310,12 @@ func (c Config) Validate() error {
 	}
 	if err := validateRateLimit("rate_limit.search", c.RateLimit.Search); err != nil {
 		return err
+	}
+	if c.ManagedSync.RefreshIntervalSeconds <= 0 {
+		return errors.New("managed_sync.refresh_interval_seconds must be greater than 0")
+	}
+	if c.ManagedSync.AuditIntervalSeconds <= 0 {
+		return errors.New("managed_sync.audit_interval_seconds must be greater than 0")
 	}
 
 	return nil

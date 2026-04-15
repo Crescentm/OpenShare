@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
-	"openshare/backend/internal/repository"
+	"openshare/backend/internal/resources"
 )
 
 func migrateSubmissionsSchema(db *gorm.DB) error {
@@ -167,7 +167,7 @@ func normalizeSubmissionRelativePaths(db *gorm.DB) error {
 				var exists bool
 				rootDisplayPath, exists = displayPathByFolder[folderID]
 				if !exists {
-					path, err := repository.BuildFolderDisplayPath(ctx, tx, row.FolderID)
+					path, err := resources.BuildFolderDisplayPath(ctx, tx, row.FolderID)
 					if err != nil {
 						return fmt.Errorf("build submission folder display path: %w", err)
 					}
@@ -176,8 +176,8 @@ func normalizeSubmissionRelativePaths(db *gorm.DB) error {
 				}
 			}
 
-			normalized := repository.NormalizeStoredSubmissionRelativePath(rootDisplayPath, row.RelativePath)
-			if normalized == repository.NormalizeRelativePathForStorage(row.RelativePath) {
+			normalized := resources.NormalizeStoredSubmissionRelativePath(rootDisplayPath, row.RelativePath)
+			if normalized == resources.NormalizeRelativePathForStorage(row.RelativePath) {
 				continue
 			}
 			if err := tx.Model(&model.Submission{}).

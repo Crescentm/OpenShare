@@ -70,6 +70,46 @@ func TestLoadRejectsExplicitInvalidUploadOverrideEvenWithLegacyFallback(t *testi
 	}
 }
 
+func TestLoadPreservesManagedSyncDefaultsForPartialOverrides(t *testing.T) {
+	defaultPath, localPath := writeTestConfigFiles(
+		t,
+		Default(),
+		`{"managed_sync":{"refresh_interval_seconds":15}}`,
+	)
+
+	cfg, err := Load(defaultPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.ManagedSync.RefreshIntervalSeconds != 15 {
+		t.Fatalf("RefreshIntervalSeconds = %d, want %d", cfg.ManagedSync.RefreshIntervalSeconds, 15)
+	}
+	if cfg.ManagedSync.AuditIntervalSeconds != Default().ManagedSync.AuditIntervalSeconds {
+		t.Fatalf(
+			"AuditIntervalSeconds = %d, want %d",
+			cfg.ManagedSync.AuditIntervalSeconds,
+			Default().ManagedSync.AuditIntervalSeconds,
+		)
+	}
+}
+
+func TestLoadRejectsInvalidManagedSyncOverride(t *testing.T) {
+	defaultPath, localPath := writeTestConfigFiles(
+		t,
+		Default(),
+		`{"managed_sync":{"audit_interval_seconds":0}}`,
+	)
+
+	_, err := Load(defaultPath, localPath)
+	if err == nil {
+		t.Fatal("Load() error = nil, want validation error")
+	}
+	if !strings.Contains(err.Error(), "managed_sync.audit_interval_seconds must be greater than 0") {
+		t.Fatalf("Load() error = %v, want managed_sync.audit_interval_seconds validation error", err)
+	}
+}
+
 func writeTestConfigFiles(t *testing.T, cfg Config, localJSON string) (string, string) {
 	t.Helper()
 

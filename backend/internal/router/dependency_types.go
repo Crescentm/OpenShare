@@ -1,66 +1,78 @@
 package router
 
 import (
-	"openshare/backend/internal/handler"
-	"openshare/backend/internal/repository"
-	"openshare/backend/internal/service"
+	"openshare/backend/internal/admin"
+	"openshare/backend/internal/announcements"
+	"openshare/backend/internal/catalog"
+	"openshare/backend/internal/downloads"
+	"openshare/backend/internal/feedback"
+	"openshare/backend/internal/imports"
+	"openshare/backend/internal/moderation"
+	"openshare/backend/internal/operations"
+	"openshare/backend/internal/receipts"
+	"openshare/backend/internal/resources"
+	"openshare/backend/internal/search"
+	"openshare/backend/internal/settings"
+	"openshare/backend/internal/submissions"
+	"openshare/backend/internal/uploads"
+	"openshare/backend/internal/visits"
 )
 
 type routeHandlers struct {
-	adminAuth          *handler.AdminAuthHandler
-	adminDashboard     *handler.AdminDashboardHandler
-	announcement       *handler.AnnouncementHandler
-	adminManagement    *handler.AdminManagementHandler
-	feedback           *handler.FeedbackHandler
-	imports            *handler.ImportHandler
-	moderation         *handler.ModerationHandler
-	operationLog       *handler.OperationLogHandler
-	publicCatalog      *handler.PublicCatalogHandler
-	publicDownload     *handler.PublicDownloadHandler
-	publicReceipt      *handler.PublicReceiptHandler
-	publicSubmission   *handler.PublicSubmissionHandler
-	publicUpload       *handler.PublicUploadHandler
-	resourceManagement *handler.ResourceManagementHandler
-	search             *handler.SearchHandler
-	siteVisit          *handler.SiteVisitHandler
-	systemSetting      *handler.SystemSettingHandler
+	adminAuth          *admin.AdminAuthHandler
+	adminDashboard     *admin.AdminDashboardHandler
+	announcement       *announcements.AnnouncementHandler
+	adminManagement    *admin.AdminManagementHandler
+	feedback           *feedback.FeedbackHandler
+	imports            *imports.ImportHandler
+	moderation         *moderation.ModerationHandler
+	operationLog       *operations.OperationLogHandler
+	publicCatalog      *catalog.PublicCatalogHandler
+	publicDownload     *downloads.PublicDownloadHandler
+	publicReceipt      *receipts.PublicReceiptHandler
+	publicSubmission   *submissions.PublicSubmissionHandler
+	publicUpload       *uploads.PublicUploadHandler
+	resourceManagement *resources.ResourceManagementHandler
+	search             *search.SearchHandler
+	siteVisit          *visits.SiteVisitHandler
+	systemSetting      *settings.SystemSettingHandler
 }
 
 type routeRepositories struct {
-	admin              *repository.AdminRepository
-	adminDashboard     *repository.AdminDashboardRepository
-	announcement       *repository.AnnouncementRepository
-	feedback           *repository.FeedbackRepository
-	imports            *repository.ImportRepository
-	moderation         *repository.ModerationRepository
-	operationLog       *repository.OperationLogRepository
-	publicCatalog      *repository.PublicCatalogRepository
-	publicDownload     *repository.PublicDownloadRepository
-	publicSubmission   *repository.PublicSubmissionRepository
-	resourceManagement *repository.ResourceManagementRepository
-	search             *repository.SearchRepository
-	siteVisit          *repository.SiteVisitRepository
-	systemSetting      *repository.SystemSettingRepository
-	upload             *repository.UploadRepository
-	receiptCode        *repository.ReceiptCodeRepository
+	admin              *admin.AdminRepository
+	adminDashboard     *admin.AdminDashboardRepository
+	announcement       *announcements.AnnouncementRepository
+	feedback           *feedback.FeedbackRepository
+	imports            *imports.ImportRepository
+	moderation         *moderation.ModerationRepository
+	operationLog       *operations.OperationLogRepository
+	publicCatalog      *catalog.PublicCatalogRepository
+	publicDownload     *downloads.PublicDownloadRepository
+	publicSubmission   *submissions.PublicSubmissionRepository
+	resourceManagement *resources.ResourceManagementRepository
+	search             *search.SearchRepository
+	siteVisit          *visits.SiteVisitRepository
+	systemSetting      *settings.SystemSettingRepository
+	upload             *uploads.UploadRepository
+	receiptCode        *receipts.ReceiptCodeRepository
 }
 
 type routeServices struct {
-	adminAuth          *service.AdminAuthService
-	adminDashboard     *service.AdminDashboardService
-	announcement       *service.AnnouncementService
-	adminManagement    *service.AdminManagementService
-	feedback           *service.FeedbackService
-	imports            *service.ImportService
-	moderation         *service.ModerationService
-	operationLog       *service.OperationLogService
-	publicCatalog      *service.PublicCatalogService
-	publicDownload     *service.PublicDownloadService
-	publicReceipt      *service.ReceiptCodeService
-	publicSubmission   *service.PublicSubmissionService
-	publicUpload       *service.PublicUploadService
-	resourceManagement *service.ResourceManagementService
-	search             *service.SearchService
-	siteVisit          *service.SiteVisitService
-	systemSetting      *service.SystemSettingService
+	adminAuth          *admin.AdminAuthService
+	adminDashboard     *admin.AdminDashboardService
+	announcement       *announcements.AnnouncementService
+	adminManagement    *admin.AdminManagementService
+	feedback           *feedback.FeedbackService
+	imports            *imports.ImportService
+	moderation         *moderation.ModerationService
+	operationLog       *operations.OperationLogService
+	publicCatalog      *catalog.PublicCatalogService
+	publicDownload     *downloads.PublicDownloadService
+	publicReceipt      *receipts.ReceiptCodeService
+	publicSubmission   *submissions.PublicSubmissionService
+	publicUpload       *uploads.PublicUploadService
+	resourceManagement *resources.ResourceManagementService
+	search             *search.SearchService
+	siteVisit          *visits.SiteVisitService
+	systemSetting      *settings.SystemSettingService
 }

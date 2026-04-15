@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/worker"
 )
 
 var managedModels = []any{
@@ -20,6 +21,8 @@ var managedModels = []any{
 	&model.SiteVisitEvent{},
 	&model.DownloadEvent{},
 	&model.FileDailyDownload{},
+	&worker.Task{},
+	&worker.Heartbeat{},
 	&model.SystemSetting{},
 	&model.SystemStat{},
 	&model.DailyStat{},
@@ -41,6 +44,9 @@ func EnsureSchema(db *gorm.DB) error {
 	}
 	if err := migrateManagedSyncSchema(db); err != nil {
 		return fmt.Errorf("migrate managed sync schema: %w", err)
+	}
+	if err := worker.MigrateSchema(db); err != nil {
+		return fmt.Errorf("migrate worker tasks schema: %w", err)
 	}
 	if err := db.AutoMigrate(managedModels...); err != nil {
 		return fmt.Errorf("auto migrate schema: %w", err)

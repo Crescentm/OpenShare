@@ -1,4 +1,4 @@
-package session
+package session_test
 
 import (
 	"context"
@@ -9,10 +9,11 @@ import (
 
 	"gorm.io/gorm"
 
+	adminpkg "openshare/backend/internal/admin"
 	"openshare/backend/internal/bootstrap"
 	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
-	"openshare/backend/internal/repository"
+	"openshare/backend/internal/session"
 	"openshare/backend/pkg/database"
 	"openshare/backend/pkg/identity"
 )
@@ -22,7 +23,7 @@ func TestManagerCreateAndResolve(t *testing.T) {
 	admin := createActiveAdmin(t, db, "alice")
 	now := time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC)
 
-	manager := NewManager(db, config.SessionConfig{
+	manager := session.NewManager(db, config.SessionConfig{
 		Name:            "openshare_session",
 		Secret:          "test-secret",
 		Path:            "/",
@@ -31,8 +32,8 @@ func TestManagerCreateAndResolve(t *testing.T) {
 		Secure:          false,
 		SameSite:        "lax",
 		RenewWindowSecs: 300,
-	}, repository.NewAdminSessionRepository())
-	manager.clock = fakeClock{now: now}
+	}, adminpkg.NewAdminSessionRepository())
+	manager.SetClockForTest(fakeClock{now: now})
 
 	cookieValue, identity, err := manager.Create(context.Background(), admin)
 	if err != nil {
@@ -61,7 +62,7 @@ func TestManagerRenewsNearExpiry(t *testing.T) {
 	admin := createActiveAdmin(t, db, "bob")
 	baseTime := time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC)
 
-	manager := NewManager(db, config.SessionConfig{
+	manager := session.NewManager(db, config.SessionConfig{
 		Name:            "openshare_session",
 		Secret:          "test-secret",
 		Path:            "/",
@@ -70,15 +71,15 @@ func TestManagerRenewsNearExpiry(t *testing.T) {
 		Secure:          false,
 		SameSite:        "lax",
 		RenewWindowSecs: 600,
-	}, repository.NewAdminSessionRepository())
-	manager.clock = fakeClock{now: baseTime}
+	}, adminpkg.NewAdminSessionRepository())
+	manager.SetClockForTest(fakeClock{now: baseTime})
 
 	cookieValue, identity, err := manager.Create(context.Background(), admin)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 
-	manager.clock = fakeClock{now: identity.ExpiresAt.Add(-5 * time.Minute)}
+	manager.SetClockForTest(fakeClock{now: identity.ExpiresAt.Add(-5 * time.Minute)})
 
 	result, err := manager.Resolve(context.Background(), cookieValue)
 	if err != nil {
@@ -98,7 +99,7 @@ func TestManagerRenewsWhenWindowCoversFullSessionLifetime(t *testing.T) {
 	admin := createActiveAdmin(t, db, "carol")
 	baseTime := time.Date(2026, 3, 11, 10, 0, 0, 0, time.UTC)
 
-	manager := NewManager(db, config.SessionConfig{
+	manager := session.NewManager(db, config.SessionConfig{
 		Name:            "openshare_session",
 		Secret:          "test-secret",
 		Path:            "/",
@@ -107,15 +108,15 @@ func TestManagerRenewsWhenWindowCoversFullSessionLifetime(t *testing.T) {
 		Secure:          false,
 		SameSite:        "lax",
 		RenewWindowSecs: 7 * 24 * 60 * 60,
-	}, repository.NewAdminSessionRepository())
-	manager.clock = fakeClock{now: baseTime}
+	}, adminpkg.NewAdminSessionRepository())
+	manager.SetClockForTest(fakeClock{now: baseTime})
 
 	cookieValue, identity, err := manager.Create(context.Background(), admin)
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 
-	manager.clock = fakeClock{now: baseTime.Add(12 * time.Hour)}
+	manager.SetClockForTest(fakeClock{now: baseTime.Add(12 * time.Hour)})
 
 	result, err := manager.Resolve(context.Background(), cookieValue)
 	if err != nil {
@@ -132,7 +133,7 @@ func TestManagerRenewsWhenWindowCoversFullSessionLifetime(t *testing.T) {
 
 func TestWriteAndClearCookie(t *testing.T) {
 	db := newSessionTestDB(t)
-	manager := NewManager(db, config.SessionConfig{
+	manager := session.NewManager(db, config.SessionConfig{
 		Name:            "openshare_session",
 		Secret:          "test-secret",
 		Path:            "/admin",
@@ -141,7 +142,7 @@ func TestWriteAndClearCookie(t *testing.T) {
 		Secure:          true,
 		SameSite:        "strict",
 		RenewWindowSecs: 300,
-	}, repository.NewAdminSessionRepository())
+	}, adminpkg.NewAdminSessionRepository())
 
 	recorder := httptest.NewRecorder()
 	expiresAt := time.Date(2026, 3, 12, 10, 0, 0, 0, time.UTC)
