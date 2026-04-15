@@ -49,5 +49,9 @@
       "limit": 60,
       "window_seconds": 60
     }
+  },
+  "managed_sync": {
+    "refresh_interval_seconds": 60,
+    "audit_interval_seconds": 21600
   }
 }
