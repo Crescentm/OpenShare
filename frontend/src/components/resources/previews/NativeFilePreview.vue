@@ -20,7 +20,7 @@ defineEmits<{
 <template>
   <div class="space-y-4">
     <div
-      class="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50"
+      class="overflow-hidden border border-slate-200 bg-slate-50"
     >
       <img
         v-if="supportsImagePreview"

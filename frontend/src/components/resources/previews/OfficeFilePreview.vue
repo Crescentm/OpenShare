@@ -73,7 +73,7 @@ const VueOfficePptx = defineAsyncComponent(() => import("@vue-office/pptx"));
 
     <div
       v-else-if="officeFileContent"
-      class="overflow-hidden rounded-3xl border border-slate-200"
+      class="overflow-hidden border border-slate-200"
     >
       <Suspense>
         <template #default>

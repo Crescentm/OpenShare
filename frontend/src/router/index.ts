@@ -1,16 +1,21 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 
-import AdminLayout from "@/layouts/AdminLayout.vue";
-import AdminAdminsView from "@/views/admin/AdminAdminsView.vue";
-import PublicLayout from "@/layouts/PublicLayout.vue";
-import AdminAuditView from "@/views/admin/AdminAuditView.vue";
-import AdminAccountSettingsView from "@/views/admin/AdminAccountSettingsView.vue";
-import AdminDashboard from "@/views/admin/AdminDashboard.vue";
-import AdminOperationLogsView from "@/views/admin/AdminOperationLogsView.vue";
-import AdminAnnouncementsView from "@/views/admin/AdminAnnouncementsView.vue";
-import PublicFileDetailView from "@/views/public/PublicFileDetailView.vue";
-import HomeView from "@/views/public/Home.vue";
-import UploadView from "@/views/public/UploadView.vue";
+const PublicLayout = () => import("@/layouts/PublicLayout.vue");
+const HomeView = () => import("@/views/public/Home.vue");
+const UploadView = () => import("@/views/public/UploadView.vue");
+const PublicFileDetailView = () =>
+  import("@/views/public/PublicFileDetailView.vue");
+
+const AdminLayout = () => import("@/layouts/AdminLayout.vue");
+const AdminDashboard = () => import("@/views/admin/AdminDashboard.vue");
+const AdminAdminsView = () => import("@/views/admin/AdminAdminsView.vue");
+const AdminAuditView = () => import("@/views/admin/AdminAuditView.vue");
+const AdminOperationLogsView = () =>
+  import("@/views/admin/AdminOperationLogsView.vue");
+const AdminAnnouncementsView = () =>
+  import("@/views/admin/AdminAnnouncementsView.vue");
+const AdminAccountSettingsView = () =>
+  import("@/views/admin/AdminAccountSettingsView.vue");
 
 const routes: RouteRecordRaw[] = [
   {

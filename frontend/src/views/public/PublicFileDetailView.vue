@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import PublicFileDeleteDialog from "../../components/public/file-detail/PublicFileDeleteDialog.vue";
@@ -12,7 +19,6 @@ import type {
   PublicFileDetailResponse,
 } from "../../components/public/file-detail/types";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
-import FilePreview from "../../components/resources/FilePreview.vue";
 import { HttpError, httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
 import {
@@ -24,6 +30,9 @@ import { renderSimpleMarkdown } from "../../lib/markdown";
 
 const route = useRoute();
 const router = useRouter();
+const FilePreview = defineAsyncComponent(
+  () => import("../../components/resources/FilePreview.vue"),
+);
 const detail = ref<PublicFileDetailResponse | null>(null);
 const loading = ref(false);
 const error = ref("");

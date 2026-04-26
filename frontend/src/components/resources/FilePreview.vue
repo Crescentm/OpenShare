@@ -1,8 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import NativeFilePreview from "./previews/NativeFilePreview.vue";
-import OfficeFilePreview from "./previews/OfficeFilePreview.vue";
-import TextFilePreview from "./previews/TextFilePreview.vue";
+import { computed, defineAsyncComponent, ref, watch } from "vue";
 
 interface Props {
   fileId: string;
@@ -25,6 +22,15 @@ const MAX_TEXT_PREVIEW_SIZE = 512 * 1024;
 const MAX_OFFICE_PREVIEW_SIZE = 10 * 1024 * 1024;
 const TEXT_CACHE_TTL = 24 * 60 * 60 * 1000;
 const officePreviewCache = new Map<string, ArrayBuffer>();
+const NativeFilePreview = defineAsyncComponent(
+  () => import("./previews/NativeFilePreview.vue"),
+);
+const OfficeFilePreview = defineAsyncComponent(
+  () => import("./previews/OfficeFilePreview.vue"),
+);
+const TextFilePreview = defineAsyncComponent(
+  () => import("./previews/TextFilePreview.vue"),
+);
 
 const props = withDefaults(defineProps<Props>(), {
   previewEnabled: true,

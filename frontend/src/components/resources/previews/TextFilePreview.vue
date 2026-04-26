@@ -60,7 +60,7 @@ defineEmits<{
 
     <div
       v-else-if="isMarkdownFile && textContent"
-      class="rounded-3xl border border-slate-200 p-4 sm:p-5"
+      class="border border-slate-200 p-4 sm:p-5"
     >
       <div
         class="markdown-content"
@@ -70,7 +70,7 @@ defineEmits<{
 
     <div
       v-else-if="textContent"
-      class="rounded-3xl border border-slate-200 p-4 sm:p-5"
+      class="border border-slate-200 p-4 sm:p-5"
     >
       <pre
         class="max-h-96 overflow-y-auto whitespace-pre-wrap break-words text-sm text-slate-700"

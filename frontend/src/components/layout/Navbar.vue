@@ -39,7 +39,7 @@ const props = withDefaults(
       { label: "回执查询", to: "/upload" },
     ],
     currentPath: "/",
-    githubHref: "https://github.com/zzzzquan/OpenShare",
+    githubHref: "https://github.com/Crescentm/OpenShare",
   },
 );
 
