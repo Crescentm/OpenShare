@@ -38,8 +38,13 @@ func (p *UploadPolicy) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type DownloadPolicy struct {
+	MaxDownloadTotalBytes int64 `json:"max_download_total_bytes"`
+}
+
 type SystemPolicy struct {
-	Upload UploadPolicy `json:"upload"`
+	Upload   UploadPolicy   `json:"upload"`
+	Download DownloadPolicy `json:"download"`
 }
 
 type SystemSettingService struct {
@@ -48,10 +53,13 @@ type SystemSettingService struct {
 	nowFunc       func() time.Time
 }
 
-func defaultSystemPolicy(cfg config.UploadConfig) SystemPolicy {
+func defaultSystemPolicy(cfg config.Config) SystemPolicy {
 	return SystemPolicy{
 		Upload: UploadPolicy{
-			MaxUploadTotalBytes: cfg.MaxUploadTotalBytes,
+			MaxUploadTotalBytes: cfg.Upload.MaxUploadTotalBytes,
+		},
+		Download: DownloadPolicy{
+			MaxDownloadTotalBytes: cfg.Download.MaxDownloadTotalBytes,
 		},
 	}
 }
@@ -59,7 +67,7 @@ func defaultSystemPolicy(cfg config.UploadConfig) SystemPolicy {
 func NewSystemSettingService(repo *SystemSettingRepository, cfg config.Config) *SystemSettingService {
 	return &SystemSettingService{
 		repo:          repo,
-		defaultPolicy: defaultSystemPolicy(cfg.Upload),
+		defaultPolicy: defaultSystemPolicy(cfg),
 		nowFunc:       func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -83,6 +91,9 @@ func (s *SystemSettingService) GetPolicy(ctx context.Context) (*SystemPolicy, er
 
 func (s *SystemSettingService) SavePolicy(ctx context.Context, policy SystemPolicy, operatorID string, operatorIP string) (*SystemPolicy, error) {
 	if policy.Upload.MaxUploadTotalBytes <= 0 {
+		return nil, ErrInvalidSystemPolicy
+	}
+	if policy.Download.MaxDownloadTotalBytes <= 0 {
 		return nil, ErrInvalidSystemPolicy
 	}
 

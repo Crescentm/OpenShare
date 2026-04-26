@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/settings"
 	"openshare/backend/internal/storage"
 )
 
@@ -19,11 +21,14 @@ var (
 	ErrDownloadFolderNotFound  = errors.New("download folder not found")
 	ErrDownloadFileUnavailable = errors.New("download file unavailable")
 	ErrBatchDownloadInvalid    = errors.New("invalid batch download request")
+	ErrDownloadTooLarge        = errors.New("download total size too large")
 )
 
 type PublicDownloadService struct {
-	repository *PublicDownloadRepository
-	storage    *storage.Service
+	repository    *PublicDownloadRepository
+	storage       *storage.Service
+	config        config.DownloadConfig
+	systemSetting *settings.SystemSettingService
 }
 
 type DownloadableFile struct {
@@ -61,11 +66,42 @@ type FolderDownload struct {
 	Items      []BatchDownloadFile
 }
 
-func NewPublicDownloadService(repository *PublicDownloadRepository, storageService *storage.Service) *PublicDownloadService {
+func NewPublicDownloadService(repository *PublicDownloadRepository, storageService *storage.Service, cfg config.DownloadConfig, systemSettingService *settings.SystemSettingService) *PublicDownloadService {
 	return &PublicDownloadService{
-		repository: repository,
-		storage:    storageService,
+		repository:    repository,
+		storage:       storageService,
+		config:        cfg,
+		systemSetting: systemSettingService,
 	}
+}
+
+func (s *PublicDownloadService) effectivePolicy(ctx context.Context) settings.SystemPolicy {
+	if s.systemSetting == nil {
+		return settings.SystemPolicy{
+			Download: settings.DownloadPolicy{
+				MaxDownloadTotalBytes: s.config.MaxDownloadTotalBytes,
+			},
+		}
+	}
+
+	policy, err := s.systemSetting.GetPolicy(ctx)
+	if err != nil || policy == nil {
+		return settings.SystemPolicy{
+			Download: settings.DownloadPolicy{
+				MaxDownloadTotalBytes: s.config.MaxDownloadTotalBytes,
+			},
+		}
+	}
+
+	return *policy
+}
+
+func (s *PublicDownloadService) MaxDownloadTotalBytes(ctx context.Context) int64 {
+	policy := s.effectivePolicy(ctx)
+	if policy.Download.MaxDownloadTotalBytes > 0 {
+		return policy.Download.MaxDownloadTotalBytes
+	}
+	return s.config.MaxDownloadTotalBytes
 }
 
 func (s *PublicDownloadService) PrepareDownload(ctx context.Context, fileID string) (*DownloadableFile, error) {
@@ -306,6 +342,15 @@ func (s *PublicDownloadService) PrepareBatchDownload(ctx context.Context, fileID
 		return nil, ErrDownloadFileNotFound
 	}
 
+	var totalSize int64
+	maxDownloadTotalBytes := s.MaxDownloadTotalBytes(ctx)
+	for _, file := range files {
+		totalSize += file.Size
+		if maxDownloadTotalBytes > 0 && totalSize > maxDownloadTotalBytes {
+			return nil, ErrDownloadTooLarge
+		}
+	}
+
 	folderByID, err := s.folderMapForFiles(ctx, files)
 	if err != nil {
 		return nil, fmt.Errorf("load folder download paths: %w", err)
@@ -419,8 +464,15 @@ func (s *PublicDownloadService) PrepareFolderDownload(ctx context.Context, folde
 		return nil, fmt.Errorf("list folder download files: %w", err)
 	}
 
+	var totalSize int64
+	maxDownloadTotalBytes := s.MaxDownloadTotalBytes(ctx)
 	items := make([]BatchDownloadFile, 0, len(files))
 	for _, file := range files {
+		totalSize += file.Size
+		if maxDownloadTotalBytes > 0 && totalSize > maxDownloadTotalBytes {
+			return nil, ErrDownloadTooLarge
+		}
+
 		filePath, err := s.resolveManagedFilePathFromFolderMap(file, folderByID)
 		if err != nil {
 			return nil, err

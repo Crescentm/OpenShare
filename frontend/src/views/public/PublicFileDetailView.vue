@@ -1,31 +1,30 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Download, Flag } from "lucide-vue-next";
 
+import PublicFileDeleteDialog from "../../components/public/file-detail/PublicFileDeleteDialog.vue";
+import PublicFileDescriptionEditor from "../../components/public/file-detail/PublicFileDescriptionEditor.vue";
+import PublicFileDetailHeader from "../../components/public/file-detail/PublicFileDetailHeader.vue";
+import PublicFileFeedbackDialog from "../../components/public/file-detail/PublicFileFeedbackDialog.vue";
+import PublicFileMetadataDetails from "../../components/public/file-detail/PublicFileMetadataDetails.vue";
+import type {
+  FileMetadataRow,
+  PublicFileDetailResponse,
+} from "../../components/public/file-detail/types";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
+import FilePreview from "../../components/resources/FilePreview.vue";
 import { HttpError, httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
-import { ensureSessionReceiptCode, readStoredReceiptCode } from "../../lib/receiptCode";
+import {
+  ensureSessionReceiptCode,
+  readStoredReceiptCode,
+} from "../../lib/receiptCode";
 import { hasAdminPermission } from "../../lib/admin/session";
 import { renderSimpleMarkdown } from "../../lib/markdown";
 
-interface FileDetailResponse {
-  id: string;
-  name: string;
-  extension: string;
-  folder_id: string;
-  path: string;
-  description: string;
-  mime_type: string;
-  size: number;
-  uploaded_at: string;
-  download_count: number;
-}
-
 const route = useRoute();
 const router = useRouter();
-const detail = ref<FileDetailResponse | null>(null);
+const detail = ref<PublicFileDetailResponse | null>(null);
 const loading = ref(false);
 const error = ref("");
 const message = ref("");
@@ -46,23 +45,19 @@ const feedbackSubmitting = ref(false);
 const feedbackMessage = ref("");
 const feedbackError = ref("");
 const currentReceiptCode = ref("");
+const previewSectionRef = ref<HTMLElement | null>(null);
 const fileID = computed(() => String(route.params.fileID ?? ""));
-const buildFileContentURL = (view: "download" | "inline" | "text") =>
-  `/api/public/files/${encodeURIComponent(fileID.value)}/content?${new URLSearchParams({ view }).toString()}`;
-const downloadURL = computed(() => buildFileContentURL("download"));
-const previewURL = computed(() => buildFileContentURL("inline"));
-const descriptionHTML = computed(() => renderSimpleMarkdown(detail.value?.description ?? ""));
-const feedbackSubmitDisabled = computed(() => feedbackSubmitting.value || !feedbackDescription.value.trim());
-const supportsPDFPreview = computed(() => {
-  if (!detail.value) {
-    return false;
-  }
-
-  const extension = detail.value.extension?.trim().toLowerCase() ?? "";
-  const mimeType = detail.value.mime_type?.trim().toLowerCase() ?? "";
-  return extension === "pdf" || mimeType === "application/pdf";
-});
-const primaryDetailRows = computed(() => {
+const downloadURL = computed(
+  () => `/api/public/files/${encodeURIComponent(fileID.value)}/download`,
+);
+const descriptionHTML = computed(() =>
+  renderSimpleMarkdown(detail.value?.description ?? ""),
+);
+const hasDescription = computed(() => Boolean(descriptionHTML.value));
+const feedbackSubmitDisabled = computed(
+  () => feedbackSubmitting.value || !feedbackDescription.value.trim(),
+);
+const metadataRows = computed<FileMetadataRow[]>(() => {
   if (!detail.value) {
     return [];
   }
@@ -70,17 +65,10 @@ const primaryDetailRows = computed(() => {
   return [
     { label: "文件名", value: detail.value.name },
     { label: "所属文件夹", value: detail.value.path || "主页根目录" },
-  ];
-});
-const secondaryDetailRows = computed(() => {
-  if (!detail.value) {
-    return [];
-  }
-
-  return [
     { label: "下载量", value: String(detail.value.download_count) },
     { label: "文件大小", value: formatSize(detail.value.size) },
     { label: "更新时间", value: formatDate(detail.value.uploaded_at) },
+    { label: "MIME", value: detail.value.mime_type || "未知" },
   ];
 });
 const editorDirty = computed(() => {
@@ -94,29 +82,65 @@ const editorDirty = computed(() => {
   );
 });
 
+function centerPreviewSection() {
+  previewSectionRef.value?.scrollIntoView({
+    block: "center",
+  });
+}
+
 onMounted(() => {
-  void Promise.all([loadDetail(), loadAdminPermission(), syncSessionReceiptCode()]);
+  void Promise.all([
+    loadDetail(),
+    loadAdminPermission(),
+    syncSessionReceiptCode(),
+  ]);
 });
 
 watch(fileID, () => {
-  void Promise.all([loadDetail(), loadAdminPermission(), syncSessionReceiptCode()]);
+  void Promise.all([
+    loadDetail(),
+    loadAdminPermission(),
+    syncSessionReceiptCode(),
+  ]);
 });
+
+watch(
+  detail,
+  async (currentDetail) => {
+    if (!currentDetail) {
+      return;
+    }
+
+    await nextTick();
+    centerPreviewSection();
+  },
+);
 
 async function loadDetail() {
   loading.value = true;
   error.value = "";
   detail.value = null;
   try {
-    detail.value = await httpClient.get<FileDetailResponse>(`/public/files/${encodeURIComponent(fileID.value)}`);
+    detail.value = await httpClient.get<PublicFileDetailResponse>(
+      `/public/files/${encodeURIComponent(fileID.value)}`,
+    );
     if (detail.value) {
       editFileName.value = detail.value.name;
       editDescription.value = detail.value.description;
     }
   } catch (err: unknown) {
-    if (err instanceof HttpError && err.status === 404) {
-      error.value = "文件不存在或未公开。";
+    if (err instanceof HttpError) {
+      if (err.status === 404) {
+        error.value = "File not found or not public.";
+      } else if (err.status === 410) {
+        error.value = "File has been permanently deleted.";
+      } else if (err.status === 403) {
+        error.value = "No permission to access this file.";
+      } else {
+        error.value = `Failed to load file details (HTTP ${err.status}).`;
+      }
     } else {
-      error.value = "加载文件详情失败。";
+      error.value = "Failed to load file details.";
     }
   } finally {
     loading.value = false;
@@ -124,7 +148,9 @@ async function loadDetail() {
 }
 
 async function loadAdminPermission() {
-  canManageResourceDescriptions.value = await hasAdminPermission("resource_moderation");
+  canManageResourceDescriptions.value = await hasAdminPermission(
+    "resource_moderation",
+  );
 }
 
 function openDescriptionEditor() {
@@ -183,13 +209,16 @@ async function saveDescription() {
   saveError.value = "";
   message.value = "";
   try {
-    await httpClient.request(`/admin/resources/files/${encodeURIComponent(detail.value.id)}`, {
-      method: "PUT",
-      body: {
-        name: normalizedName,
-        description: editDescription.value.trim(),
+    await httpClient.request(
+      `/admin/resources/files/${encodeURIComponent(detail.value.id)}`,
+      {
+        method: "PUT",
+        body: {
+          name: normalizedName,
+          description: editDescription.value.trim(),
+        },
       },
-    });
+    );
     message.value = "文件信息已更新。";
     await loadDetail();
     descriptionEditorOpen.value = false;
@@ -212,10 +241,13 @@ async function confirmDeleteFile() {
   deleteSubmitting.value = true;
   deleteError.value = "";
   try {
-    await httpClient.request(`/admin/resources/files/${encodeURIComponent(detail.value.id)}`, {
-      method: "DELETE",
-      body: { password: deletePassword.value },
-    });
+    await httpClient.request(
+      `/admin/resources/files/${encodeURIComponent(detail.value.id)}`,
+      {
+        method: "DELETE",
+        body: { password: deletePassword.value },
+      },
+    );
     closeDeleteDialog();
     goBack();
   } catch (err: unknown) {
@@ -234,14 +266,20 @@ async function submitFeedback() {
   feedbackMessage.value = "";
   feedbackError.value = "";
   try {
-    const response = await httpClient.post<{ receipt_code: string }>("/public/feedback", {
-      file_id: detail.value.id,
-      folder_id: "",
-      description: feedbackDescription.value.trim(),
-    });
+    const response = await httpClient.post<{ receipt_code: string }>(
+      "/public/feedback",
+      {
+        file_id: detail.value.id,
+        folder_id: "",
+        description: feedbackDescription.value.trim(),
+      },
+    );
     feedbackMessage.value = `反馈已提交，请保存回执码 ${response.receipt_code}。`;
     currentReceiptCode.value = response.receipt_code;
-    window.sessionStorage.setItem("openshare_receipt_code", response.receipt_code);
+    window.sessionStorage.setItem(
+      "openshare_receipt_code",
+      response.receipt_code,
+    );
     closeFeedbackModal();
     feedbackSuccessModalOpen.value = true;
   } catch (err: unknown) {
@@ -305,307 +343,121 @@ function downloadFile() {
 </script>
 
 <template>
-  <section class="app-container py-6 sm:py-8 sm:py-10">
-    <div class="mx-auto w-full max-w-4xl space-y-6">
+  <section class="app-container py-5 sm:py-6 lg:py-8">
+    <div class="mx-auto w-full max-w-6xl space-y-5">
       <SurfaceCard>
         <p v-if="loading" class="text-sm text-slate-500">加载中…</p>
 
         <div v-else-if="error" class="space-y-4">
-          <p class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ error }}</p>
+          <p
+            class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          >
+            {{ error }}
+          </p>
           <div class="flex flex-col gap-3 sm:flex-row">
-            <button type="button" class="btn-secondary w-full sm:w-auto" @click="goBack">返回上一页</button>
-            <button type="button" class="btn-primary w-full sm:w-auto" @click="$router.push({ name: 'public-home' })">返回首页</button>
+            <button
+              type="button"
+              class="btn-secondary w-full sm:w-auto"
+              @click="goBack"
+            >
+              返回上一页
+            </button>
+            <button
+              type="button"
+              class="btn-primary w-full sm:w-auto"
+              @click="$router.push({ name: 'public-home' })"
+            >
+              返回首页
+            </button>
           </div>
         </div>
 
         <template v-else-if="detail">
-          <p v-if="message" class="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ message }}</p>
+          <p
+            v-if="message"
+            class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+          >
+            {{ message }}
+          </p>
 
-          <section>
-            <div class="space-y-4">
-              <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div class="space-y-2">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">File Info</p>
-                  <h3 class="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">文件详情</h3>
-                </div>
-                <div class="flex flex-wrap items-start gap-3 sm:flex-nowrap lg:justify-end">
-                  <button type="button" class="btn-secondary w-full sm:w-auto" @click="goBack">返回文件夹</button>
-                  <button
-                    v-if="canManageResourceDescriptions"
-                    type="button"
-                    class="btn-secondary w-full sm:w-auto"
-                    @click="openDescriptionEditor"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    v-if="canManageResourceDescriptions"
-                    type="button"
-                    class="btn-secondary w-full text-rose-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 sm:w-auto"
-                    @click="openDeleteDialog"
-                  >
-                    删除
-                  </button>
-                  <button
-                    type="button"
-                    class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-[transform,background-color,border-color,box-shadow,color] duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-[#fafafa] hover:text-slate-900 hover:shadow-sm hover:shadow-slate-950/[0.08]"
-                    aria-label="反馈文件"
-                    @click="openFeedbackModal"
-                  >
-                    <Flag class="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition-[transform,background-color,border-color,box-shadow,color] duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-[#fafafa] hover:text-slate-900 hover:shadow-sm hover:shadow-slate-950/[0.08]"
-                    aria-label="下载文件"
-                    @click="downloadFile"
-                  >
-                    <Download class="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
+          <section class="space-y-4">
+            <PublicFileDetailHeader
+              :can-manage-resource-descriptions="canManageResourceDescriptions"
+              :detail="detail"
+              :formatted-date="formatDate(detail.uploaded_at)"
+              :formatted-size="formatSize(detail.size)"
+              @download="downloadFile"
+              @edit="openDescriptionEditor"
+              @feedback="openFeedbackModal"
+              @go-back="goBack"
+              @open-delete="openDeleteDialog"
+            />
 
-              <div class="min-w-0 space-y-3">
-                <div class="grid gap-x-8 gap-y-3 lg:grid-cols-2">
-                  <div
-                    v-for="item in primaryDetailRows"
-                    :key="item.label"
-                    class="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] items-baseline gap-x-3 text-sm"
-                  >
-                    <span class="text-slate-500">{{ item.label }}</span>
-                    <span
-                      class="min-w-0 truncate font-medium text-slate-900"
-                      :title="item.value"
-                    >
-                      {{ item.value }}
-                    </span>
-                  </div>
-                </div>
-                <div class="grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div
-                    v-for="item in secondaryDetailRows"
-                    :key="item.label"
-                    class="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] items-baseline gap-x-3 text-sm"
-                  >
-                    <span class="text-slate-500">{{ item.label }}</span>
-                    <span
-                      class="min-w-0 truncate font-medium text-slate-900"
-                      :title="item.value"
-                    >
-                      {{ item.value }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5">
-              <div
-                v-if="descriptionHTML"
-                class="markdown-content"
-                v-html="descriptionHTML"
+            <div ref="previewSectionRef">
+              <FilePreview
+                :file-id="detail.id"
+                :file-name="detail.name"
+                :extension="detail.extension"
+                :mime-type="detail.mime_type"
+                :size="detail.size"
+                @preview-ready="centerPreviewSection"
               />
-              <p v-else class="text-sm text-slate-400">该文件暂无简介orz</p>
             </div>
 
             <div
-              v-if="supportsPDFPreview"
-              class="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5"
+              v-if="hasDescription"
+              class="rounded-2xl border border-slate-200 bg-white px-4 py-4 sm:px-5"
             >
-              <div class="mb-3 flex items-center justify-between gap-2">
-                <div>
-                  <p
-                    class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
-                  >
-                    PDF Preview
-                  </p>
-                  <p class="mt-1 text-sm text-slate-500">
-                    可直接在线预览 PDF 内容。
-                  </p>
-                </div>
-              </div>
-
-              <object
-                :data="previewURL"
-                type="application/pdf"
-                class="h-[70vh] min-h-[560px] w-full rounded-2xl border border-slate-200"
-              >
-                <div
-                  class="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-6 text-center"
-                >
-                  <p class="text-sm text-slate-600">
-                    当前浏览器不支持内嵌 PDF 预览。
-                  </p>
-                  <a
-                    :href="previewURL"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="btn-secondary"
-                  >
-                    在新标签页打开 PDF
-                  </a>
-                </div>
-              </object>
+              <div class="markdown-content" v-html="descriptionHTML" />
             </div>
+
+            <PublicFileMetadataDetails :metadata-rows="metadataRows" />
           </section>
         </template>
       </SurfaceCard>
     </div>
 
-    <Teleport to="body">
-      <Transition name="modal-shell">
-      <div v-if="deleteDialogOpen && detail" class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4">
-        <div class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-          <div>
-            <h3 class="text-lg font-semibold text-slate-900">确认删除文件</h3>
-            <p class="mt-2 text-sm leading-6 text-slate-500">
-              删除后将无法恢复。确认删除
-              <span class="font-medium text-slate-900">{{ detail.name }}</span>
-              吗？
-            </p>
-          </div>
-          <div class="mt-6 space-y-4">
-            <input v-model="deletePassword" type="password" class="field" placeholder="输入当前管理员密码确认删除" />
-            <p v-if="deleteError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {{ deleteError }}
-            </p>
-            <div class="flex justify-end gap-3">
-              <button type="button" class="btn-secondary" @click="closeDeleteDialog">取消</button>
-              <button
-                type="button"
-                class="inline-flex h-11 items-center rounded-xl bg-rose-600 px-5 text-sm font-medium text-white transition hover:bg-rose-700"
-                :disabled="deleteSubmitting"
-                @click="confirmDeleteFile"
-              >
-                {{ deleteSubmitting ? "删除中…" : "确认删除" }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-      </Transition>
-    </Teleport>
+    <PublicFileDeleteDialog
+      v-if="detail"
+      :delete-error="deleteError"
+      :delete-password="deletePassword"
+      :delete-submitting="deleteSubmitting"
+      :file-name="detail.name"
+      :open="deleteDialogOpen"
+      @close="closeDeleteDialog"
+      @confirm="confirmDeleteFile"
+      @update:delete-password="deletePassword = $event"
+    />
 
-    <Teleport to="body">
-      <Transition name="modal-shell">
-      <div v-if="feedbackSuccessModalOpen" class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm">
-        <div class="flex min-h-screen items-center justify-center px-4 py-6">
-          <div class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <div class="space-y-3">
-              <h3 class="text-lg font-semibold text-slate-900">提交成功</h3>
-              <p class="text-sm leading-6 text-slate-600">{{ feedbackMessage }}</p>
-            </div>
-            <div class="mt-6 flex justify-end">
-              <button type="button" class="btn-primary" @click="closeFeedbackSuccessModal">知道了</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      </Transition>
-    </Teleport>
+    <PublicFileFeedbackDialog
+      v-if="detail"
+      :current-receipt-code="currentReceiptCode"
+      :feedback-description="feedbackDescription"
+      :feedback-error="feedbackError"
+      :feedback-message="feedbackMessage"
+      :feedback-submit-disabled="feedbackSubmitDisabled"
+      :feedback-submitting="feedbackSubmitting"
+      :file-name="detail.name"
+      :open="feedbackModalOpen"
+      :success-open="feedbackSuccessModalOpen"
+      @close="closeFeedbackModal"
+      @close-success="closeFeedbackSuccessModal"
+      @submit="submitFeedback"
+      @update:feedback-description="feedbackDescription = $event"
+    />
 
-    <Teleport to="body">
-      <Transition name="modal-shell">
-      <div v-if="feedbackModalOpen && detail" class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm">
-        <div class="flex min-h-screen items-center justify-center px-4 py-6">
-          <div class="modal-card panel w-full max-w-2xl overflow-hidden p-6">
-            <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-5">
-              <div class="space-y-1">
-                <h3 class="text-lg font-semibold text-slate-900">反馈中心</h3>
-                <p class="text-sm text-slate-500">填写问题说明后提交，我们会尽快处理。</p>
-              </div>
-              <button type="button" class="btn-secondary" @click="closeFeedbackModal">关闭</button>
-            </div>
-
-            <div class="mt-6 space-y-5">
-              <div class="rounded-2xl border border-slate-200 bg-[#fafafafa] px-4 py-3">
-                <p class="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">当前对象</p>
-                <p class="mt-1 text-sm leading-6 text-slate-700">{{ detail.name }}</p>
-              </div>
-
-              <label class="space-y-2">
-                <span class="text-sm font-medium text-slate-700">回执码</span>
-                <div class="rounded-2xl border border-slate-200 bg-[#fafafafa] px-4 py-3">
-                  <p class="text-sm font-semibold tracking-[0.12em] text-slate-900">
-                    {{ currentReceiptCode || "当前会话回执码暂未同步" }}
-                  </p>
-                </div>
-              </label>
-
-              <label class="space-y-2">
-                <span class="text-sm font-medium text-slate-700">问题说明</span>
-                <textarea
-                  v-model="feedbackDescription"
-                  rows="5"
-                  class="field-area"
-                  placeholder="信息不当/侵权/内容错误……描述您遇到的问题，我们会尽快改进！"
-                />
-              </label>
-
-              <p v-if="feedbackMessage" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                {{ feedbackMessage }}
-              </p>
-              <p v-if="feedbackError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {{ feedbackError }}
-              </p>
-
-              <div class="flex justify-end gap-3 pt-1">
-                <button type="button" class="btn-secondary" @click="closeFeedbackModal">取消</button>
-                <button type="button" class="btn-primary" :disabled="feedbackSubmitDisabled" @click="submitFeedback">
-                  {{ feedbackSubmitting ? "提交中…" : "提交反馈" }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      </Transition>
-    </Teleport>
-
-    <Teleport to="body">
-      <Transition name="modal-shell">
-      <div v-if="descriptionEditorOpen" class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm">
-        <div class="flex min-h-screen items-center justify-center px-4 py-6">
-          <div class="modal-card panel w-full max-w-3xl overflow-hidden p-6">
-            <div class="border-b border-slate-200 pb-4">
-              <div>
-                <h3 class="text-lg font-semibold text-slate-900">编辑文件信息</h3>
-              </div>
-            </div>
-
-            <div class="mt-5 space-y-4">
-              <label class="space-y-2">
-                <span class="text-sm font-medium text-slate-700">文件名</span>
-                <input
-                  v-model="editFileName"
-                  class="field"
-                  :disabled="!canManageResourceDescriptions"
-                  placeholder="输入完整文件名，例如 example.xlsx"
-                />
-              </label>
-
-              <textarea
-                v-model="editDescription"
-                rows="10"
-                class="field-area"
-                placeholder="输入文件简介，简介支持简单 Markdown。"
-              />
-
-              <p v-if="saveError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {{ saveError }}
-              </p>
-
-              <div class="flex justify-end gap-3">
-                <button type="button" class="btn-secondary" @click="closeDescriptionEditor">取消</button>
-                <button type="button" class="btn-primary" :disabled="saving || !editorDirty" @click="saveDescription">
-                  {{ saving ? "保存中…" : "保存更改" }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      </Transition>
-    </Teleport>
+    <PublicFileDescriptionEditor
+      :can-manage-resource-descriptions="canManageResourceDescriptions"
+      :description="editDescription"
+      :file-name="editFileName"
+      :open="descriptionEditorOpen"
+      :save-error="saveError"
+      :saving="saving"
+      :submit-disabled="!editorDirty"
+      @close="closeDescriptionEditor"
+      @save="saveDescription"
+      @update:description="editDescription = $event"
+      @update:file-name="editFileName = $event"
+    />
   </section>
 </template>

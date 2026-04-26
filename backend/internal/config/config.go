@@ -17,6 +17,7 @@ type Config struct {
 	Database    DatabaseConfig    `json:"database"`
 	Storage     StorageConfig     `json:"storage"`
 	Upload      UploadConfig      `json:"upload"`
+	Download    DownloadConfig    `json:"download"`
 	Session     SessionConfig     `json:"session"`
 	RateLimit   RateLimitConfig   `json:"rate_limit"`
 	ManagedSync ManagedSyncConfig `json:"managed_sync"`
@@ -49,6 +50,10 @@ type UploadConfig struct {
 	MaxUploadTotalBytes  int64 `json:"max_upload_total_bytes"`
 	MaxDescriptionLength int   `json:"max_description_length"`
 	ReceiptCodeLength    int   `json:"receipt_code_length"`
+}
+
+type DownloadConfig struct {
+	MaxDownloadTotalBytes int64 `json:"max_download_total_bytes"`
 }
 
 // Load overlays config files onto an existing Config, so omitted upload fields
@@ -138,6 +143,9 @@ func Default() Config {
 			MaxDescriptionLength: 4000,
 			ReceiptCodeLength:    12,
 		},
+		Download: DownloadConfig{
+			MaxDownloadTotalBytes: 5 << 30,
+		},
 		Session: SessionConfig{
 			Name:            "openshare_session",
 			Secret:          "replace-this-in-local-config",
@@ -221,6 +229,7 @@ func applyEnv(cfg *Config) error {
 	overrideInt64("OPENSHARE_UPLOAD_MAX_UPLOAD_TOTAL_BYTES", &cfg.Upload.MaxUploadTotalBytes, &errs)
 	overrideInt("OPENSHARE_UPLOAD_MAX_DESCRIPTION_LENGTH", &cfg.Upload.MaxDescriptionLength, &errs)
 	overrideInt("OPENSHARE_UPLOAD_RECEIPT_CODE_LENGTH", &cfg.Upload.ReceiptCodeLength, &errs)
+	overrideInt64("OPENSHARE_DOWNLOAD_MAX_DOWNLOAD_TOTAL_BYTES", &cfg.Download.MaxDownloadTotalBytes, &errs)
 	overrideString("OPENSHARE_SESSION_NAME", &cfg.Session.Name)
 	overrideString("OPENSHARE_SESSION_SECRET", &cfg.Session.Secret)
 	overrideString("OPENSHARE_SESSION_PATH", &cfg.Session.Path)
@@ -275,6 +284,9 @@ func (c Config) Validate() error {
 	}
 	if c.Upload.ReceiptCodeLength < 6 || c.Upload.ReceiptCodeLength > 32 {
 		return errors.New("upload.receipt_code_length must be between 6 and 32")
+	}
+	if c.Download.MaxDownloadTotalBytes <= 0 {
+		return errors.New("download.max_download_total_bytes must be greater than 0")
 	}
 
 	if c.Session.Name == "" {

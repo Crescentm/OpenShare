@@ -2,7 +2,11 @@ FROM node:22-bookworm AS frontend-builder
 
 WORKDIR /workspace/frontend
 
+# Set npm registry to Taobao mirror for faster installation
+RUN npm config set registry https://registry.npmmirror.com/
+
 COPY frontend/package*.json ./
+
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY frontend/ ./

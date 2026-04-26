@@ -9,6 +9,9 @@ interface SystemPolicy {
   upload: {
     max_upload_total_bytes: number;
   };
+  download: {
+    max_download_total_bytes: number;
+  };
 }
 
 interface ManagedFolderNode {
@@ -47,10 +50,17 @@ const rescanError = ref("");
 const rescanMessage = ref("");
 const uploadSizeValue = ref(5);
 const uploadSizeUnit = ref<"B" | "KB" | "MB" | "GB">("GB");
+const downloadSizeValue = ref(5);
+const downloadSizeUnit = ref<"B" | "KB" | "MB" | "GB">("GB");
+const downloadSaving = ref(false);
 const uploadSnapshot = ref("");
+const downloadSnapshot = ref("");
 const form = reactive<SystemPolicy>({
   upload: {
     max_upload_total_bytes: 0,
+  },
+  download: {
+    max_download_total_bytes: 0,
   },
 });
 
@@ -65,8 +75,17 @@ async function loadPolicy() {
   try {
     const response = await httpClient.get<SystemPolicy>("/admin/system/settings");
     Object.assign(form.upload, response.upload);
+    if (response.download) {
+      Object.assign(form.download, response.download);
+    }
     applyUploadSizeFields(response.upload.max_upload_total_bytes);
+    if (form.download.max_download_total_bytes) {
+      applyDownloadSizeFields(form.download.max_download_total_bytes);
+    } else {
+      applyDownloadSizeFields(5 * 1024 * 1024 * 1024);
+    }
     uploadSnapshot.value = serializeUploadState();
+    downloadSnapshot.value = serializeDownloadState();
   } catch {
     error.value = "加载系统设置失败。";
   } finally {
@@ -135,7 +154,54 @@ function toBytes(value: number, unit: "B" | "KB" | "MB" | "GB") {
   }
 }
 
+async function saveDownloadPolicy() {
+  downloadSaving.value = true;
+  error.value = "";
+  message.value = "";
+  form.download.max_download_total_bytes = toBytes(downloadSizeValue.value, downloadSizeUnit.value);
+
+  try {
+    await httpClient.request("/admin/system/settings", {
+      method: "PUT",
+      body: form,
+    });
+    downloadSnapshot.value = serializeDownloadState();
+    message.value = "下载限制已更新。";
+  } catch (err: unknown) {
+    error.value = readApiError(err, "更新下载限制失败。");
+  } finally {
+    downloadSaving.value = false;
+  }
+}
+
+function serializeDownloadState() {
+  return JSON.stringify({
+    max_download_total_bytes: toBytes(downloadSizeValue.value, downloadSizeUnit.value),
+  });
+}
+
+function applyDownloadSizeFields(bytes: number) {
+  if (bytes >= 1024 * 1024 * 1024 && bytes % (1024 * 1024 * 1024) === 0) {
+    downloadSizeValue.value = bytes / (1024 * 1024 * 1024);
+    downloadSizeUnit.value = "GB";
+    return;
+  }
+  if (bytes >= 1024 * 1024 && bytes % (1024 * 1024) === 0) {
+    downloadSizeValue.value = bytes / (1024 * 1024);
+    downloadSizeUnit.value = "MB";
+    return;
+  }
+  if (bytes >= 1024 && bytes % 1024 === 0) {
+    downloadSizeValue.value = bytes / 1024;
+    downloadSizeUnit.value = "KB";
+    return;
+  }
+  downloadSizeValue.value = bytes;
+  downloadSizeUnit.value = "B";
+}
+
 const uploadDirty = computed(() => loaded.value && uploadSnapshot.value !== serializeUploadState());
+const downloadDirty = computed(() => loaded.value && downloadSnapshot.value !== serializeDownloadState());
 const strictDirectoryInputKeyword = computed(() => {
   const current = normalizeManualBrowsePath(importCurrentPath.value);
   const manual = normalizeManualBrowsePath(manualBrowsePath.value);
@@ -462,7 +528,7 @@ function isManagedRootClientChild(path: string, root: string) {
         <p v-if="unmanageError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ unmanageError }}</p>
       </SurfaceCard>
 
-      <div class="grid gap-6 xl:grid-cols-2">
+      <div class="grid gap-6 xl:grid-cols-3">
       <form class="panel space-y-6 p-6" @submit.prevent="saveUploadPolicy">
         <div>
           <h3 class="text-lg font-semibold text-slate-900">上传设置</h3>
@@ -485,6 +551,31 @@ function isManagedRootClientChild(path: string, root: string) {
         </div>
         <button type="submit" class="btn-primary" :disabled="uploadSaving || !uploadDirty">
           {{ uploadSaving ? "更新中…" : "确认更新" }}
+        </button>
+      </form>
+
+      <form class="panel space-y-6 p-6" @submit.prevent="saveDownloadPolicy">
+        <div>
+          <h3 class="text-lg font-semibold text-slate-900">下载设置</h3>
+          <p class="mt-2 text-sm text-slate-500">访客或管理员批量下载或下载整个文件夹时，总大小不能超过这里设置的上限。</p>
+        </div>
+        <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_140px]">
+          <div class="space-y-2">
+            <label class="text-sm font-medium text-slate-700">单次下载总大小</label>
+            <input v-model.number="downloadSizeValue" type="number" min="1" class="field" placeholder="请输入大小" />
+          </div>
+          <div class="space-y-2">
+            <label class="text-sm font-medium text-slate-700">单位</label>
+            <select v-model="downloadSizeUnit" class="field">
+              <option value="GB">GB</option>
+              <option value="MB">MB</option>
+              <option value="KB">KB</option>
+              <option value="B">B</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" :disabled="downloadSaving || !downloadDirty">
+          {{ downloadSaving ? "更新中…" : "确认更新" }}
         </button>
       </form>
 

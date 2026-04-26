@@ -18,10 +18,6 @@ type PublicDownloadHandler struct {
 	service *PublicDownloadService
 }
 
-type batchDownloadRequest struct {
-	FileIDs []string `json:"file_ids"`
-}
-
 type resourceBatchDownloadRequest struct {
 	FileIDs   []string `json:"file_ids"`
 	FolderIDs []string `json:"folder_ids"`
@@ -49,6 +45,8 @@ func (h *PublicDownloadHandler) DownloadFolder(ctx *gin.Context) {
 			ctx.JSON(http.StatusNotFound, gin.H{"error": "folder not found"})
 		case errors.Is(err, ErrDownloadFileUnavailable):
 			ctx.JSON(http.StatusGone, gin.H{"error": "one or more files are unavailable"})
+		case errors.Is(err, ErrDownloadTooLarge):
+			ctx.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "total download size exceeds limit"})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to download folder"})
 		}
@@ -107,9 +105,9 @@ func (h *PublicDownloadHandler) GetFileDetail(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, detail)
 }
 
-func (h *PublicDownloadHandler) ServeFileContent(ctx *gin.Context) {
+func (h *PublicDownloadHandler) ServeFilePreview(ctx *gin.Context) {
 	view := strings.TrimSpace(strings.ToLower(ctx.DefaultQuery("view", "inline")))
-	download, err := h.prepareFileDownload(ctx, "failed to load file content")
+	download, err := h.prepareFileDownload(ctx, "failed to preview file")
 	if err != nil {
 		return
 	}
@@ -120,21 +118,9 @@ func (h *PublicDownloadHandler) ServeFileContent(ctx *gin.Context) {
 		h.serveInlineContent(ctx, download)
 	case "text":
 		h.serveTextPreview(ctx, download)
-	case "download":
-		h.serveAttachmentDownload(ctx, download)
 	default:
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid view"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid preview view"})
 	}
-}
-
-func (h *PublicDownloadHandler) PreviewFile(ctx *gin.Context) {
-	download, err := h.prepareFileDownload(ctx, "failed to preview file")
-	if err != nil {
-		return
-	}
-	defer download.Content.Close()
-
-	h.serveTextPreview(ctx, download)
 }
 
 func (h *PublicDownloadHandler) prepareFileDownload(
@@ -243,66 +229,6 @@ func (h *PublicDownloadHandler) ServeFolderAsset(ctx *gin.Context) {
 	)
 }
 
-func (h *PublicDownloadHandler) DownloadBatch(ctx *gin.Context) {
-	var req batchDownloadRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
-
-	files, err := h.service.PrepareBatchDownload(ctx.Request.Context(), req.FileIDs)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrBatchDownloadInvalid):
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "file_ids is required"})
-		case errors.Is(err, ErrDownloadFileNotFound):
-			ctx.JSON(http.StatusNotFound, gin.H{"error": "one or more files were not found"})
-		case errors.Is(err, ErrDownloadFileUnavailable):
-			ctx.JSON(http.StatusGone, gin.H{"error": "one or more files are unavailable"})
-		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare batch download"})
-		}
-		return
-	}
-
-	fileIDs := make([]string, 0, len(files))
-	for _, item := range files {
-		fileIDs = append(fileIDs, item.FileID)
-	}
-	if err := h.service.RecordBatchDownload(ctx.Request.Context(), fileIDs); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record download"})
-		return
-	}
-
-	ctx.Header("Content-Type", "application/zip")
-	ctx.Header("Content-Disposition", `attachment; filename="openshare-batch.zip"`)
-	zipWriter := zip.NewWriter(ctx.Writer)
-	usedNames := make(map[string]int, len(files))
-
-	for _, item := range files {
-		opened, openErr := h.service.PrepareDownload(ctx.Request.Context(), item.FileID)
-		if openErr != nil {
-			zipWriter.Close()
-			return
-		}
-
-		entryName := uniqueZipEntryName(item.FileName, usedNames)
-		entry, createErr := zipWriter.Create(entryName)
-		if createErr != nil {
-			opened.Content.Close()
-			zipWriter.Close()
-			return
-		}
-		if _, copyErr := io.Copy(entry, opened.Content); copyErr != nil {
-			opened.Content.Close()
-			zipWriter.Close()
-			return
-		}
-		opened.Content.Close()
-	}
-	_ = zipWriter.Close()
-}
-
 func (h *PublicDownloadHandler) DownloadResourceBatch(ctx *gin.Context) {
 	var req resourceBatchDownloadRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -319,6 +245,8 @@ func (h *PublicDownloadHandler) DownloadResourceBatch(ctx *gin.Context) {
 			ctx.JSON(http.StatusNotFound, gin.H{"error": "one or more resources were not found"})
 		case errors.Is(err, ErrDownloadFileUnavailable):
 			ctx.JSON(http.StatusGone, gin.H{"error": "one or more files are unavailable"})
+		case errors.Is(err, ErrDownloadTooLarge):
+			ctx.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "total download size exceeds limit"})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare batch download"})
 		}

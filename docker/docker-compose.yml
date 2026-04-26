@@ -1,7 +1,7 @@
 services:
   openshare:
     build:
-      context: .
+      context: ..
       dockerfile: docker/build-linux.Dockerfile
     image: openshare:local
     container_name: openshare

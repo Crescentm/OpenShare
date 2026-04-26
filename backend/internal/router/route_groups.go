@@ -16,12 +16,11 @@ func registerPublicRoutes(api *gin.RouterGroup, handlers *routeHandlers) {
 	api.POST("/visits", handlers.siteVisit.Record)
 
 	public := api.Group("/public")
-	public.POST("/files/batch-download", handlers.publicDownload.DownloadBatch)
 	public.POST("/resources/batch-download", handlers.publicDownload.DownloadResourceBatch)
 	public.GET("/files/hot", handlers.publicCatalog.ListHotFiles)
 	public.GET("/files/latest", handlers.publicCatalog.ListLatestFiles)
 	public.GET("/files/:fileID", handlers.publicDownload.GetFileDetail)
-	public.GET("/files/:fileID/content", handlers.publicDownload.ServeFileContent)
+	public.GET("/files/:fileID/preview", handlers.publicDownload.ServeFilePreview)
 	public.GET("/files/:fileID/download", handlers.publicDownload.DownloadFile)
 	public.GET("/folders", handlers.publicCatalog.ListPublicFolders)
 	public.GET("/folders/:folderID/files", handlers.publicCatalog.ListPublicFolderFiles)

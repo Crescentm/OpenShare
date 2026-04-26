@@ -47,14 +47,14 @@ func TestPublicDownloadServesManagedFile(t *testing.T) {
 	assertEventuallyRecentFileHotDownloads(t, db, file.ID, 1)
 }
 
-func TestPublicFileContentServesManagedFileInline(t *testing.T) {
+func TestPublicFilePreviewServesManagedFileInlineWithoutDownloadCount(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
 	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("pdf-content"))
 	engine := router.New(db, cfg, newRouterSessionManager(db))
 
-	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=inline", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/preview?view=inline", nil)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 
@@ -74,14 +74,14 @@ func TestPublicFileContentServesManagedFileInline(t *testing.T) {
 	assertEventuallyDownloadCount(t, db, file.ID, 0)
 }
 
-func TestPublicFileContentServesManagedFileTextPreview(t *testing.T) {
+func TestPublicFilePreviewServesManagedFileTextPreviewWithoutDownloadCount(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
 	file := createRepositoryFileForDownload(t, cfg, db, folder, "README.md", []byte("# hello\npreview body"))
 	engine := router.New(db, cfg, newRouterSessionManager(db))
 
-	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=text", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/preview?view=text", nil)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 
@@ -98,38 +98,14 @@ func TestPublicFileContentServesManagedFileTextPreview(t *testing.T) {
 	assertEventuallyDownloadCount(t, db, file.ID, 0)
 }
 
-func TestPublicFileContentDownloadsManagedFile(t *testing.T) {
-	cfg := newRouterTestConfig(t)
-	db := newRouterTestDB(t)
-	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
-	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("download-content"))
-	engine := router.New(db, cfg, newRouterSessionManager(db))
-
-	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=download", nil)
-	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
-	}
-	if got := recorder.Header().Get("Content-Disposition"); got != `attachment; filename="lecture.pdf"` {
-		t.Fatalf("unexpected content-disposition %q", got)
-	}
-	if recorder.Body.String() != "download-content" {
-		t.Fatalf("unexpected response body %q", recorder.Body.String())
-	}
-
-	assertEventuallyDownloadCount(t, db, file.ID, 1)
-}
-
-func TestPublicFileContentRejectsInvalidView(t *testing.T) {
+func TestPublicFilePreviewRejectsDownloadView(t *testing.T) {
 	cfg := newRouterTestConfig(t)
 	db := newRouterTestDB(t)
 	folder := createPublicDownloadFolder(t, db, nil, "下载资料")
 	file := createRepositoryFileForDownload(t, cfg, db, folder, "lecture.pdf", []byte("pdf-content"))
 	engine := router.New(db, cfg, newRouterSessionManager(db))
 
-	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/content?view=unknown", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/public/files/"+file.ID+"/preview?view=download", nil)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 
@@ -303,47 +279,6 @@ func TestPublicFolderAssetRejectsPathEscapingManagedRoot(t *testing.T) {
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d, body=%s", recorder.Code, recorder.Body.String())
 	}
-}
-
-func TestPublicBatchDownloadStreamsZip(t *testing.T) {
-	cfg := newRouterTestConfig(t)
-	db := newRouterTestDB(t)
-	folder := createPublicDownloadFolder(t, db, nil, "批量下载")
-	first := createRepositoryFileForDownload(t, cfg, db, folder, "a.txt", []byte("alpha"))
-	first.MimeType = "text/plain"
-	if err := db.Save(first).Error; err != nil {
-		t.Fatalf("save first batch file failed: %v", err)
-	}
-	second := createRepositoryFileForDownload(t, cfg, db, folder, "b.txt", []byte("beta"))
-	second.MimeType = "text/plain"
-	if err := db.Save(second).Error; err != nil {
-		t.Fatalf("save second batch file failed: %v", err)
-	}
-
-	engine := router.New(db, cfg, newRouterSessionManager(db))
-	body := bytes.NewBufferString(`{"file_ids":["` + first.ID + `","` + second.ID + `"]}`)
-	request := httptest.NewRequest(http.MethodPost, "/api/public/files/batch-download", body)
-	request.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
-	}
-	if got := recorder.Header().Get("Content-Type"); got != "application/zip" {
-		t.Fatalf("expected zip content type, got %q", got)
-	}
-
-	reader, err := zip.NewReader(bytes.NewReader(recorder.Body.Bytes()), int64(recorder.Body.Len()))
-	if err != nil {
-		t.Fatalf("read zip response failed: %v", err)
-	}
-	if len(reader.File) != 2 {
-		t.Fatalf("expected 2 files in zip, got %d", len(reader.File))
-	}
-
-	assertEventuallyDownloadCount(t, db, first.ID, 1)
-	assertEventuallyDownloadCount(t, db, second.ID, 1)
 }
 
 func TestPublicFolderDownloadStreamsZip(t *testing.T) {

@@ -28,6 +28,9 @@
     "max_description_length": 4000,
     "receipt_code_length": 12
   },
+  "download": {
+    "max_download_total_bytes": 5368709120
+  },
   "session": {
     "name": "openshare_session",
     "secret": "replace-this-in-local-config",

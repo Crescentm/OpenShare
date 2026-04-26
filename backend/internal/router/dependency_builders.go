@@ -77,7 +77,7 @@ func buildRouteServices(
 		moderation:         moderation.NewModerationService(repos.moderation, storageService),
 		operationLog:       operations.NewOperationLogService(repos.operationLog),
 		publicCatalog:      catalog.NewPublicCatalogService(repos.publicCatalog),
-		publicDownload:     downloads.NewPublicDownloadService(repos.publicDownload, storageService),
+		publicDownload:     downloads.NewPublicDownloadService(repos.publicDownload, storageService, cfg.Download, systemSettingService),
 		publicReceipt:      receiptCodeService,
 		publicSubmission:   submissions.NewPublicSubmissionService(repos.publicSubmission),
 		publicUpload:       uploads.NewPublicUploadService(cfg.Upload, repos.upload, receiptCodeService, storageService, systemSettingService),

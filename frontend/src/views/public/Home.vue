@@ -2,29 +2,38 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  ChevronLeft,
   ChevronRight,
-  Clock3,
-  Download,
-  FileArchive,
-  FileAudio,
-  FileCode2,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileType2,
-  FileVideo,
-  Flag,
-  Folder,
   Home,
-  LayoutGrid,
-  List,
-  Upload,
 } from "lucide-vue-next";
 
-import InfoPanelCard, {
-  type InfoPanelCardItem,
-} from "../../components/shared/InfoPanelCard.vue";
+import InfoPanelCard from "../../components/shared/InfoPanelCard.vue";
+import PublicAnnouncementDetailModal from "../../components/public/home/PublicAnnouncementDetailModal.vue";
+import PublicAnnouncementListModal from "../../components/public/home/PublicAnnouncementListModal.vue";
+import PublicDirectoryCards from "../../components/public/home/PublicDirectoryCards.vue";
+import PublicDirectoryTable from "../../components/public/home/PublicDirectoryTable.vue";
+import PublicDirectoryToolbar from "../../components/public/home/PublicDirectoryToolbar.vue";
+import PublicDeleteResourceDialog from "../../components/public/home/PublicDeleteResourceDialog.vue";
+import PublicFolderInfoPanel from "../../components/public/home/PublicFolderInfoPanel.vue";
+import PublicFolderDescriptionEditor from "../../components/public/home/PublicFolderDescriptionEditor.vue";
+import PublicHomeFeedbackDialog from "../../components/public/home/PublicHomeFeedbackDialog.vue";
+import PublicHomeSidebarDetailModal from "../../components/public/home/PublicHomeSidebarDetailModal.vue";
+import PublicUploadDialog from "../../components/public/home/PublicUploadDialog.vue";
+import type {
+  DirectoryRow,
+  FolderDetailResponse,
+  PublicFileItem,
+  PublicFolderItem,
+  SearchResultResponse,
+} from "../../components/public/home/types";
+import {
+  extractExtension,
+  usePublicHomeDirectoryRows,
+} from "../../components/public/home/usePublicHomeDirectoryRows";
+import { usePublicHomeFeedbackState } from "../../components/public/home/usePublicHomeFeedbackState";
+import { usePublicHomeFolderAdminState } from "../../components/public/home/usePublicHomeFolderAdminState";
+import { usePublicHomeReadmePreview } from "../../components/public/home/usePublicHomeReadmePreview";
+import { usePublicHomeSidebar } from "../../components/public/home/usePublicHomeSidebar";
+import { usePublicHomeUploadState } from "../../components/public/home/usePublicHomeUploadState";
 import SearchSection from "../../components/resources/SearchSection.vue";
 import { HttpError, httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
@@ -37,143 +46,16 @@ import { renderSimpleMarkdown } from "../../lib/markdown";
 import {
   collectDroppedEntries,
   normalizeFiles,
-  type UploadSelectionEntry,
 } from "../../lib/uploads/fileDrop";
-
-interface AnnouncementItem {
-  id: string;
-  title: string;
-  content: string;
-  is_pinned: boolean;
-  creator: {
-    id: string;
-    username: string;
-    display_name: string;
-    avatar_url: string;
-    role: string;
-  };
-  published_at?: string;
-  updated_at: string;
-}
-
-interface PublicFolderItem {
-  id: string;
-  name: string;
-  updated_at: string;
-  file_count: number;
-  download_count: number;
-  total_size: number;
-}
-
-interface PublicFileItem {
-  id: string;
-  name: string;
-  description: string;
-  extension: string;
-  uploaded_at: string;
-  download_count: number;
-  size: number;
-}
-
-interface HotDownloadItem {
-  id: string;
-  name: string;
-  downloadCount: number;
-}
-
-interface LatestItem {
-  id: string;
-  name: string;
-}
-
-interface SidebarDetailItem {
-  id: string;
-  label: string;
-  meta?: string;
-}
-
-interface SidebarDetailModalState {
-  eyebrow: string;
-  title: string;
-  description: string;
-  items: SidebarDetailItem[];
-}
-
-interface SearchResultResponse {
-  items: Array<{
-    entity_type: "file" | "folder";
-    id: string;
-    name: string;
-    extension?: string;
-    size?: number;
-    download_count?: number;
-    uploaded_at?: string;
-  }>;
-  page: number;
-  page_size: number;
-  total: number;
-}
-
-interface FolderDetailResponse {
-  id: string;
-  name: string;
-  description: string;
-  parent_id: string | null;
-  file_count: number;
-  download_count: number;
-  total_size: number;
-  updated_at: string;
-  breadcrumbs: Array<{
-    id: string;
-    name: string;
-  }>;
-}
 
 const route = useRoute();
 const router = useRouter();
 
-const announcements = ref<AnnouncementItem[]>([]);
-const announcementDetail = ref<AnnouncementItem | null>(null);
-const announcementListOpen = ref(false);
-const hotDownloadItems = ref<HotDownloadItem[]>([]);
-const latestItems = ref<LatestItem[]>([]);
-const sidebarDetailModal = ref<SidebarDetailModalState | null>(null);
-const viewMode = ref<"cards" | "table">("table");
-const sortMode = ref<"name" | "download" | "format">("name");
-const sortDirection = ref<"asc" | "desc">("desc");
-const sortMenuOpen = ref(false);
-const viewMenuOpen = ref(false);
 const transientWarning = ref("");
 const transientWarningTimer = ref<number | null>(null);
 const downloadTimestamps = ref<number[]>([]);
 const transientWarningLeaving = ref(false);
-const uploadModalOpen = ref(false);
-const uploadSuccessModalOpen = ref(false);
-const uploadSubmitting = ref(false);
-const uploadMessage = ref("");
-const uploadError = ref("");
-const uploadFileInput = ref<HTMLInputElement | null>(null);
 const currentReceiptCode = ref("");
-const uploadForm = ref({
-  description: "",
-  entries: [] as UploadSelectionEntry[],
-});
-const uploadDropActive = ref(false);
-const uploadCollecting = ref(false);
-const feedbackModalOpen = ref(false);
-const feedbackSuccessModalOpen = ref(false);
-const feedbackTarget = ref<{
-  id: string;
-  type: "file" | "folder";
-  name: string;
-} | null>(null);
-const feedbackDescription = ref("");
-const feedbackSubmitting = ref(false);
-const feedbackMessage = ref("");
-const feedbackError = ref("");
-const feedbackSubmitDisabled = computed(
-  () => feedbackSubmitting.value || !feedbackDescription.value.trim(),
-);
 
 const loading = ref(false);
 const error = ref("");
@@ -189,21 +71,7 @@ const searchError = ref("");
 const searchRows = ref<DirectoryRow[]>([]);
 const breadcrumbs = ref<Array<{ id: string; name: string }>>([]);
 const currentFolderDetail = ref<FolderDetailResponse | null>(null);
-const selectedResourceKeys = ref<string[]>([]);
 const canManageResourceDescriptions = ref(false);
-const folderDescriptionEditorOpen = ref(false);
-const folderNameDraft = ref("");
-const folderDescriptionDraft = ref("");
-const folderDescriptionSaving = ref(false);
-const folderDescriptionError = ref("");
-const deleteResourceTarget = ref<{
-  id: string;
-  kind: "folder";
-  name: string;
-} | null>(null);
-const deleteResourcePassword = ref("");
-const deleteResourceSubmitting = ref(false);
-const deleteResourceError = ref("");
 const currentFolderID = computed(() => {
   const raw = route.query.folder;
   return typeof raw === "string" && raw.trim() ? raw.trim() : "";
@@ -212,101 +80,105 @@ const canUploadToCurrentFolder = computed(
   () => currentFolderID.value.length > 0,
 );
 const rootViewLocked = computed(() => route.query.root === "1");
-const hotDownloads = computed(() =>
-  hotDownloadItems.value.slice(0, 5).map((item) => ({
-    id: item.id,
-    label: item.name,
-  })),
-);
-const latestTitles = computed(() =>
-  latestItems.value.slice(0, 5).map((item) => ({
-    id: item.id,
-    label: item.name,
-  })),
-);
-const recentAnnouncements = computed(() =>
-  announcements.value.slice(0, 5).map((item) => ({
-    id: item.id,
-    label: item.title,
-    badge: item.is_pinned ? "置顶" : undefined,
-  })),
-);
 
-type DirectoryRow = {
-  id: string;
-  kind: "folder" | "file";
-  name: string;
-  extension: string;
-  description: string;
-  downloadCount: number;
-  fileCount: number;
-  sizeText: string;
-  updatedAt: string;
-  downloadURL: string;
-};
-
-function buildPublicFileContentURL(fileID: string, view: "download" | "inline" | "text") {
-  const query = new URLSearchParams({ view });
-  return `/api/public/files/${encodeURIComponent(fileID)}/content?${query.toString()}`;
+function buildPublicFileDownloadURL(fileID: string) {
+  return `/api/public/files/${encodeURIComponent(fileID)}/download`;
 }
 
-const rows = computed<DirectoryRow[]>(() => [
-  ...folders.value.map((folder) => ({
-    id: folder.id,
-    kind: "folder" as const,
-    name: folder.name,
-    extension: "",
-    description: "",
-    downloadCount: folder.download_count ?? 0,
-    fileCount: folder.file_count ?? 0,
-    sizeText: formatSize(folder.total_size ?? 0),
-    updatedAt: formatDateTime(folder.updated_at),
-    downloadURL: `/api/public/folders/${encodeURIComponent(folder.id)}/download`,
-  })),
-  ...(currentFolderID.value
-    ? files.value.map((file) => ({
-        id: file.id,
-        kind: "file" as const,
-        name: file.name,
-        extension: file.extension || extractExtension(file.name),
-        description: (file.description ?? "").trim(),
-        downloadCount: file.download_count ?? 0,
-        fileCount: 0,
-        sizeText: formatSize(file.size),
-        updatedAt: formatDateTime(file.uploaded_at),
-        downloadURL: buildPublicFileContentURL(file.id, "download"),
-      }))
-    : []),
-]);
-const displayedRows = computed<DirectoryRow[]>(() =>
-  searchKeyword.value ? searchRows.value : rows.value,
-);
+function buildPublicFilePreviewURL(fileID: string, view: "inline" | "text") {
+  const query = new URLSearchParams({ view });
+  return `/api/public/files/${encodeURIComponent(fileID)}/preview?${query.toString()}`;
+}
 
-const sortedRows = computed(() => {
-  const folders = displayedRows.value
-    .filter((row) => row.kind === "folder")
-    .sort((left, right) =>
-      compareRows(left, right, sortMode.value, sortDirection.value),
-    );
-  const files = displayedRows.value
-    .filter((row) => row.kind === "file")
-    .sort((left, right) =>
-      compareRows(left, right, sortMode.value, sortDirection.value),
-    );
+const {
+  announcementDetail,
+  announcementListOpen,
+  announcements,
+  closeAnnouncementDetail,
+  closeAnnouncementList,
+  closeSidebarDetailModal,
+  hotDownloads,
+  latestTitles,
+  loadAnnouncements,
+  loadHotDownloads,
+  loadLatestTitles,
+  openAnnouncementDetail,
+  openAnnouncementList,
+  openHotDownloadsModal,
+  openLatestItemsModal,
+  openSidebarDetailItem,
+  recentAnnouncements,
+  returnToAnnouncementList,
+  sidebarDetailModal,
+} = usePublicHomeSidebar(openFile, syncBodyScrollLock);
 
-  return [...folders, ...files];
+const {
+  clearUploadEntries,
+  closeUploadModal: closeUploadDialogState,
+  closeUploadSuccessModal: closeUploadSuccessState,
+  openUploadModal,
+  resetUploadForm,
+  uploadState,
+} = usePublicHomeUploadState();
+
+const {
+  closeFeedbackModal: closeFeedbackDialogState,
+  closeFeedbackSuccessModal: closeFeedbackSuccessState,
+  feedbackState,
+  feedbackSubmitDisabled,
+  openFeedbackModal: openFeedbackDialogState,
+} = usePublicHomeFeedbackState();
+
+const {
+  isCurrentReadmeRequest,
+  loadReadmePreview,
+  nextReadmePreviewRequestID,
+  readmePreviewError,
+  readmePreviewHTML,
+  readmePreviewLoading,
+  readmePreviewName,
+  resetReadmePreview,
+} = usePublicHomeReadmePreview(currentFolderID, buildPublicFilePreviewURL);
+
+const {
+  allVisibleRowsSelected,
+  clearSelection,
+  fileIconComponent,
+  hasSelectedRows,
+  isRowSelected,
+  restoreDisplayPreferences,
+  selectedRows,
+  setSortDirection,
+  setSortMode,
+  setViewMode,
+  sortDirection,
+  sortMenuOpen,
+  sortMode,
+  sortedRows,
+  toggleRowSelection,
+  toggleSelectAllVisibleRows,
+  viewMenuOpen,
+  viewMode,
+} = usePublicHomeDirectoryRows({
+  currentFolderID,
+  files,
+  folders,
+  formatDateTime,
+  formatSize,
+  searchKeyword,
+  searchRows,
 });
-const selectedRows = computed(() =>
-  sortedRows.value.filter((row) =>
-    selectedResourceKeys.value.includes(selectionKey(row)),
-  ),
-);
-const hasSelectedRows = computed(() => selectedRows.value.length > 0);
-const allVisibleRowsSelected = computed(
-  () =>
-    sortedRows.value.length > 0 &&
-    selectedRows.value.length === sortedRows.value.length,
-);
+
+const {
+  closeFolderDescriptionEditor: closeFolderDescriptionEditorState,
+  folderAdminState,
+  folderEditorDirty,
+  openDeleteFolderDialog: openDeleteFolderDialogState,
+  openFolderDescriptionEditor: openFolderDescriptionEditorState,
+  resetDeleteDialog,
+  syncFolderDrafts,
+} = usePublicHomeFolderAdminState(currentFolderDetail);
+
 const currentFolderDescriptionHTML = computed(() => {
   const desc = currentFolderDetail.value?.description;
   if (desc) {
@@ -316,22 +188,6 @@ const currentFolderDescriptionHTML = computed(() => {
     return readmePreviewHTML.value;
   }
   return "";
-});
-const readmePreviewName = ref("");
-const readmePreviewHTML = ref("");
-const readmePreviewLoading = ref(false);
-const readmePreviewError = ref("");
-let readmePreviewRequestID = 0;
-const folderEditorDirty = computed(() => {
-  if (!currentFolderDetail.value) {
-    return false;
-  }
-
-  return (
-    folderNameDraft.value.trim() !== currentFolderDetail.value.name ||
-    folderDescriptionDraft.value.trim() !==
-      (currentFolderDetail.value.description ?? "")
-  );
 });
 const currentFolderStats = computed(() => {
   if (!currentFolderDetail.value) {
@@ -383,41 +239,6 @@ function downloadResource(row: DirectoryRow) {
 
   applyDownloadCountUpdate(row);
   void loadHotDownloads();
-}
-
-function selectionKey(row: DirectoryRow) {
-  return `${row.kind}:${row.id}`;
-}
-
-function isRowSelected(row: DirectoryRow) {
-  return selectedResourceKeys.value.includes(selectionKey(row));
-}
-
-function toggleRowSelection(row: DirectoryRow) {
-  const key = selectionKey(row);
-  if (selectedResourceKeys.value.includes(key)) {
-    selectedResourceKeys.value = selectedResourceKeys.value.filter(
-      (item) => item !== key,
-    );
-    return;
-  }
-  selectedResourceKeys.value = [...selectedResourceKeys.value, key];
-}
-
-function clearSelection() {
-  selectedResourceKeys.value = [];
-}
-
-function selectAllVisibleRows() {
-  selectedResourceKeys.value = sortedRows.value.map((row) => selectionKey(row));
-}
-
-function toggleSelectAllVisibleRows() {
-  if (allVisibleRowsSelected.value) {
-    clearSelection();
-    return;
-  }
-  selectAllVisibleRows();
 }
 
 async function downloadSelectedResources() {
@@ -485,35 +306,18 @@ function syncBodyScrollLock() {
     announcementDetail.value ||
     announcementListOpen.value ||
     sidebarDetailModal.value ||
-    uploadModalOpen.value ||
-    uploadSuccessModalOpen.value ||
-    feedbackModalOpen.value ||
-    feedbackSuccessModalOpen.value ||
-    folderDescriptionEditorOpen.value ||
-    deleteResourceTarget.value,
+    uploadState.modalOpen ||
+    uploadState.successOpen ||
+    feedbackState.modalOpen ||
+    feedbackState.successOpen ||
+    folderAdminState.editorOpen ||
+    folderAdminState.deleteTarget,
   );
   document.body.style.overflow = shouldLock ? "hidden" : "";
 }
 
 onMounted(async () => {
-  const storedViewMode = window.localStorage.getItem("public-home-view-mode");
-  if (storedViewMode === "cards" || storedViewMode === "table") {
-    viewMode.value = storedViewMode;
-  }
-  const storedSortMode = window.localStorage.getItem("public-home-sort-mode");
-  if (
-    storedSortMode === "name" ||
-    storedSortMode === "download" ||
-    storedSortMode === "format"
-  ) {
-    sortMode.value = storedSortMode;
-  }
-  const storedSortDirection = window.localStorage.getItem(
-    "public-home-sort-direction",
-  );
-  if (storedSortDirection === "asc" || storedSortDirection === "desc") {
-    sortDirection.value = storedSortDirection;
-  }
+  restoreDisplayPreferences();
   currentReceiptCode.value = await syncSessionReceiptCode();
   await Promise.all([
     loadAnnouncements(),
@@ -536,136 +340,8 @@ watch(currentFolderID, () => {
   void loadDirectory();
 });
 
-async function loadAnnouncements() {
-  try {
-    const response = await httpClient.get<{ items: AnnouncementItem[] }>(
-      "/public/announcements",
-    );
-    announcements.value = response.items ?? [];
-  } catch {
-    announcements.value = [];
-  }
-}
-
-function openAnnouncementDetail(item: InfoPanelCardItem) {
-  const target = announcements.value.find((entry) => entry.id === item.id);
-  if (!target) {
-    return;
-  }
-  announcementListOpen.value = false;
-  announcementDetail.value = target;
-  syncBodyScrollLock();
-}
-
-function closeAnnouncementDetail() {
-  announcementDetail.value = null;
-  syncBodyScrollLock();
-}
-
-function returnToAnnouncementList() {
-  announcementDetail.value = null;
-  announcementListOpen.value = true;
-  syncBodyScrollLock();
-}
-
-function openAnnouncementList() {
-  announcementListOpen.value = true;
-  syncBodyScrollLock();
-}
-
-function closeAnnouncementList() {
-  announcementListOpen.value = false;
-  syncBodyScrollLock();
-}
-
-function announcementAuthorName(item: AnnouncementItem) {
-  return (
-    item.creator?.display_name?.trim() ||
-    item.creator?.username?.trim() ||
-    "未知用户"
-  );
-}
-
-function announcementAuthorInitial(item: AnnouncementItem) {
-  return announcementAuthorName(item).slice(0, 1).toUpperCase() || "A";
-}
-
-function announcementAuthorIsSuperAdmin(item: AnnouncementItem) {
-  return item.creator?.role === "super_admin";
-}
-
-function openSidebarDetailModal(modal: SidebarDetailModalState) {
-  sidebarDetailModal.value = modal;
-  syncBodyScrollLock();
-}
-
-function closeSidebarDetailModal() {
-  sidebarDetailModal.value = null;
-  syncBodyScrollLock();
-}
-
-function openSidebarDetailItem(item: InfoPanelCardItem) {
-  sidebarDetailModal.value = null;
-  syncBodyScrollLock();
-  openFile(item.id);
-}
-
-function openHotDownloadsModal() {
-  openSidebarDetailModal({
-    eyebrow: "Hot Downloads",
-    title: "热门下载",
-    description: "展示近七天内下载量最高的前 20 份资料，点击可跳转文件详情页。",
-    items: hotDownloadItems.value.map((item) => ({
-      id: item.id,
-      label: item.name,
-      meta: `${item.downloadCount} 次下载`,
-    })),
-  });
-}
-
-function openLatestItemsModal() {
-  openSidebarDetailModal({
-    eyebrow: "Latest Files",
-    title: "资料上新",
-    description: "展示最新发布的前 20 份资料，点击标题可跳转文件详情页。",
-    items: latestItems.value.map((item) => ({
-      id: item.id,
-      label: item.name,
-    })),
-  });
-}
-
-async function loadHotDownloads() {
-  try {
-    const response = await httpClient.get<{ items: PublicFileItem[] }>(
-      "/public/files/hot?limit=20",
-    );
-    hotDownloadItems.value = (response.items ?? []).map((item) => ({
-      id: item.id,
-      name: item.name,
-      downloadCount: item.download_count ?? 0,
-    }));
-  } catch {
-    hotDownloadItems.value = [];
-  }
-}
-
-async function loadLatestTitles() {
-  try {
-    const response = await httpClient.get<{ items: PublicFileItem[] }>(
-      "/public/files/latest?limit=20",
-    );
-    latestItems.value = (response.items ?? []).map((item) => ({
-      id: item.id,
-      name: item.name,
-    }));
-  } catch {
-    latestItems.value = [];
-  }
-}
-
 async function loadDirectory() {
-  const requestID = ++readmePreviewRequestID;
+  const requestID = nextReadmePreviewRequestID();
   loading.value = true;
   error.value = "";
   actionMessage.value = "";
@@ -706,7 +382,7 @@ async function loadDirectory() {
 
     const [folderResponse, fileResponse, folderDetail] =
       await Promise.all(requests);
-    if (requestID !== readmePreviewRequestID) {
+    if (!isCurrentReadmeRequest(requestID)) {
       return;
     }
     folders.value =
@@ -730,13 +406,11 @@ async function loadDirectory() {
     if (folderDetail) {
       const detail = folderDetail as FolderDetailResponse;
       currentFolderDetail.value = detail;
-      folderNameDraft.value = detail.name;
-      folderDescriptionDraft.value = detail.description ?? "";
+      syncFolderDrafts();
       breadcrumbs.value = detail.breadcrumbs ?? [];
     } else {
       currentFolderDetail.value = null;
-      folderNameDraft.value = "";
-      folderDescriptionDraft.value = "";
+      syncFolderDrafts();
       breadcrumbs.value = [];
     }
 
@@ -746,8 +420,7 @@ async function loadDirectory() {
     files.value = [];
     breadcrumbs.value = [];
     currentFolderDetail.value = null;
-    folderNameDraft.value = "";
-    folderDescriptionDraft.value = "";
+    syncFolderDrafts();
     resetReadmePreview();
     if (err instanceof HttpError && err.status === 404) {
       error.value = "目录不存在或未公开。";
@@ -756,76 +429,6 @@ async function loadDirectory() {
     }
   } finally {
     loading.value = false;
-  }
-}
-
-function resetReadmePreview() {
-  readmePreviewName.value = "";
-  readmePreviewHTML.value = "";
-  readmePreviewLoading.value = false;
-  readmePreviewError.value = "";
-}
-
-function pickReadmeFile(entries: PublicFileItem[]) {
-  return entries.find((item) => item.name.trim().toLowerCase() === "readme.md");
-}
-
-function buildReadmeAssetURL(rawURL: string) {
-  if (!currentFolderID.value) {
-    return rawURL;
-  }
-
-  const query = new URLSearchParams({ path: rawURL });
-  return `/api/public/folders/${encodeURIComponent(currentFolderID.value)}/assets?${query.toString()}`;
-}
-
-async function loadReadmePreview(entries: PublicFileItem[], requestID: number) {
-  if (!currentFolderID.value) {
-    return;
-  }
-
-  const readmeFile = pickReadmeFile(entries);
-  if (!readmeFile) {
-    return;
-  }
-
-  readmePreviewName.value = readmeFile.name;
-  readmePreviewLoading.value = true;
-  readmePreviewError.value = "";
-
-  try {
-    const response = await fetch(
-      buildPublicFileContentURL(readmeFile.id, "text"),
-      {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          Accept: "text/plain",
-        },
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error("readme preview failed");
-    }
-
-    const markdownText = await response.text();
-    if (requestID !== readmePreviewRequestID) {
-      return;
-    }
-
-    readmePreviewHTML.value = renderSimpleMarkdown(markdownText, {
-      resolveURL: (rawURL) => buildReadmeAssetURL(rawURL),
-    });
-  } catch {
-    if (requestID !== readmePreviewRequestID) {
-      return;
-    }
-    readmePreviewError.value = "README 预览加载失败。";
-  } finally {
-    if (requestID === readmePreviewRequestID) {
-      readmePreviewLoading.value = false;
-    }
   }
 }
 
@@ -888,42 +491,30 @@ function downloadCurrentFolder() {
 }
 
 function openDeleteFolderDialog() {
-  if (!currentFolderDetail.value) {
-    return;
-  }
-  deleteResourceTarget.value = {
-    id: currentFolderDetail.value.id,
-    kind: "folder",
-    name: currentFolderDetail.value.name,
-  };
-  deleteResourcePassword.value = "";
-  deleteResourceError.value = "";
+  openDeleteFolderDialogState();
 }
 
 function closeDeleteResourceDialog() {
-  deleteResourceTarget.value = null;
-  deleteResourcePassword.value = "";
-  deleteResourceError.value = "";
-  deleteResourceSubmitting.value = false;
+  resetDeleteDialog();
 }
 
 async function confirmDeleteResource() {
-  if (!deleteResourceTarget.value) {
+  if (!folderAdminState.deleteTarget) {
     return;
   }
-  if (!deleteResourcePassword.value.trim()) {
-    deleteResourceError.value = "请输入当前管理员密码。";
+  if (!folderAdminState.deletePassword.trim()) {
+    folderAdminState.deleteError = "请输入当前管理员密码。";
     return;
   }
 
-  deleteResourceSubmitting.value = true;
-  deleteResourceError.value = "";
+  folderAdminState.deleteSubmitting = true;
+  folderAdminState.deleteError = "";
   try {
     await httpClient.request(
-      `/admin/resources/folders/${encodeURIComponent(deleteResourceTarget.value.id)}`,
+      `/admin/resources/folders/${encodeURIComponent(folderAdminState.deleteTarget.id)}`,
       {
         method: "DELETE",
-        body: { password: deleteResourcePassword.value },
+        body: { password: folderAdminState.deletePassword },
       },
     );
     const parentID = currentFolderDetail.value?.parent_id ?? "";
@@ -936,9 +527,9 @@ async function confirmDeleteResource() {
       await router.push({ name: "public-home", query: { root: "1" } });
     }
   } catch (err: unknown) {
-    deleteResourceError.value = readApiError(err, "删除文件夹失败。");
+    folderAdminState.deleteError = readApiError(err, "删除文件夹失败。");
   } finally {
-    deleteResourceSubmitting.value = false;
+    folderAdminState.deleteSubmitting = false;
   }
 }
 
@@ -980,7 +571,7 @@ async function runSearch(keyword: string) {
       updatedAt: item.uploaded_at ? formatDateTime(item.uploaded_at) : "-",
       downloadURL:
         item.entity_type === "file"
-          ? buildPublicFileContentURL(item.id, "download")
+          ? buildPublicFileDownloadURL(item.id)
           : `/api/public/folders/${encodeURIComponent(item.id)}/download`,
     }));
   } catch (err: unknown) {
@@ -1005,54 +596,36 @@ function openUpload() {
     showTransientWarning("请先进入一个目录后再上传。");
     return;
   }
-  uploadModalOpen.value = true;
-  uploadError.value = "";
-  uploadMessage.value = "";
-  uploadForm.value.description = "";
-  uploadForm.value.entries = [];
+  openUploadModal();
   void syncSessionReceiptCode();
-  if (uploadFileInput.value) {
-    uploadFileInput.value.value = "";
-  }
   syncBodyScrollLock();
 }
 
 function closeUploadModal() {
-  uploadModalOpen.value = false;
+  closeUploadDialogState();
   syncBodyScrollLock();
 }
 
 function closeUploadSuccessModal() {
-  uploadSuccessModalOpen.value = false;
+  closeUploadSuccessState();
   syncBodyScrollLock();
 }
 
 function onUploadFileChange(event: Event) {
   const target = event.target as HTMLInputElement;
-  uploadForm.value.entries = normalizeFiles(
+  uploadState.form.entries = normalizeFiles(
     Array.from(target.files ?? []).slice(0, 1),
   );
   if (
-    uploadForm.value.entries.length === 0 &&
+    uploadState.form.entries.length === 0 &&
     (target.files?.length ?? 0) > 0
   ) {
-    uploadError.value = "已自动忽略 .DS_Store，请重新选择可上传文件。";
-  }
-}
-
-function triggerUploadFileSelect() {
-  uploadFileInput.value?.click();
-}
-
-function clearUploadEntries() {
-  uploadForm.value.entries = [];
-  if (uploadFileInput.value) {
-    uploadFileInput.value.value = "";
+    uploadState.error = "已自动忽略 .DS_Store，请重新选择可上传文件。";
   }
 }
 
 function onUploadDragEnter() {
-  uploadDropActive.value = true;
+  uploadState.dropActive = true;
 }
 
 function onUploadDragLeave(event: DragEvent) {
@@ -1064,49 +637,49 @@ function onUploadDragLeave(event: DragEvent) {
   ) {
     return;
   }
-  uploadDropActive.value = false;
+  uploadState.dropActive = false;
 }
 
 async function onUploadDrop(event: DragEvent) {
   event.preventDefault();
-  uploadDropActive.value = false;
-  uploadCollecting.value = true;
-  uploadError.value = "";
+  uploadState.dropActive = false;
+  uploadState.collecting = true;
+  uploadState.error = "";
   try {
     const entries = await collectDroppedEntries(event);
-    uploadForm.value.entries = entries;
+    uploadState.form.entries = entries;
     if (entries.length === 0 && (event.dataTransfer?.files.length ?? 0) > 0) {
-      uploadError.value = "检测到的内容仅包含 .DS_Store，已自动忽略。";
+      uploadState.error = "检测到的内容仅包含 .DS_Store，已自动忽略。";
     }
   } catch {
-    uploadError.value = "解析拖拽内容失败，请重试。";
+    uploadState.error = "解析拖拽内容失败，请重试。";
   } finally {
-    uploadCollecting.value = false;
+    uploadState.collecting = false;
   }
 }
 
 async function submitUpload() {
-  if (uploadForm.value.entries.length === 0) {
-    uploadError.value = "请选择文件，或直接拖入多文件/文件夹。";
+  if (uploadState.form.entries.length === 0) {
+    uploadState.error = "请选择文件，或直接拖入多文件/文件夹。";
     return;
   }
 
-  uploadSubmitting.value = true;
-  uploadError.value = "";
-  uploadMessage.value = "";
+  uploadState.submitting = true;
+  uploadState.error = "";
+  uploadState.message = "";
   try {
     const formData = new FormData();
     formData.set("folder_id", currentFolderID.value);
-    formData.set("description", uploadForm.value.description.trim());
+    formData.set("description", uploadState.form.description.trim());
     formData.set(
       "manifest",
       JSON.stringify(
-        uploadForm.value.entries.map((entry) => ({
+        uploadState.form.entries.map((entry) => ({
           relative_path: entry.relativePath,
         })),
       ),
     );
-    uploadForm.value.entries.forEach((entry) => {
+    uploadState.form.entries.forEach((entry) => {
       formData.append("files", entry.file, entry.file.name);
     });
     const response = await httpClient.post<{
@@ -1114,7 +687,7 @@ async function submitUpload() {
       item_count: number;
       status: string;
     }>("/public/submissions", formData);
-    uploadMessage.value =
+    uploadState.message =
       response.status === "approved"
         ? `已上传 ${response.item_count} 个文件，请保存回执码 ${response.receipt_code}。`
         : `已提交 ${response.item_count} 个文件进入审核，请保存回执码 ${response.receipt_code}。`;
@@ -1123,24 +696,24 @@ async function submitUpload() {
       response.receipt_code,
     );
     currentReceiptCode.value = response.receipt_code;
-    uploadForm.value.description = "";
+    resetUploadForm();
     clearUploadEntries();
     if (response.status === "approved") {
       await loadDirectory();
     }
     closeUploadModal();
-    uploadSuccessModalOpen.value = true;
+    uploadState.successOpen = true;
     syncBodyScrollLock();
   } catch (err) {
     if (err instanceof HttpError && err.status === 400) {
-      uploadError.value = "上传参数无效。";
+      uploadState.error = "上传参数无效。";
     } else if (err instanceof HttpError && err.status === 409) {
-      uploadError.value = "提交上传失败，请检查名称或者联系管理员";
+      uploadState.error = "提交上传失败，请检查名称或者联系管理员";
     } else {
-      uploadError.value = "提交上传失败。";
+      uploadState.error = "提交上传失败。";
     }
   } finally {
-    uploadSubmitting.value = false;
+    uploadState.submitting = false;
   }
 }
 
@@ -1199,92 +772,33 @@ function showTransientWarning(message: string) {
   }, 400);
 }
 
-function setViewMode(mode: "cards" | "table") {
-  viewMode.value = mode;
-  viewMenuOpen.value = false;
-  window.localStorage.setItem("public-home-view-mode", mode);
-}
-
-watch(
-  sortedRows,
-  (rows) => {
-    const allowedKeys = new Set(rows.map((row) => selectionKey(row)));
-    selectedResourceKeys.value = selectedResourceKeys.value.filter((key) =>
-      allowedKeys.has(key),
-    );
-  },
-  { immediate: true },
-);
-
-function setSortMode(mode: "name" | "download" | "format") {
-  sortMode.value = mode;
-  window.localStorage.setItem("public-home-sort-mode", mode);
-}
-
-function setSortDirection(direction: "asc" | "desc") {
-  sortDirection.value = direction;
-  sortMenuOpen.value = false;
-  window.localStorage.setItem("public-home-sort-direction", direction);
-}
-
-function sortModeLabel(mode: "name" | "download" | "format") {
-  switch (mode) {
-    case "download":
-      return "下载量排序";
-    case "format":
-      return "格式排序";
-    default:
-      return "名称排序";
-  }
-}
-
-function sortDirectionLabel(direction: "asc" | "desc") {
-  return direction === "asc" ? "升序" : "降序";
-}
-
-function viewModeLabel(mode: "cards" | "table") {
-  return mode === "cards" ? "卡片" : "表格";
-}
-
 function openFeedbackModal(target: {
   id: string;
   type: "file" | "folder";
   name: string;
 }) {
-  feedbackModalOpen.value = true;
-  feedbackTarget.value = target;
-  feedbackDescription.value = "";
-  feedbackMessage.value = "";
-  feedbackError.value = "";
+  openFeedbackDialogState(target);
   void syncSessionReceiptCode();
   syncBodyScrollLock();
 }
 
 function closeFeedbackModal() {
-  feedbackModalOpen.value = false;
-  feedbackTarget.value = null;
+  closeFeedbackDialogState();
   syncBodyScrollLock();
 }
 
 function closeFeedbackSuccessModal() {
-  feedbackSuccessModalOpen.value = false;
+  closeFeedbackSuccessState();
   syncBodyScrollLock();
 }
 
 function openFolderDescriptionEditor() {
-  folderNameDraft.value = currentFolderDetail.value?.name ?? "";
-  folderDescriptionDraft.value = currentFolderDetail.value?.description ?? "";
-  folderDescriptionError.value = "";
-  folderDescriptionEditorOpen.value = true;
+  openFolderDescriptionEditorState();
   syncBodyScrollLock();
 }
 
 function closeFolderDescriptionEditor() {
-  folderDescriptionEditorOpen.value = false;
-  folderDescriptionSaving.value = false;
-  folderDescriptionError.value = "";
-  folderNameDraft.value = currentFolderDetail.value?.name ?? "";
-  folderDescriptionDraft.value = currentFolderDetail.value?.description ?? "";
+  closeFolderDescriptionEditorState();
   syncBodyScrollLock();
 }
 
@@ -1293,80 +807,80 @@ async function saveFolderDescription() {
     return;
   }
 
-  folderDescriptionSaving.value = true;
-  folderDescriptionError.value = "";
+  folderAdminState.saving = true;
+  folderAdminState.error = "";
   try {
     await httpClient.request(
       `/admin/resources/folders/${encodeURIComponent(currentFolderDetail.value.id)}`,
       {
         method: "PUT",
         body: {
-          name: folderNameDraft.value.trim(),
-          description: folderDescriptionDraft.value.trim(),
+          name: folderAdminState.nameDraft.trim(),
+          description: folderAdminState.descriptionDraft.trim(),
         },
       },
     );
     currentFolderDetail.value = {
       ...currentFolderDetail.value,
-      name: folderNameDraft.value.trim(),
-      description: folderDescriptionDraft.value.trim(),
+      name: folderAdminState.nameDraft.trim(),
+      description: folderAdminState.descriptionDraft.trim(),
     };
     breadcrumbs.value = breadcrumbs.value.map((item, index) =>
       index === breadcrumbs.value.length - 1
-        ? { ...item, name: folderNameDraft.value.trim() }
+        ? { ...item, name: folderAdminState.nameDraft.trim() }
         : item,
     );
-    folderDescriptionEditorOpen.value = false;
+    folderAdminState.editorOpen = false;
     syncBodyScrollLock();
   } catch (err: unknown) {
-    folderDescriptionError.value = readApiError(err, "更新文件夹简介失败。");
+    folderAdminState.error = readApiError(err, "更新文件夹简介失败。");
   } finally {
-    folderDescriptionSaving.value = false;
+    folderAdminState.saving = false;
   }
 }
 
 async function submitFeedback() {
-  if (!feedbackTarget.value) {
+  if (!feedbackState.target) {
     return;
   }
-  if (!feedbackDescription.value.trim()) {
-    feedbackError.value = "请填写问题说明。";
+  if (!feedbackState.description.trim()) {
+    feedbackState.error = "请填写问题说明。";
     return;
   }
 
-  feedbackSubmitting.value = true;
-  feedbackMessage.value = "";
-  feedbackError.value = "";
+  feedbackState.submitting = true;
+  feedbackState.message = "";
+  feedbackState.error = "";
   try {
     const response = await httpClient.post<{ receipt_code: string }>(
       "/public/feedback",
       {
         file_id:
-          feedbackTarget.value.type === "file" ? feedbackTarget.value.id : "",
+          feedbackState.target.type === "file" ? feedbackState.target.id : "",
         folder_id:
-          feedbackTarget.value.type === "folder" ? feedbackTarget.value.id : "",
-        description: feedbackDescription.value.trim(),
+          feedbackState.target.type === "folder" ? feedbackState.target.id : "",
+        description: feedbackState.description.trim(),
       },
     );
-    feedbackMessage.value = `反馈已提交，请保存回执码 ${response.receipt_code}。`;
+    feedbackState.message = `反馈已提交，请保存回执码 ${response.receipt_code}。`;
     window.sessionStorage.setItem(
       "openshare_receipt_code",
       response.receipt_code,
     );
     currentReceiptCode.value = response.receipt_code;
     closeFeedbackModal();
-    feedbackSuccessModalOpen.value = true;
+    feedbackState.successOpen = true;
     syncBodyScrollLock();
   } catch (err: unknown) {
     if (err instanceof HttpError && err.status === 400) {
-      feedbackError.value = "请填写问题说明。";
+      feedbackState.error = "请填写问题说明。";
     } else if (err instanceof HttpError && err.status === 404) {
-      feedbackError.value = "目标不存在或已删除。";
+      feedbackState.error = "目标不存在或已删除。";
     } else {
-      feedbackError.value = "提交反馈失败。";
+      feedbackState.error = "提交反馈失败。";
     }
   } finally {
-    feedbackSubmitting.value = false;
+    feedbackState.submitting = false;
   }
 }
 
@@ -1388,98 +902,6 @@ function formatDateTime(value: string) {
     second: "2-digit",
     hour12: false,
   }).format(new Date(value));
-}
-
-function extractExtension(name: string) {
-  const index = name.lastIndexOf(".");
-  if (index <= 0 || index === name.length - 1) {
-    return "";
-  }
-  return name.slice(index + 1).toLowerCase();
-}
-
-function fileIconComponent(extension: string) {
-  const ext = extension.toLowerCase();
-  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext))
-    return FileImage;
-  if (["mp4", "mov", "avi", "mkv", "webm"].includes(ext)) return FileVideo;
-  if (["mp3", "wav", "flac", "aac", "m4a", "ogg"].includes(ext))
-    return FileAudio;
-  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz"].includes(ext))
-    return FileArchive;
-  if (["xls", "xlsx", "csv", "numbers"].includes(ext)) return FileSpreadsheet;
-  if (
-    [
-      "js",
-      "ts",
-      "jsx",
-      "tsx",
-      "json",
-      "html",
-      "css",
-      "go",
-      "py",
-      "java",
-      "c",
-      "cpp",
-      "h",
-      "hpp",
-      "rs",
-      "sh",
-      "yaml",
-      "yml",
-      "toml",
-      "xml",
-    ].includes(ext)
-  )
-    return FileCode2;
-  if (["pdf", "doc", "docx", "ppt", "pptx", "txt", "md", "rtf"].includes(ext))
-    return FileText;
-  return FileType2;
-}
-
-function compareRows(
-  left: DirectoryRow,
-  right: DirectoryRow,
-  mode: "name" | "download" | "format",
-  direction: "asc" | "desc",
-) {
-  let result = 0;
-
-  if (mode === "download") {
-    if (left.downloadCount !== right.downloadCount) {
-      result = left.downloadCount - right.downloadCount;
-    } else {
-      result = left.name.localeCompare(right.name, "zh-CN");
-    }
-  } else if (mode === "format") {
-    const leftRank = formatSortRank(left);
-    const rightRank = formatSortRank(right);
-    if (leftRank !== rightRank) {
-      result = leftRank - rightRank;
-    } else {
-      result = left.name.localeCompare(right.name, "zh-CN");
-    }
-  } else {
-    result = left.name.localeCompare(right.name, "zh-CN");
-  }
-
-  return direction === "asc" ? result : -result;
-}
-
-function formatSortRank(row: DirectoryRow) {
-  if (row.kind === "folder") {
-    return 0;
-  }
-
-  const extension = row.extension.toLowerCase();
-  if (extension === "pdf") {
-    return 1;
-  }
-  if (["doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(extension)) {
-    return 2;
-  }
-  return 3;
 }
 
 async function syncSessionReceiptCode() {
@@ -1574,179 +996,26 @@ async function syncSessionReceiptCode() {
             <span class="ml-2">共 {{ searchRows.length }} 条结果</span>
           </div>
 
-          <div class="px-4 pb-2 sm:px-6">
-            <div
-              class="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3"
-            >
-              <button
-                type="button"
-                class="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-45"
-                :disabled="!canUseBackButton"
-                @click="goUpOneLevel"
-              >
-                <ChevronLeft class="h-4 w-4" />
-                {{ backButtonLabel }}
-              </button>
-
-              <button
-                type="button"
-                class="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-                :disabled="!canUploadToCurrentFolder"
-                :class="
-                  !canUploadToCurrentFolder
-                    ? 'cursor-not-allowed opacity-45 hover:border-slate-200 hover:text-slate-600'
-                    : ''
-                "
-                @click="openUpload"
-              >
-                <Upload class="h-4 w-4" />
-                {{
-                  canUploadToCurrentFolder ? "在该目录上传" : "进入目录后上传"
-                }}
-              </button>
-
-              <button
-                v-if="sortedRows.length > 0"
-                type="button"
-                class="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-                @click="toggleSelectAllVisibleRows"
-              >
-                {{ allVisibleRowsSelected ? "取消全选" : "全选" }}
-              </button>
-
-              <div
-                class="flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto sm:justify-end"
-              >
-                <div class="relative">
-                  <button
-                    type="button"
-                    class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 sm:w-auto"
-                    @click="
-                      sortMenuOpen = !sortMenuOpen;
-                      viewMenuOpen = false;
-                    "
-                  >
-                    {{ sortModeLabel(sortMode) }} ·
-                    {{ sortDirectionLabel(sortDirection) }}
-                    <ChevronRight class="h-4 w-4 rotate-90" />
-                  </button>
-                  <div
-                    v-if="sortMenuOpen"
-                    class="absolute left-0 top-full z-20 mt-2 min-w-[176px] rounded-2xl border border-slate-200 bg-white p-1 shadow-lg"
-                  >
-                    <button
-                      type="button"
-                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                      :class="
-                        sortMode === 'download'
-                          ? 'bg-slate-100 font-medium text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      "
-                      @click="setSortMode('download')"
-                    >
-                      下载量排序
-                    </button>
-                    <button
-                      type="button"
-                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                      :class="
-                        sortMode === 'name'
-                          ? 'bg-slate-100 font-medium text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      "
-                      @click="setSortMode('name')"
-                    >
-                      名称排序
-                    </button>
-                    <button
-                      type="button"
-                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                      :class="
-                        sortMode === 'format'
-                          ? 'bg-slate-100 font-medium text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      "
-                      @click="setSortMode('format')"
-                    >
-                      格式排序
-                    </button>
-                    <div class="mx-2 my-1 border-t border-slate-100"></div>
-                    <button
-                      type="button"
-                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                      :class="
-                        sortDirection === 'desc'
-                          ? 'bg-slate-100 font-medium text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      "
-                      @click="setSortDirection('desc')"
-                    >
-                      降序
-                    </button>
-                    <button
-                      type="button"
-                      class="block w-full rounded-xl px-3 py-2 text-left text-sm transition"
-                      :class="
-                        sortDirection === 'asc'
-                          ? 'bg-slate-100 font-medium text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      "
-                      @click="setSortDirection('asc')"
-                    >
-                      升序
-                    </button>
-                  </div>
-                </div>
-
-                <div class="relative">
-                  <button
-                    type="button"
-                    class="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 sm:w-auto"
-                    @click="
-                      viewMenuOpen = !viewMenuOpen;
-                      sortMenuOpen = false;
-                    "
-                  >
-                    <LayoutGrid v-if="viewMode === 'cards'" class="h-4 w-4" />
-                    <List v-else class="h-4 w-4" />
-                    {{ viewModeLabel(viewMode) }}
-                    <ChevronRight class="h-4 w-4 rotate-90" />
-                  </button>
-                  <div
-                    v-if="viewMenuOpen"
-                    class="absolute left-0 top-full z-20 mt-2 min-w-[124px] rounded-2xl border border-slate-200 bg-white p-1 shadow-lg"
-                  >
-                    <button
-                      type="button"
-                      class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition"
-                      :class="
-                        viewMode === 'cards'
-                          ? 'bg-slate-100 font-medium text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      "
-                      @click="setViewMode('cards')"
-                    >
-                      <LayoutGrid class="h-4 w-4" />
-                      卡片
-                    </button>
-                    <button
-                      type="button"
-                      class="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition"
-                      :class="
-                        viewMode === 'table'
-                          ? 'bg-slate-100 font-medium text-slate-900'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      "
-                      @click="setViewMode('table')"
-                    >
-                      <List class="h-4 w-4" />
-                      表格
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <PublicDirectoryToolbar
+            :all-visible-rows-selected="allVisibleRowsSelected"
+            :back-button-label="backButtonLabel"
+            :can-upload-to-current-folder="canUploadToCurrentFolder"
+            :can-use-back-button="canUseBackButton"
+            :has-rows="sortedRows.length > 0"
+            :sort-direction="sortDirection"
+            :sort-menu-open="sortMenuOpen"
+            :sort-mode="sortMode"
+            :view-menu-open="viewMenuOpen"
+            :view-mode="viewMode"
+            @go-up="goUpOneLevel"
+            @open-upload="openUpload"
+            @set-sort-direction="setSortDirection"
+            @set-sort-menu-open="sortMenuOpen = $event"
+            @set-sort-mode="setSortMode"
+            @set-view-menu-open="viewMenuOpen = $event"
+            @set-view-mode="setViewMode"
+            @toggle-select-all="toggleSelectAllVisibleRows"
+          />
 
           <p
             v-if="actionMessage"
@@ -1776,295 +1045,52 @@ async function syncSessionReceiptCode() {
           >
             {{ searchKeyword ? "没有找到匹配结果。" : "当前目录为空。" }}
           </div>
-          <div
+          <PublicDirectoryCards
             v-else-if="viewMode === 'cards'"
-            class="grid gap-3 px-4 py-3 md:grid-cols-2 xl:grid-cols-3 sm:px-6 2xl:grid-cols-4"
-          >
-            <article
-              v-for="row in sortedRows"
-              :key="`${row.kind}-${row.id}`"
-              class="group relative min-w-0 flex min-h-[132px] cursor-pointer flex-col rounded-2xl border border-slate-200 bg-white px-3.5 pt-3 transition hover:border-slate-300 hover:shadow-sm sm:px-4"
-              @click="
-                row.kind === 'folder' ? openFolder(row.id) : openFile(row.id)
-              "
-            >
-              <div class="absolute right-4 top-3.5 z-10">
-                <input
-                  :checked="isRowSelected(row)"
-                  type="checkbox"
-                  class="h-4.5 w-4.5 rounded-md border-slate-300 text-slate-900 focus:ring-slate-300"
-                  @click.stop
-                  @change="toggleRowSelection(row)"
-                />
-              </div>
-              <div class="flex items-start gap-3">
-                <div
-                  class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500"
-                >
-                  <Folder
-                    v-if="row.kind === 'folder'"
-                    class="h-5.5 w-5.5 text-blue-500"
-                  />
-                  <component
-                    v-else
-                    :is="fileIconComponent(row.extension)"
-                    class="h-5.5 w-5.5"
-                  />
-                </div>
-                <div class="min-w-0 flex-1 pr-8 pt-0.5">
-                  <h3
-                    class="truncate text-sm font-semibold leading-5 text-slate-900"
-                  >
-                    {{ row.name }}
-                  </h3>
-                  <div
-                    class="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500"
-                  >
-                    <template v-if="row.kind === 'file'">
-                      <span class="inline-flex items-center gap-1.5">
-                        <Download class="h-3 w-3" />
-                        {{ row.downloadCount }}
-                      </span>
-                      <span>{{ row.sizeText }}</span>
-                    </template>
-                    <template v-else>
-                      <span class="inline-flex items-center gap-1.5">
-                        <Download class="h-3 w-3" />
-                        {{ row.downloadCount }}
-                      </span>
-                      <span>{{ row.fileCount }} 个文件</span>
-                      <span>{{ row.sizeText }}</span>
-                    </template>
-                    <span
-                      class="inline-flex min-w-0 max-w-full items-center gap-1.5"
-                    >
-                      <Clock3 class="h-3 w-3" />
-                      <span class="truncate">{{ row.updatedAt }}</span>
-                    </span>
-                  </div>
-                  <p
-                    v-if="row.kind === 'file' && row.description"
-                    class="mt-0.5 line-clamp-1 text-xs leading-4.5 text-slate-500"
-                  >
-                    {{ row.description }}
-                  </p>
-                </div>
-              </div>
+            :file-icon-component="fileIconComponent"
+            :is-row-selected="isRowSelected"
+            :rows="sortedRows"
+            @download="downloadResource"
+            @feedback="
+              openFeedbackModal({
+                id: $event.id,
+                type: $event.kind,
+                name: $event.name,
+              })
+            "
+            @open="$event.kind === 'folder' ? openFolder($event.id) : openFile($event.id)"
+            @toggle-selection="toggleRowSelection"
+          />
+          <PublicDirectoryTable
+            v-else
+            :file-icon-component="fileIconComponent"
+            :is-row-selected="isRowSelected"
+            :rows="sortedRows"
+            @open="$event.kind === 'folder' ? openFolder($event.id) : openFile($event.id)"
+            @toggle-selection="toggleRowSelection"
+          />
 
-              <div
-                class="mt-auto flex items-center justify-between border-t border-slate-100 py-2"
-              >
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-                  @click.stop="
-                    openFeedbackModal({
-                      id: row.id,
-                      type: row.kind,
-                      name: row.name,
-                    })
-                  "
-                >
-                  <Flag class="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-                  @click.stop="downloadResource(row)"
-                >
-                  <Download class="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </article>
-          </div>
-          <div v-else class="px-4 py-5 sm:px-6">
-            <table class="data-table table-fixed">
-              <thead>
-                <tr>
-                  <th class="w-10"></th>
-                  <th class="text-left">名称</th>
-                  <th class="w-[120px] text-right">大小</th>
-                  <th class="hidden w-[220px] text-right xl:table-cell">
-                    修改时间
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="row in sortedRows"
-                  :key="`${row.kind}-${row.id}`"
-                  class="cursor-pointer transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                  @click="
-                    row.kind === 'folder'
-                      ? openFolder(row.id)
-                      : openFile(row.id)
-                  "
-                >
-                  <td @click.stop>
-                    <input
-                      :checked="isRowSelected(row)"
-                      type="checkbox"
-                      class="h-5 w-5 rounded-lg border-slate-300 text-slate-900 focus:ring-slate-300"
-                      @change="toggleRowSelection(row)"
-                    />
-                  </td>
-                  <td>
-                    <div
-                      v-if="row.kind === 'folder'"
-                      class="flex min-w-0 items-center gap-3 text-left"
-                    >
-                      <Folder class="h-5 w-5 shrink-0 text-blue-500" />
-                      <span
-                        class="truncate text-slate-900 dark:text-slate-100"
-                        :title="row.name"
-                        >{{ row.name }}</span
-                      >
-                    </div>
-                    <div
-                      v-else
-                      class="flex min-w-0 items-center gap-3 text-left"
-                    >
-                      <component
-                        :is="fileIconComponent(row.extension)"
-                        class="h-5 w-5 shrink-0 text-slate-500"
-                      />
-                      <span
-                        class="truncate text-slate-900 dark:text-slate-100"
-                        :title="row.name"
-                        >{{ row.name }}</span
-                      >
-                    </div>
-                  </td>
-                  <td
-                    class="w-[120px] whitespace-nowrap text-right tabular-nums"
-                  >
-                    {{ row.sizeText }}
-                  </td>
-                  <td
-                    class="hidden w-[220px] whitespace-nowrap text-right tabular-nums xl:table-cell"
-                  >
-                    {{ row.updatedAt }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div
-            v-if="currentFolderDetail"
-            class="border-t border-slate-200 px-4 py-5 sm:px-6"
-          >
-            <section>
-              <div
-                class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
-              >
-                <div class="min-w-0 flex-1 space-y-3">
-                  <p
-                    class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
-                  >
-                    Folder Info
-                  </p>
-                  <div
-                    class="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm text-slate-500"
-                  >
-                    <div
-                      v-for="item in currentFolderStats"
-                      :key="item.label"
-                      class="inline-flex items-center gap-2"
-                    >
-                      <span>{{ item.label }}</span>
-                      <span class="font-medium text-slate-900">{{
-                        item.value
-                      }}</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="flex flex-wrap items-start gap-3">
-                  <button
-                    v-if="canManageResourceDescriptions"
-                    type="button"
-                    class="btn-secondary"
-                    @click="openFolderDescriptionEditor"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    v-if="canManageResourceDescriptions"
-                    type="button"
-                    class="btn-secondary text-rose-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
-                    @click="openDeleteFolderDialog"
-                  >
-                    删除
-                  </button>
-                  <button
-                    type="button"
-                    class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-[transform,background-color,border-color,box-shadow,color] duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-[#fafafa] hover:text-slate-900 hover:shadow-sm hover:shadow-slate-950/[0.08]"
-                    aria-label="反馈文件夹"
-                    @click="
-                      openFeedbackModal({
-                        id: currentFolderDetail.id,
-                        type: 'folder',
-                        name: currentFolderDetail.name,
-                      })
-                    "
-                  >
-                    <Flag class="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition-[transform,background-color,border-color,box-shadow,color] duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-[#fafafa] hover:text-slate-900 hover:shadow-sm hover:shadow-slate-950/[0.08]"
-                    aria-label="下载文件夹"
-                    @click="downloadCurrentFolder"
-                  >
-                    <Download class="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div
-                class="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5"
-              >
-                <div
-                  v-if="currentFolderDescriptionHTML"
-                  class="markdown-content"
-                  v-html="currentFolderDescriptionHTML"
-                />
-                <p v-else class="text-sm text-slate-400">该文件夹暂无简介orz</p>
-              </div>
-
-              <div
-                v-if="
-                  (readmePreviewLoading ||
-                    readmePreviewError ||
-                    readmePreviewHTML) &&
-                  currentFolderDetail?.description
-                "
-                class="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5"
-              >
-                <div class="mb-3 flex items-center justify-between gap-2">
-                  <p
-                    class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
-                  >
-                    README Preview
-                  </p>
-                  <p class="text-xs text-slate-400">
-                    {{ readmePreviewName || "README.md" }}
-                  </p>
-                </div>
-                <p v-if="readmePreviewLoading" class="text-sm text-slate-500">
-                  README 加载中…
-                </p>
-                <p v-else-if="readmePreviewError" class="text-sm text-rose-600">
-                  {{ readmePreviewError }}
-                </p>
-                <div
-                  v-else
-                  class="markdown-content"
-                  v-html="readmePreviewHTML"
-                />
-              </div>
-            </section>
-          </div>
+          <PublicFolderInfoPanel
+            :can-manage-resource-descriptions="canManageResourceDescriptions"
+            :current-folder-description-html="currentFolderDescriptionHTML"
+            :current-folder-detail="currentFolderDetail"
+            :current-folder-stats="currentFolderStats"
+            :readme-preview-error="readmePreviewError"
+            :readme-preview-html="readmePreviewHTML"
+            :readme-preview-loading="readmePreviewLoading"
+            :readme-preview-name="readmePreviewName"
+            @delete-folder="openDeleteFolderDialog"
+            @download-folder="downloadCurrentFolder"
+            @edit-folder="openFolderDescriptionEditor"
+            @feedback-folder="
+              currentFolderDetail &&
+                openFeedbackModal({
+                  id: currentFolderDetail.id,
+                  type: 'folder',
+                  name: currentFolderDetail.name,
+                })
+            "
+          />
         </div>
       </section>
 
@@ -2147,734 +1173,90 @@ async function syncSessionReceiptCode() {
     </Transition>
   </Teleport>
 
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="sidebarDetailModal"
-        class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4"
-      >
-        <div class="modal-card panel w-full max-w-3xl p-6">
-          <div
-            class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"
-          >
-            <div>
-              <p
-                class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
-              >
-                {{ sidebarDetailModal.eyebrow }}
-              </p>
-              <h3
-                class="mt-2 text-2xl font-semibold tracking-tight text-slate-900"
-              >
-                {{ sidebarDetailModal.title }}
-              </h3>
-              <p class="mt-2 text-sm text-slate-500">
-                {{ sidebarDetailModal.description }}
-              </p>
-            </div>
-            <button
-              type="button"
-              class="btn-secondary"
-              @click="closeSidebarDetailModal"
-            >
-              关闭
-            </button>
-          </div>
-          <div class="mt-5 max-h-[70vh] overflow-y-auto pr-1">
-            <div
-              v-if="sidebarDetailModal.items.length === 0"
-              class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500"
-            >
-              暂无数据
-            </div>
-            <div v-else class="space-y-3">
-              <button
-                v-for="(item, index) in sidebarDetailModal.items"
-                :key="item.id"
-                type="button"
-                class="flex w-full items-center gap-4 rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
-                @click="
-                  openSidebarDetailItem({ id: item.id, label: item.label })
-                "
-              >
-                <span
-                  class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-semibold text-slate-600"
-                >
-                  {{ index + 1 }}
-                </span>
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-medium text-slate-900">
-                    {{ item.label }}
-                  </p>
-                </div>
-                <span
-                  v-if="item.meta"
-                  class="shrink-0 text-sm text-slate-500"
-                  >{{ item.meta }}</span
-                >
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <PublicHomeSidebarDetailModal
+    :modal="sidebarDetailModal"
+    @close="closeSidebarDetailModal"
+    @select-item="openSidebarDetailItem"
+  />
 
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="announcementListOpen"
-        class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4"
-      >
-        <div class="modal-card panel w-full max-w-3xl p-6">
-          <div
-            class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"
-          >
-            <div class="min-w-0">
-              <p
-                class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
-              >
-                Announcements
-              </p>
-              <h3
-                class="mt-2 text-2xl font-semibold tracking-tight text-slate-900"
-              >
-                全部公告
-              </h3>
-            </div>
-            <button
-              type="button"
-              class="btn-secondary"
-              @click="closeAnnouncementList"
-            >
-              关闭
-            </button>
-          </div>
-          <div class="mt-5 max-h-[70vh] space-y-3 overflow-auto pr-1">
-            <button
-              v-for="item in announcements"
-              :key="item.id"
-              type="button"
-              class="flex w-full items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left transition hover:border-blue-200 hover:bg-blue-50/40"
-              @click="
-                openAnnouncementDetail({ id: item.id, label: item.title })
-              "
-            >
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span
-                    v-if="item.is_pinned"
-                    class="rounded-md bg-[#dcecff] px-2 py-0.5 text-xs font-semibold text-[#4f8ff7]"
-                  >
-                    置顶
-                  </span>
-                  <p class="text-base font-semibold text-slate-900">
-                    {{ item.title }}
-                  </p>
-                </div>
-                <div class="mt-3 flex flex-wrap items-center gap-2">
-                  <div
-                    class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-semibold text-slate-600"
-                  >
-                    <img
-                      v-if="item.creator?.avatar_url"
-                      :src="item.creator.avatar_url"
-                      alt="发布人头像"
-                      class="h-full w-full object-cover"
-                    />
-                    <span v-else>{{ announcementAuthorInitial(item) }}</span>
-                  </div>
-                  <span class="text-sm font-medium text-slate-700">{{
-                    announcementAuthorName(item)
-                  }}</span>
-                  <span
-                    v-if="announcementAuthorIsSuperAdmin(item)"
-                    class="rounded-full bg-[#fff1e4] px-2.5 py-1 text-xs font-semibold text-[#d07a2d]"
-                  >
-                    超级管理员
-                  </span>
-                </div>
-                <p class="mt-2 line-clamp-2 text-sm text-slate-500">
-                  {{ item.content }}
-                </p>
-              </div>
-              <span class="shrink-0 text-sm text-slate-400">
-                {{ formatDateTime(item.published_at || item.updated_at) }}
-              </span>
-            </button>
-            <p
-              v-if="announcements.length === 0"
-              class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500"
-            >
-              暂无公告
-            </p>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <PublicAnnouncementListModal
+    :announcements="announcements"
+    :open="announcementListOpen"
+    @close="closeAnnouncementList"
+    @open-detail="openAnnouncementDetail"
+  />
 
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="announcementDetail"
-        class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4"
-      >
-        <div class="modal-card panel w-full max-w-2xl p-6">
-          <div
-            class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"
-          >
-            <div class="min-w-0">
-              <p
-                class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600"
-              >
-                Announcement
-              </p>
-              <h3
-                class="mt-2 text-2xl font-semibold tracking-tight text-slate-900"
-              >
-                {{ announcementDetail.title }}
-              </h3>
-              <div
-                class="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-500"
-              >
-                <div class="flex items-center gap-2">
-                  <div
-                    class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-semibold text-slate-600"
-                  >
-                    <img
-                      v-if="announcementDetail.creator?.avatar_url"
-                      :src="announcementDetail.creator.avatar_url"
-                      alt="发布人头像"
-                      class="h-full w-full object-cover"
-                    />
-                    <span v-else>{{
-                      announcementAuthorInitial(announcementDetail)
-                    }}</span>
-                  </div>
-                  <span class="font-medium text-slate-700">{{
-                    announcementAuthorName(announcementDetail)
-                  }}</span>
-                </div>
-                <span
-                  v-if="announcementAuthorIsSuperAdmin(announcementDetail)"
-                  class="rounded-full bg-[#fff1e4] px-2.5 py-1 text-xs font-semibold text-[#d07a2d]"
-                >
-                  超级管理员
-                </span>
-                <span>{{
-                  formatDateTime(
-                    announcementDetail.published_at ||
-                      announcementDetail.updated_at,
-                  )
-                }}</span>
-              </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <button
-                type="button"
-                class="btn-secondary"
-                @click="returnToAnnouncementList"
-              >
-                返回
-              </button>
-              <button
-                type="button"
-                class="btn-secondary"
-                @click="closeAnnouncementDetail"
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-          <div
-            class="mt-5 rounded-3xl border border-slate-200 bg-white px-5 py-5"
-          >
-            <div
-              class="markdown-content"
-              v-html="renderSimpleMarkdown(announcementDetail.content)"
-            />
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <PublicAnnouncementDetailModal
+    :announcement-detail="announcementDetail"
+    @back="returnToAnnouncementList"
+    @close="closeAnnouncementDetail"
+  />
 
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="deleteResourceTarget"
-        class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/30 px-4"
-      >
-        <div
-          class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
-        >
-          <div>
-            <h3 class="text-lg font-semibold text-slate-900">确认删除文件夹</h3>
-            <p class="mt-2 text-sm leading-6 text-slate-500">
-              删除后会清除该文件夹及其子目录、文件，无法恢复。确认删除
-              <span class="font-medium text-slate-900">{{
-                deleteResourceTarget.name
-              }}</span>
-              吗？
-            </p>
-          </div>
-          <div class="mt-6 space-y-4">
-            <input
-              v-model="deleteResourcePassword"
-              type="password"
-              class="field"
-              placeholder="输入当前管理员密码确认删除"
-            />
-            <p
-              v-if="deleteResourceError"
-              class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
-            >
-              {{ deleteResourceError }}
-            </p>
-            <div class="flex justify-end gap-3">
-              <button
-                type="button"
-                class="btn-secondary"
-                @click="closeDeleteResourceDialog"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                class="inline-flex h-11 items-center rounded-xl bg-rose-600 px-5 text-sm font-medium text-white transition hover:bg-rose-700"
-                :disabled="deleteResourceSubmitting"
-                @click="confirmDeleteResource"
-              >
-                {{ deleteResourceSubmitting ? "删除中…" : "确认删除" }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <PublicDeleteResourceDialog
+    :delete-error="folderAdminState.deleteError"
+    :delete-password="folderAdminState.deletePassword"
+    :delete-submitting="folderAdminState.deleteSubmitting"
+    :open="Boolean(folderAdminState.deleteTarget)"
+    :resource-name="folderAdminState.deleteTarget?.name || ''"
+    @close="closeDeleteResourceDialog"
+    @confirm="confirmDeleteResource"
+    @update:delete-password="folderAdminState.deletePassword = $event"
+  />
 
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="uploadSuccessModalOpen"
-        class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm"
-      >
-        <div class="flex min-h-screen items-center justify-center px-4 py-6">
-          <div
-            class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
-          >
-            <div class="space-y-3">
-              <h3 class="text-lg font-semibold text-slate-900">提交成功</h3>
-              <p class="text-sm leading-6 text-slate-600">
-                {{ uploadMessage }}
-              </p>
-            </div>
-            <div class="mt-6 flex justify-end">
-              <button
-                type="button"
-                class="btn-primary"
-                @click="closeUploadSuccessModal"
-              >
-                知道了
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <PublicUploadDialog
+    :breadcrumbs="breadcrumbs"
+    :current-receipt-code="currentReceiptCode"
+    :description="uploadState.form.description"
+    :entries="uploadState.form.entries"
+    :error="uploadState.error"
+    :message="uploadState.message"
+    :open="uploadState.modalOpen"
+    :success-message="uploadState.message"
+    :success-open="uploadState.successOpen"
+    :upload-collecting="uploadState.collecting"
+    :upload-drop-active="uploadState.dropActive"
+    :upload-submitting="uploadState.submitting"
+    @change-file="onUploadFileChange"
+    @clear-entries="clearUploadEntries"
+    @close="closeUploadModal"
+    @close-success="closeUploadSuccessModal"
+    @dragenter="onUploadDragEnter"
+    @dragleave="onUploadDragLeave"
+    @drop="onUploadDrop"
+    @submit="submitUpload"
+    @update:description="uploadState.form.description = $event"
+    @update:upload-drop-active="uploadState.dropActive = $event"
+  />
 
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="uploadModalOpen"
-        class="fixed inset-0 z-[120] overflow-y-auto bg-slate-950/40 backdrop-blur-sm"
-      >
-        <div class="flex min-h-screen items-start justify-center px-4 py-6">
-          <div class="modal-card panel w-full max-w-2xl overflow-hidden">
-            <div class="max-h-[calc(100vh-3rem)] overflow-y-auto p-6">
-              <div
-                class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4"
-              >
-                <div>
-                  <h3 class="text-lg font-semibold text-slate-900">上传资料</h3>
-                  <p class="mt-1 text-sm text-slate-500">
-                    当前目录下直接上传资料，提交后会进入审核池。
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  class="btn-secondary"
-                  @click="closeUploadModal"
-                >
-                  关闭
-                </button>
-              </div>
+  <PublicHomeFeedbackDialog
+    :current-receipt-code="currentReceiptCode"
+    :feedback-description="feedbackState.description"
+    :feedback-error="feedbackState.error"
+    :feedback-message="feedbackState.message"
+    :feedback-submit-disabled="feedbackSubmitDisabled"
+    :feedback-submitting="feedbackState.submitting"
+    :open="feedbackState.modalOpen"
+    :success-open="feedbackState.successOpen"
+    :target-name="feedbackState.target?.name || ''"
+    @close="closeFeedbackModal"
+    @close-success="closeFeedbackSuccessModal"
+    @submit="submitFeedback"
+    @update:feedback-description="feedbackState.description = $event"
+  />
 
-              <form class="mt-5 space-y-4" @submit.prevent="submitUpload">
-                <div class="panel-muted px-4 py-3 text-sm text-slate-600">
-                  <p class="text-xs text-slate-400">目标目录</p>
-                  <p class="mt-1 font-medium text-slate-900">
-                    {{
-                      breadcrumbs.length
-                        ? breadcrumbs.map((item) => item.name).join(" / ")
-                        : "主页根目录"
-                    }}
-                  </p>
-                </div>
-
-                <label class="space-y-2">
-                  <span class="text-sm font-medium text-slate-700">回执码</span>
-                  <div class="rounded-xl bg-slate-50 px-4 py-3">
-                    <p
-                      class="text-sm font-semibold tracking-[0.12em] text-slate-900"
-                    >
-                      {{ currentReceiptCode || "当前会话回执码暂未同步" }}
-                    </p>
-                  </div>
-                </label>
-
-                <label class="space-y-2">
-                  <span class="text-sm font-medium text-slate-700"
-                    >资料简介</span
-                  >
-                  <textarea
-                    v-model="uploadForm.description"
-                    rows="4"
-                    class="field-area"
-                    placeholder="可选，简要介绍资料内容和适用场景，支持简单 Markdown 语法"
-                  />
-                </label>
-
-                <div class="space-y-2">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm font-medium text-slate-700"
-                      >上传内容</span
-                    >
-                  </div>
-
-                  <input
-                    ref="uploadFileInput"
-                    type="file"
-                    class="hidden"
-                    @change="onUploadFileChange"
-                  />
-
-                  <div
-                    class="rounded-[28px] border-2 border-dashed px-6 py-10 text-center transition"
-                    :class="
-                      uploadDropActive
-                        ? 'border-blue-400 bg-blue-50/60'
-                        : 'border-slate-200 bg-slate-50/60'
-                    "
-                    @dragenter.prevent="onUploadDragEnter"
-                    @dragover.prevent="uploadDropActive = true"
-                    @dragleave="onUploadDragLeave"
-                    @drop="onUploadDrop"
-                  >
-                    <div
-                      class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white text-slate-300 shadow-sm"
-                    >
-                      <Upload class="h-8 w-8" />
-                    </div>
-                    <p class="mt-5 text-lg text-slate-600">
-                      拖拽文件或整个文件夹到这里，或
-                      <button
-                        type="button"
-                        class="font-semibold text-blue-600 transition hover:text-blue-700"
-                        @click="triggerUploadFileSelect"
-                      >
-                        点击选择
-                      </button>
-                    </p>
-                    <p class="mt-2 text-sm text-slate-400">
-                      拖拽支持多文件和文件夹。
-                    </p>
-                    <p
-                      v-if="uploadCollecting"
-                      class="mt-4 text-sm text-slate-500"
-                    >
-                      正在解析拖拽内容…
-                    </p>
-                  </div>
-
-                  <div class="panel-muted px-4 py-3 text-sm text-slate-600">
-                    <div
-                      class="flex flex-wrap items-center justify-between gap-3"
-                    >
-                      <p>
-                        已选择
-                        <span class="font-semibold text-slate-900">{{
-                          uploadForm.entries.length
-                        }}</span>
-                        个文件
-                      </p>
-                      <button
-                        v-if="uploadForm.entries.length > 0"
-                        type="button"
-                        class="text-sm text-slate-500 transition hover:text-slate-900"
-                        @click="clearUploadEntries"
-                      >
-                        清空列表
-                      </button>
-                    </div>
-                    <div
-                      v-if="uploadForm.entries.length > 0"
-                      class="mt-3 max-h-48 space-y-2 overflow-auto pr-1"
-                    >
-                      <div
-                        v-for="entry in uploadForm.entries"
-                        :key="entry.relativePath"
-                        class="rounded-xl bg-white px-3 py-2 text-sm text-slate-700"
-                      >
-                        {{ entry.relativePath }}
-                      </div>
-                    </div>
-                    <p v-else class="mt-2 text-sm text-slate-400">
-                      当前还没有选择任何文件。
-                    </p>
-                  </div>
-                </div>
-
-                <p
-                  v-if="uploadMessage"
-                  class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-                >
-                  {{ uploadMessage }}
-                </p>
-                <p
-                  v-if="uploadError"
-                  class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
-                >
-                  {{ uploadError }}
-                </p>
-
-                <div class="flex justify-end gap-3">
-                  <button
-                    type="button"
-                    class="btn-secondary"
-                    @click="closeUploadModal"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    class="btn-primary"
-                    :disabled="
-                      uploadSubmitting ||
-                      uploadCollecting ||
-                      uploadForm.entries.length === 0
-                    "
-                  >
-                    {{ uploadSubmitting ? "提交中…" : "提交上传" }}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="feedbackSuccessModalOpen"
-        class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm"
-      >
-        <div class="flex min-h-screen items-center justify-center px-4 py-6">
-          <div
-            class="modal-card w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
-          >
-            <div class="space-y-3">
-              <h3 class="text-lg font-semibold text-slate-900">提交成功</h3>
-              <p class="text-sm leading-6 text-slate-600">
-                {{ feedbackMessage }}
-              </p>
-            </div>
-            <div class="mt-6 flex justify-end">
-              <button
-                type="button"
-                class="btn-primary"
-                @click="closeFeedbackSuccessModal"
-              >
-                知道了
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="feedbackModalOpen"
-        class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm"
-      >
-        <div class="flex min-h-screen items-center justify-center px-4 py-6">
-          <div class="modal-card panel w-full max-w-2xl overflow-hidden p-6">
-            <div
-              class="flex items-start justify-between gap-4 border-b border-slate-200 pb-5"
-            >
-              <div class="space-y-1">
-                <h3 class="text-lg font-semibold text-slate-900">反馈中心</h3>
-                <p class="text-sm text-slate-500">
-                  填写问题说明后提交，我们会尽快处理。
-                </p>
-              </div>
-              <button
-                type="button"
-                class="btn-secondary"
-                @click="closeFeedbackModal"
-              >
-                关闭
-              </button>
-            </div>
-
-            <div class="mt-6 space-y-5">
-              <div
-                v-if="feedbackTarget"
-                class="rounded-2xl border border-slate-200 bg-[#fafafafa] px-4 py-3"
-              >
-                <p
-                  class="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400"
-                >
-                  当前对象
-                </p>
-                <p class="mt-1 text-sm leading-6 text-slate-700">
-                  {{ feedbackTarget.name }}
-                </p>
-              </div>
-
-              <label class="space-y-2">
-                <span class="text-sm font-medium text-slate-700">回执码</span>
-                <div
-                  class="rounded-2xl border border-slate-200 bg-[#fafafafa] px-4 py-3"
-                >
-                  <p
-                    class="text-sm font-semibold tracking-[0.12em] text-slate-900"
-                  >
-                    {{ currentReceiptCode || "当前会话回执码暂未同步" }}
-                  </p>
-                </div>
-              </label>
-
-              <label class="space-y-2">
-                <span class="text-sm font-medium text-slate-700">问题说明</span>
-                <textarea
-                  v-model="feedbackDescription"
-                  rows="5"
-                  class="field-area"
-                  placeholder="信息不当/侵权/内容错误……描述您遇到的问题，我们会尽快改进！"
-                />
-              </label>
-
-              <p
-                v-if="feedbackMessage"
-                class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-              >
-                {{ feedbackMessage }}
-              </p>
-              <p
-                v-if="feedbackError"
-                class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
-              >
-                {{ feedbackError }}
-              </p>
-
-              <div class="flex justify-end gap-3 pt-1">
-                <button
-                  type="button"
-                  class="btn-secondary"
-                  @click="closeFeedbackModal"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  class="btn-primary"
-                  :disabled="feedbackSubmitDisabled"
-                  @click="submitFeedback"
-                >
-                  {{ feedbackSubmitting ? "提交中…" : "提交反馈" }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-
-  <Teleport to="body">
-    <Transition name="modal-shell">
-      <div
-        v-if="folderDescriptionEditorOpen"
-        class="fixed inset-0 z-[120] bg-slate-950/40 backdrop-blur-sm"
-      >
-        <div class="flex min-h-screen items-center justify-center px-4 py-6">
-          <div class="modal-card panel w-full max-w-3xl overflow-hidden p-6">
-            <div class="border-b border-slate-200 pb-4">
-              <div>
-                <h3 class="text-lg font-semibold text-slate-900">
-                  编辑文件夹信息
-                </h3>
-              </div>
-            </div>
-
-            <div class="mt-5 space-y-4">
-              <label class="space-y-2">
-                <span class="text-sm font-medium text-slate-700">文件夹名</span>
-                <input
-                  v-model="folderNameDraft"
-                  class="field"
-                  :disabled="!canManageResourceDescriptions"
-                  placeholder="输入文件夹名"
-                />
-              </label>
-
-              <textarea
-                v-model="folderDescriptionDraft"
-                rows="10"
-                class="field-area"
-                placeholder="输入文件夹简介，简介支持简单 Markdown。"
-              />
-
-              <p
-                v-if="folderDescriptionError"
-                class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
-              >
-                {{ folderDescriptionError }}
-              </p>
-
-              <div class="flex justify-end gap-3">
-                <button
-                  type="button"
-                  class="btn-secondary"
-                  @click="closeFolderDescriptionEditor"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  class="btn-primary"
-                  :disabled="folderDescriptionSaving || !folderEditorDirty"
-                  @click="saveFolderDescription"
-                >
-                  {{ folderDescriptionSaving ? "保存中…" : "保存更改" }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <PublicFolderDescriptionEditor
+    :can-manage-resource-descriptions="canManageResourceDescriptions"
+    :description="folderAdminState.descriptionDraft"
+    :error="folderAdminState.error"
+    :folder-name="folderAdminState.nameDraft"
+    :open="folderAdminState.editorOpen"
+    :saving="folderAdminState.saving"
+    :submit-disabled="!folderEditorDirty"
+    @close="closeFolderDescriptionEditor"
+    @save="saveFolderDescription"
+    @update:description="folderAdminState.descriptionDraft = $event"
+    @update:folder-name="folderAdminState.nameDraft = $event"
+  />
 </template>
 
 <style scoped>
