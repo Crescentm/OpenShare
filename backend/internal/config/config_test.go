@@ -110,6 +110,75 @@ func TestLoadRejectsInvalidManagedSyncOverride(t *testing.T) {
 	}
 }
 
+func TestLoadPreservesSearchEngineDefaultsForPartialOverrides(t *testing.T) {
+	defaultPath, localPath := writeTestConfigFiles(
+		t,
+		Default(),
+		`{"search_engine":{"enabled":true,"api_key":"test-meili-key"}}`,
+	)
+
+	cfg, err := Load(defaultPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.SearchEngine.Enabled {
+		t.Fatal("SearchEngine.Enabled = false, want true")
+	}
+	if cfg.SearchEngine.APIKey != "test-meili-key" {
+		t.Fatalf("SearchEngine.APIKey = %q, want test-meili-key", cfg.SearchEngine.APIKey)
+	}
+	if cfg.SearchEngine.Host != Default().SearchEngine.Host {
+		t.Fatalf("SearchEngine.Host = %q, want %q", cfg.SearchEngine.Host, Default().SearchEngine.Host)
+	}
+	if cfg.SearchEngine.IndexName != Default().SearchEngine.IndexName {
+		t.Fatalf("SearchEngine.IndexName = %q, want %q", cfg.SearchEngine.IndexName, Default().SearchEngine.IndexName)
+	}
+}
+
+func TestLoadRejectsEnabledSearchEngineWithoutAPIKey(t *testing.T) {
+	defaultPath, localPath := writeTestConfigFiles(
+		t,
+		Default(),
+		`{"search_engine":{"enabled":true}}`,
+	)
+
+	_, err := Load(defaultPath, localPath)
+	if err == nil {
+		t.Fatal("Load() error = nil, want validation error")
+	}
+	if !strings.Contains(err.Error(), "search_engine.api_key must not be empty") {
+		t.Fatalf("Load() error = %v, want search_engine.api_key validation error", err)
+	}
+}
+
+func TestLoadAppliesSearchEngineEnvOverrides(t *testing.T) {
+	t.Setenv("OPENSHARE_SEARCH_ENGINE_ENABLED", "true")
+	t.Setenv("OPENSHARE_SEARCH_ENGINE_HOST", "http://meilisearch:7700")
+	t.Setenv("OPENSHARE_SEARCH_ENGINE_API_KEY", "env-meili-key")
+	t.Setenv("OPENSHARE_SEARCH_ENGINE_INDEX_NAME", "env_resources")
+
+	defaultPath, localPath := writeTestConfigFiles(t, Default(), `{}`)
+
+	cfg, err := Load(defaultPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.SearchEngine.Enabled {
+		t.Fatal("SearchEngine.Enabled = false, want true")
+	}
+	if cfg.SearchEngine.Host != "http://meilisearch:7700" {
+		t.Fatalf("SearchEngine.Host = %q, want http://meilisearch:7700", cfg.SearchEngine.Host)
+	}
+	if cfg.SearchEngine.APIKey != "env-meili-key" {
+		t.Fatalf("SearchEngine.APIKey = %q, want env-meili-key", cfg.SearchEngine.APIKey)
+	}
+	if cfg.SearchEngine.IndexName != "env_resources" {
+		t.Fatalf("SearchEngine.IndexName = %q, want env_resources", cfg.SearchEngine.IndexName)
+	}
+}
+
 func writeTestConfigFiles(t *testing.T, cfg Config, localJSON string) (string, string) {
 	t.Helper()
 

@@ -13,14 +13,15 @@ import (
 const defaultStorageRoot = "/data/openshare"
 
 type Config struct {
-	Server      ServerConfig      `json:"server"`
-	Database    DatabaseConfig    `json:"database"`
-	Storage     StorageConfig     `json:"storage"`
-	Upload      UploadConfig      `json:"upload"`
-	Download    DownloadConfig    `json:"download"`
-	Session     SessionConfig     `json:"session"`
-	RateLimit   RateLimitConfig   `json:"rate_limit"`
-	ManagedSync ManagedSyncConfig `json:"managed_sync"`
+	Server       ServerConfig       `json:"server"`
+	Database     DatabaseConfig     `json:"database"`
+	Storage      StorageConfig      `json:"storage"`
+	Upload       UploadConfig       `json:"upload"`
+	Download     DownloadConfig     `json:"download"`
+	Session      SessionConfig      `json:"session"`
+	RateLimit    RateLimitConfig    `json:"rate_limit"`
+	ManagedSync  ManagedSyncConfig  `json:"managed_sync"`
+	SearchEngine SearchEngineConfig `json:"search_engine"`
 }
 
 type ServerConfig struct {
@@ -118,6 +119,13 @@ type ManagedSyncConfig struct {
 	AuditIntervalSeconds   int `json:"audit_interval_seconds"`
 }
 
+type SearchEngineConfig struct {
+	Enabled   bool   `json:"enabled"`
+	Host      string `json:"host"`
+	APIKey    string `json:"api_key"`
+	IndexName string `json:"index_name"`
+}
+
 func Default() Config {
 	return Config{
 		Server: ServerConfig{
@@ -163,6 +171,11 @@ func Default() Config {
 		ManagedSync: ManagedSyncConfig{
 			RefreshIntervalSeconds: 60,
 			AuditIntervalSeconds:   21600,
+		},
+		SearchEngine: SearchEngineConfig{
+			Enabled:   false,
+			Host:      "http://127.0.0.1:7700",
+			IndexName: "openshare_resources",
 		},
 	}
 }
@@ -246,6 +259,10 @@ func applyEnv(cfg *Config) error {
 	overrideInt("OPENSHARE_RATE_LIMIT_SEARCH_WINDOW_SECONDS", &cfg.RateLimit.Search.Window, &errs)
 	overrideInt("OPENSHARE_MANAGED_SYNC_REFRESH_INTERVAL_SECONDS", &cfg.ManagedSync.RefreshIntervalSeconds, &errs)
 	overrideInt("OPENSHARE_MANAGED_SYNC_AUDIT_INTERVAL_SECONDS", &cfg.ManagedSync.AuditIntervalSeconds, &errs)
+	overrideBool("OPENSHARE_SEARCH_ENGINE_ENABLED", &cfg.SearchEngine.Enabled, &errs)
+	overrideString("OPENSHARE_SEARCH_ENGINE_HOST", &cfg.SearchEngine.Host)
+	overrideString("OPENSHARE_SEARCH_ENGINE_API_KEY", &cfg.SearchEngine.APIKey)
+	overrideString("OPENSHARE_SEARCH_ENGINE_INDEX_NAME", &cfg.SearchEngine.IndexName)
 
 	return errors.Join(errs...)
 }
@@ -329,12 +346,39 @@ func (c Config) Validate() error {
 	if c.ManagedSync.AuditIntervalSeconds <= 0 {
 		return errors.New("managed_sync.audit_interval_seconds must be greater than 0")
 	}
+	if c.SearchEngine.Enabled {
+		if c.SearchEngine.Host == "" {
+			return errors.New("search_engine.host must not be empty when search_engine.enabled is true")
+		}
+		if c.SearchEngine.APIKey == "" {
+			return errors.New("search_engine.api_key must not be empty when search_engine.enabled is true")
+		}
+	}
+	if c.SearchEngine.IndexName == "" {
+		return errors.New("search_engine.index_name must not be empty")
+	}
 
 	return nil
 }
 
 func (c ServerConfig) Address() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
+}
+
+func (c SearchEngineConfig) ValidateForMeilisearch() error {
+	if !c.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(c.Host) == "" {
+		return errors.New("search_engine.host must not be empty when search_engine.enabled is true")
+	}
+	if strings.TrimSpace(c.APIKey) == "" {
+		return errors.New("search_engine.api_key must not be empty when search_engine.enabled is true")
+	}
+	if strings.TrimSpace(c.IndexName) == "" {
+		return errors.New("search_engine.index_name must not be empty")
+	}
+	return nil
 }
 
 func (c *Config) normalize() {
@@ -345,6 +389,10 @@ func (c *Config) normalize() {
 	c.Storage.Root = strings.TrimSpace(c.Storage.Root)
 	c.Storage.Staging = strings.TrimSpace(c.Storage.Staging)
 	c.Storage.Trash = strings.TrimSpace(c.Storage.Trash)
+
+	c.SearchEngine.Host = strings.TrimSpace(c.SearchEngine.Host)
+	c.SearchEngine.APIKey = strings.TrimSpace(c.SearchEngine.APIKey)
+	c.SearchEngine.IndexName = strings.TrimSpace(c.SearchEngine.IndexName)
 }
 
 func validateRateLimit(prefix string, rule RateLimitRule) error {

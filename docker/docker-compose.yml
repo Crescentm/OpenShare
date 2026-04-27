@@ -10,6 +10,10 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       OPENSHARE_SESSION_SECRET: ${OPENSHARE_SESSION_SECRET}
+      OPENSHARE_SEARCH_ENGINE_ENABLED: ${OPENSHARE_SEARCH_ENGINE_ENABLED:-false}
+      OPENSHARE_SEARCH_ENGINE_HOST: http://meilisearch:7700
+      OPENSHARE_SEARCH_ENGINE_API_KEY: ${MEILI_MASTER_KEY:-openshare-development-master-key-change-me}
+      OPENSHARE_SEARCH_ENGINE_INDEX_NAME: ${OPENSHARE_SEARCH_ENGINE_INDEX_NAME:-openshare_resources}
       GIN_MODE: release
     volumes:
       - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
@@ -21,7 +25,20 @@ services:
     command: ["./openshare-worker"]
     environment:
       OPENSHARE_SESSION_SECRET: ${OPENSHARE_SESSION_SECRET}
+      OPENSHARE_SEARCH_ENGINE_ENABLED: ${OPENSHARE_SEARCH_ENGINE_ENABLED:-false}
+      OPENSHARE_SEARCH_ENGINE_HOST: http://meilisearch:7700
+      OPENSHARE_SEARCH_ENGINE_API_KEY: ${MEILI_MASTER_KEY:-openshare-development-master-key-change-me}
+      OPENSHARE_SEARCH_ENGINE_INDEX_NAME: ${OPENSHARE_SEARCH_ENGINE_INDEX_NAME:-openshare_resources}
       GIN_MODE: release
     volumes:
       - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
       - ${OPENSHARE_CONFIG:-./config/config.local.json}:/app/config/config.local.json
+  meilisearch:
+    image: getmeili/meilisearch:v1
+    container_name: openshare-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-openshare-development-master-key-change-me}
+    volumes:
+      - ${MEILI_DATA_PATH:-./meili_data}:/meili_data
