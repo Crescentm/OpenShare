@@ -20,24 +20,6 @@ type UploadPolicy struct {
 	MaxUploadTotalBytes int64 `json:"max_upload_total_bytes"`
 }
 
-func (p *UploadPolicy) UnmarshalJSON(data []byte) error {
-	type uploadPolicyAlias struct {
-		MaxUploadTotalBytes int64 `json:"max_upload_total_bytes"`
-		MaxFileSizeBytes    int64 `json:"max_file_size_bytes"`
-	}
-
-	var raw uploadPolicyAlias
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	p.MaxUploadTotalBytes = raw.MaxUploadTotalBytes
-	if p.MaxUploadTotalBytes <= 0 {
-		p.MaxUploadTotalBytes = raw.MaxFileSizeBytes
-	}
-	return nil
-}
-
 type DownloadPolicy struct {
 	MaxDownloadTotalBytes int64 `json:"max_download_total_bytes"`
 }

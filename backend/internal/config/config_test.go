@@ -31,34 +31,11 @@ func TestLoadPreservesUploadDefaultsForPartialOverrides(t *testing.T) {
 	}
 }
 
-func TestLoadSupportsLegacyUploadMaxFileSizeBytes(t *testing.T) {
+func TestLoadRejectsInvalidUploadOverride(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"upload":{"max_file_size_bytes":987654321}}`,
-	)
-
-	cfg, err := Load(defaultPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-
-	if cfg.Upload.MaxUploadTotalBytes != 987654321 {
-		t.Fatalf("MaxUploadTotalBytes = %d, want %d", cfg.Upload.MaxUploadTotalBytes, int64(987654321))
-	}
-	if cfg.Upload.MaxDescriptionLength != Default().Upload.MaxDescriptionLength {
-		t.Fatalf("MaxDescriptionLength = %d, want %d", cfg.Upload.MaxDescriptionLength, Default().Upload.MaxDescriptionLength)
-	}
-	if cfg.Upload.ReceiptCodeLength != Default().Upload.ReceiptCodeLength {
-		t.Fatalf("ReceiptCodeLength = %d, want %d", cfg.Upload.ReceiptCodeLength, Default().Upload.ReceiptCodeLength)
-	}
-}
-
-func TestLoadRejectsExplicitInvalidUploadOverrideEvenWithLegacyFallback(t *testing.T) {
-	defaultPath, localPath := writeTestConfigFiles(
-		t,
-		Default(),
-		`{"upload":{"max_upload_total_bytes":0,"max_file_size_bytes":1024}}`,
+		`{"upload":{"max_upload_total_bytes":0}}`,
 	)
 
 	_, err := Load(defaultPath, localPath)
@@ -134,6 +111,13 @@ func TestLoadPreservesSearchEngineDefaultsForPartialOverrides(t *testing.T) {
 	if cfg.SearchEngine.IndexName != Default().SearchEngine.IndexName {
 		t.Fatalf("SearchEngine.IndexName = %q, want %q", cfg.SearchEngine.IndexName, Default().SearchEngine.IndexName)
 	}
+	if cfg.SearchEngine.SemanticProfilePath != Default().SearchEngine.SemanticProfilePath {
+		t.Fatalf(
+			"SearchEngine.SemanticProfilePath = %q, want %q",
+			cfg.SearchEngine.SemanticProfilePath,
+			Default().SearchEngine.SemanticProfilePath,
+		)
+	}
 }
 
 func TestLoadRejectsEnabledSearchEngineWithoutAPIKey(t *testing.T) {
@@ -157,6 +141,7 @@ func TestLoadAppliesSearchEngineEnvOverrides(t *testing.T) {
 	t.Setenv("OPENSHARE_SEARCH_ENGINE_HOST", "http://meilisearch:7700")
 	t.Setenv("OPENSHARE_SEARCH_ENGINE_API_KEY", "env-meili-key")
 	t.Setenv("OPENSHARE_SEARCH_ENGINE_INDEX_NAME", "env_resources")
+	t.Setenv("OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH", "config/search_semantics.custom.json")
 
 	defaultPath, localPath := writeTestConfigFiles(t, Default(), `{}`)
 
@@ -176,6 +161,12 @@ func TestLoadAppliesSearchEngineEnvOverrides(t *testing.T) {
 	}
 	if cfg.SearchEngine.IndexName != "env_resources" {
 		t.Fatalf("SearchEngine.IndexName = %q, want env_resources", cfg.SearchEngine.IndexName)
+	}
+	if cfg.SearchEngine.SemanticProfilePath != "config/search_semantics.custom.json" {
+		t.Fatalf(
+			"SearchEngine.SemanticProfilePath = %q, want config/search_semantics.custom.json",
+			cfg.SearchEngine.SemanticProfilePath,
+		)
 	}
 }
 

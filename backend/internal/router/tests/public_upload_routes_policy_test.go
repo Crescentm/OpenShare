@@ -127,51 +127,6 @@ func TestPublicUploadDirectPublishesForSubmissionModerationAdmin(t *testing.T) {
 	}
 }
 
-func TestPublicUploadIgnoresLegacyDirectPublishPolicy(t *testing.T) {
-	db, engine := newPublicUploadTestEnv(t)
-	folderID := createPublicTestFolder(t, db, "直发目录")
-
-	setLegacyDirectPublishPolicy(t, db)
-
-	body, contentType := buildUploadRequestBody(t, uploadRequestBody{
-		folderID:    folderID,
-		fileName:    "direct.pdf",
-		fileContent: []byte("%PDF-1.4 direct document"),
-	})
-
-	request := httptest.NewRequest(http.MethodPost, "/api/public/submissions", body)
-	request.Header.Set("Content-Type", contentType)
-	recorder := httptest.NewRecorder()
-
-	engine.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("expected status 201, got %d, body=%s", recorder.Code, recorder.Body.String())
-	}
-
-	var response struct {
-		ReceiptCode string `json:"receipt_code"`
-		Status      string `json:"status"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode response failed: %v", err)
-	}
-	if response.Status != string(model.SubmissionStatusPending) {
-		t.Fatalf("expected pending status, got %q", response.Status)
-	}
-
-	var submission model.Submission
-	if err := db.Where("receipt_code = ?", response.ReceiptCode).Take(&submission).Error; err != nil {
-		t.Fatalf("query submission failed: %v", err)
-	}
-	if submission.Status != model.SubmissionStatusPending {
-		t.Fatalf("expected pending submission, got %q", submission.Status)
-	}
-	if submission.FileID != nil {
-		t.Fatalf("expected legacy direct publish policy to be ignored, got file_id=%q", *submission.FileID)
-	}
-}
-
 func TestPublicUploadIgnoresCustomReceiptCodeField(t *testing.T) {
 	db, engine := newPublicUploadTestEnv(t)
 	folderID := createPublicTestFolder(t, db, "默认目录")

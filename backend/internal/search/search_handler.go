@@ -51,6 +51,8 @@ func (h *SearchHandler) Search(ctx *gin.Context) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "search query is too long"})
 		case errors.Is(err, ErrSearchInvalidInput):
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid search parameters"})
+		case errors.Is(err, ErrSearchIndexDisabled):
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "search index is disabled"})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "search failed"})
 		}

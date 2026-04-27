@@ -65,7 +65,8 @@ func buildRouteServices(
 	receiptCodeService := receipts.NewReceiptCodeService(repos.receiptCode, cfg.Upload.ReceiptCodeLength)
 	systemSettingService := settings.NewSystemSettingService(repos.systemSetting, cfg)
 	adminAuthService := admin.NewAdminAuthService(db, repos.admin, sessionManager)
-	searchService := search.NewSearchService(repos.search)
+	searchService := search.NewSearchService(repos.search, cfg.SearchEngine)
+	searchIndexService := search.NewSearchIndexService(repos.search, cfg.SearchEngine)
 
 	return &routeServices{
 		adminAuth:          adminAuthService,
@@ -83,6 +84,7 @@ func buildRouteServices(
 		publicUpload:       uploads.NewPublicUploadService(cfg.Upload, repos.upload, receiptCodeService, storageService, systemSettingService),
 		resourceManagement: resources.NewResourceManagementService(repos.resourceManagement, storageService),
 		search:             searchService,
+		searchIndex:        searchIndexService,
 		siteVisit:          visits.NewSiteVisitService(repos.siteVisit),
 		systemSetting:      systemSettingService,
 	}
@@ -110,6 +112,7 @@ func buildHandlers(
 		publicUpload:       uploads.NewPublicUploadHandler(services.publicUpload),
 		resourceManagement: resources.NewResourceManagementHandler(services.resourceManagement, services.adminAuth),
 		search:             search.NewSearchHandler(services.search),
+		searchIndex:        search.NewSearchIndexHandler(services.searchIndex),
 		siteVisit:          visits.NewSiteVisitHandler(services.siteVisit),
 		systemSetting:      settings.NewSystemSettingHandler(services.systemSetting),
 	}

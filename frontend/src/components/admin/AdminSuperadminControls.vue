@@ -23,6 +23,24 @@ interface ManagedRootNode {
   last_scanned_at: string | null;
 }
 
+interface SearchIndexStatus {
+  enabled: boolean;
+  index_name: string;
+  semantic_profile_path: string;
+  status: "disabled" | "available" | "unavailable" | string;
+  error?: string;
+}
+
+interface SearchIndexRebuildResult {
+  index_name: string;
+  indexed_documents: number;
+  indexed_files: number;
+  indexed_folders: number;
+  skipped_files: number;
+  skipped_folders: number;
+  last_task_uid?: number;
+}
+
 const loading = ref(false);
 const loaded = ref(false);
 const uploadSaving = ref(false);
@@ -50,6 +68,11 @@ const unmanageMessage = ref("");
 const rescanningFolderID = ref("");
 const rescanError = ref("");
 const rescanMessage = ref("");
+const searchIndexStatus = ref<SearchIndexStatus | null>(null);
+const searchIndexLoading = ref(false);
+const searchIndexRebuilding = ref(false);
+const searchIndexError = ref("");
+const searchIndexMessage = ref("");
 const uploadSizeValue = ref(5);
 const uploadSizeUnit = ref<"B" | "KB" | "MB" | "GB">("GB");
 const downloadSizeValue = ref(5);
@@ -67,7 +90,7 @@ const form = reactive<SystemPolicy>({
 });
 
 onMounted(() => {
-  void Promise.all([loadPolicy(), loadDirectories(""), loadManagedFolders()]);
+  void Promise.all([loadPolicy(), loadDirectories(""), loadManagedFolders(), loadSearchIndexStatus()]);
 });
 
 async function loadPolicy() {
@@ -417,6 +440,50 @@ async function rescanManagedFolder(folderID: string) {
   }
 }
 
+async function loadSearchIndexStatus() {
+  searchIndexLoading.value = true;
+  searchIndexError.value = "";
+  try {
+    searchIndexStatus.value = await httpClient.get<SearchIndexStatus>("/admin/search-index/status");
+  } catch (err: unknown) {
+    searchIndexStatus.value = null;
+    searchIndexError.value = readApiError(err, "加载搜索索引状态失败。");
+  } finally {
+    searchIndexLoading.value = false;
+  }
+}
+
+async function rebuildSearchIndex() {
+  searchIndexRebuilding.value = true;
+  searchIndexError.value = "";
+  searchIndexMessage.value = "";
+  try {
+    const response = await httpClient.post<SearchIndexRebuildResult>("/admin/search-index/rebuild");
+    searchIndexMessage.value =
+      `索引重建完成：写入 ${response.indexed_documents} 条文档，` +
+      `包含 ${response.indexed_folders} 个目录、${response.indexed_files} 个文件，` +
+      `跳过 ${response.skipped_folders} 个目录、${response.skipped_files} 个文件。`;
+    await loadSearchIndexStatus();
+  } catch (err: unknown) {
+    searchIndexError.value = readApiError(err, "重建搜索索引失败。");
+  } finally {
+    searchIndexRebuilding.value = false;
+  }
+}
+
+function searchIndexStatusLabel(status: string) {
+  switch (status) {
+    case "available":
+      return "可用";
+    case "unavailable":
+      return "不可用";
+    case "disabled":
+      return "未启用";
+    default:
+      return status || "未知";
+  }
+}
+
 function beginUnmanageManagedFolder(folderID: string) {
   unmanageError.value = "";
   unmanageMessage.value = "";
@@ -528,6 +595,51 @@ function isManagedRootClientChild(path: string, root: string) {
         <p v-if="rescanError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ rescanError }}</p>
         <p v-if="unmanageMessage" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ unmanageMessage }}</p>
         <p v-if="unmanageError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ unmanageError }}</p>
+      </SurfaceCard>
+
+      <SurfaceCard class="space-y-4">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <h3 class="text-lg font-semibold text-slate-900">搜索索引</h3>
+            <p class="mt-1 text-sm text-slate-500">重建 Meilisearch 资源索引。</p>
+          </div>
+          <button type="button" class="btn-secondary" :disabled="searchIndexLoading" @click="loadSearchIndexStatus">
+            {{ searchIndexLoading ? "刷新中…" : "刷新" }}
+          </button>
+        </div>
+
+        <div v-if="searchIndexLoading && !searchIndexStatus" class="text-sm text-slate-500">正在加载搜索索引状态…</div>
+        <div v-else class="grid gap-3 md:grid-cols-3">
+          <div class="panel-muted px-4 py-3">
+            <p class="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">状态</p>
+            <p class="mt-2 text-sm font-medium text-slate-900">
+              {{ searchIndexStatus ? searchIndexStatusLabel(searchIndexStatus.status) : "未知" }}
+            </p>
+          </div>
+          <div class="panel-muted px-4 py-3">
+            <p class="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">索引</p>
+            <p class="mt-2 break-all text-sm font-medium text-slate-900">{{ searchIndexStatus?.index_name || "未配置" }}</p>
+          </div>
+          <div class="panel-muted px-4 py-3">
+            <p class="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">语义配置</p>
+            <p class="mt-2 break-all text-sm font-medium text-slate-900">{{ searchIndexStatus?.semantic_profile_path || "通用模式" }}</p>
+          </div>
+        </div>
+
+        <p v-if="searchIndexStatus?.error" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {{ searchIndexStatus.error }}
+        </p>
+        <p v-if="searchIndexMessage" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ searchIndexMessage }}</p>
+        <p v-if="searchIndexError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ searchIndexError }}</p>
+
+        <button
+          type="button"
+          class="btn-primary"
+          :disabled="searchIndexRebuilding || !searchIndexStatus?.enabled"
+          @click="rebuildSearchIndex"
+        >
+          {{ searchIndexRebuilding ? "重建中…" : "重建搜索索引" }}
+        </button>
       </SurfaceCard>
 
       <div class="grid gap-6 xl:grid-cols-3">

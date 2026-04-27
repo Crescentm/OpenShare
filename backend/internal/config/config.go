@@ -57,35 +57,6 @@ type DownloadConfig struct {
 	MaxDownloadTotalBytes int64 `json:"max_download_total_bytes"`
 }
 
-// Load overlays config files onto an existing Config, so omitted upload fields
-// must preserve the current values instead of resetting to zero.
-func (c *UploadConfig) UnmarshalJSON(data []byte) error {
-	type uploadConfigAlias struct {
-		MaxUploadTotalBytes  *int64 `json:"max_upload_total_bytes"`
-		MaxFileSizeBytes     *int64 `json:"max_file_size_bytes"`
-		MaxDescriptionLength *int   `json:"max_description_length"`
-		ReceiptCodeLength    *int   `json:"receipt_code_length"`
-	}
-
-	var raw uploadConfigAlias
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	if raw.MaxUploadTotalBytes != nil {
-		c.MaxUploadTotalBytes = *raw.MaxUploadTotalBytes
-	} else if raw.MaxFileSizeBytes != nil {
-		c.MaxUploadTotalBytes = *raw.MaxFileSizeBytes
-	}
-	if raw.MaxDescriptionLength != nil {
-		c.MaxDescriptionLength = *raw.MaxDescriptionLength
-	}
-	if raw.ReceiptCodeLength != nil {
-		c.ReceiptCodeLength = *raw.ReceiptCodeLength
-	}
-	return nil
-}
-
 func setIfPresent[T any](target *T, value *T) {
 	if value != nil {
 		*target = *value
@@ -120,10 +91,11 @@ type ManagedSyncConfig struct {
 }
 
 type SearchEngineConfig struct {
-	Enabled   bool   `json:"enabled"`
-	Host      string `json:"host"`
-	APIKey    string `json:"api_key"`
-	IndexName string `json:"index_name"`
+	Enabled             bool   `json:"enabled"`
+	Host                string `json:"host"`
+	APIKey              string `json:"api_key"`
+	IndexName           string `json:"index_name"`
+	SemanticProfilePath string `json:"semantic_profile_path"`
 }
 
 func Default() Config {
@@ -173,9 +145,10 @@ func Default() Config {
 			AuditIntervalSeconds:   21600,
 		},
 		SearchEngine: SearchEngineConfig{
-			Enabled:   false,
-			Host:      "http://127.0.0.1:7700",
-			IndexName: "openshare_resources",
+			Enabled:             false,
+			Host:                "http://127.0.0.1:7700",
+			IndexName:           "openshare_resources",
+			SemanticProfilePath: "config/search_semantics.openwhu.json",
 		},
 	}
 }
@@ -263,6 +236,7 @@ func applyEnv(cfg *Config) error {
 	overrideString("OPENSHARE_SEARCH_ENGINE_HOST", &cfg.SearchEngine.Host)
 	overrideString("OPENSHARE_SEARCH_ENGINE_API_KEY", &cfg.SearchEngine.APIKey)
 	overrideString("OPENSHARE_SEARCH_ENGINE_INDEX_NAME", &cfg.SearchEngine.IndexName)
+	overrideString("OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH", &cfg.SearchEngine.SemanticProfilePath)
 
 	return errors.Join(errs...)
 }
@@ -393,6 +367,7 @@ func (c *Config) normalize() {
 	c.SearchEngine.Host = strings.TrimSpace(c.SearchEngine.Host)
 	c.SearchEngine.APIKey = strings.TrimSpace(c.SearchEngine.APIKey)
 	c.SearchEngine.IndexName = strings.TrimSpace(c.SearchEngine.IndexName)
+	c.SearchEngine.SemanticProfilePath = strings.TrimSpace(c.SearchEngine.SemanticProfilePath)
 }
 
 func validateRateLimit(prefix string, rule RateLimitRule) error {

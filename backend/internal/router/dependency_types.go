@@ -34,6 +34,7 @@ type routeHandlers struct {
 	publicUpload       *uploads.PublicUploadHandler
 	resourceManagement *resources.ResourceManagementHandler
 	search             *search.SearchHandler
+	searchIndex        *search.SearchIndexHandler
 	siteVisit          *visits.SiteVisitHandler
 	systemSetting      *settings.SystemSettingHandler
 }
@@ -73,6 +74,7 @@ type routeServices struct {
 	publicUpload       *uploads.PublicUploadService
 	resourceManagement *resources.ResourceManagementService
 	search             *search.SearchService
+	searchIndex        *search.SearchIndexService
 	siteVisit          *visits.SiteVisitService
 	systemSetting      *settings.SystemSettingService
 }

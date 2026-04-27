@@ -46,6 +46,14 @@ func (c *MeilisearchClient) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
+func (c *MeilisearchClient) Search(ctx context.Context, query string, request *meilisearch.SearchRequest) (*meilisearch.SearchResponse, error) {
+	response, err := c.service.Index(c.indexName).SearchWithContext(ctx, query, request)
+	if err != nil {
+		return nil, fmt.Errorf("search meilisearch index: %w", err)
+	}
+	return response, nil
+}
+
 func (c *MeilisearchClient) Service() meilisearch.ServiceManager {
 	return c.service
 }

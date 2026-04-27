@@ -124,6 +124,16 @@ func registerAdminRoutes(api *gin.RouterGroup, handlers *routeHandlers) {
 		middleware.RequireAdminPermission(model.AdminPermissionManageSystem),
 		handlers.imports.ListManagedRoots,
 	)
+	adminProtected.GET(
+		"/search-index/status",
+		middleware.RequireAdminPermission(model.AdminPermissionManageSystem),
+		handlers.searchIndex.Status,
+	)
+	adminProtected.POST(
+		"/search-index/rebuild",
+		middleware.RequireAdminPermission(model.AdminPermissionManageSystem),
+		handlers.searchIndex.Rebuild,
+	)
 	adminProtected.GET("/folders/tree", handlers.imports.GetFolderTree)
 	adminProtected.GET("/resources/files", handlers.resourceManagement.ListFiles)
 	adminProtected.PUT(

@@ -2,271 +2,169 @@ package search
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/meilisearch/meilisearch-go"
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/bootstrap"
+	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
 	"openshare/backend/pkg/database"
 )
 
-func TestSearchPrefersNameMatchesOverDescription(t *testing.T) {
-	db := newSearchTestSQLite(t)
-	service := NewSearchService(NewSearchRepository(db))
-
-	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
-	mustCreateSearchFile(t, db, model.File{
-		ID:            "file-name-match",
-		Name:          "logo_best.svg",
-		Description:   "",
-		Extension:     "svg",
-		Size:          1024,
-		DownloadCount: 1,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	})
-	mustCreateSearchFile(t, db, model.File{
-		ID:            "file-description-match",
-		Name:          "notes.txt",
-		Description:   "contains logo in description only",
-		Extension:     "txt",
-		Size:          2048,
-		DownloadCount: 80,
-		CreatedAt:     now.Add(1 * time.Hour),
-		UpdatedAt:     now.Add(1 * time.Hour),
-	})
+func TestSearchUsesMeilisearchAndShapesResults(t *testing.T) {
+	fake := &fakeSearchEngine{
+		response: &meilisearch.SearchResponse{
+			Hits: meilisearch.Hits{
+				searchHit(t, SearchDocument{
+					Type:          SearchDocumentTypeFile,
+					ResourceID:    "file-1",
+					Name:          "2022年数据结构期末试卷.pdf",
+					Extension:     "pdf",
+					Size:          1024,
+					DownloadCount: 7,
+					CreatedAt:     time.Unix(1700000000, 0).Unix(),
+				}),
+				searchHit(t, SearchDocument{
+					Type:       SearchDocumentTypeFolder,
+					ResourceID: "folder-1",
+					Name:       "数据结构",
+				}),
+			},
+			TotalHits: 2,
+		},
+	}
+	service := newFakeSearchService(nil, fake)
 
 	result, err := service.Search(context.Background(), SearchInput{
-		Keyword:  "logo",
+		Keyword:  "数据结构 试卷",
 		Page:     1,
 		PageSize: 10,
 	})
 	if err != nil {
-		t.Fatalf("search failed: %v", err)
+		t.Fatalf("Search() error = %v", err)
 	}
 
+	if fake.query != "数据结构 试卷" {
+		t.Fatalf("query = %q, want 数据结构 试卷", fake.query)
+	}
+	if fake.request.MatchingStrategy != meilisearch.All {
+		t.Fatalf("MatchingStrategy = %q, want all", fake.request.MatchingStrategy)
+	}
 	if result.Total != 2 {
-		t.Fatalf("expected 2 results, got %d", result.Total)
+		t.Fatalf("Total = %d, want 2", result.Total)
 	}
 	if len(result.Items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(result.Items))
+		t.Fatalf("len(Items) = %d, want 2", len(result.Items))
 	}
-	if result.Items[0].ID != "file-name-match" {
-		t.Fatalf("expected name match first, got %q", result.Items[0].ID)
+	if result.Items[0].EntityType != "file" || result.Items[0].ID != "file-1" {
+		t.Fatalf("first item = %+v, want file file-1", result.Items[0])
 	}
-}
-
-func TestSearchRequiresAllTerms(t *testing.T) {
-	db := newSearchTestSQLite(t)
-	service := NewSearchService(NewSearchRepository(db))
-
-	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
-	mustCreateSearchFile(t, db, model.File{
-		ID:        "macro-book",
-		Name:      "高鸿业 宏观经济学.pdf",
-		Extension: "pdf",
-		Size:      2048,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	mustCreateSearchFile(t, db, model.File{
-		ID:        "micro-book",
-		Name:      "高鸿业 微观经济学.pdf",
-		Extension: "pdf",
-		Size:      2048,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	mustCreateSearchFolder(t, db, model.Folder{
-		ID:          "macro-folder",
-		Name:        "宏观专题",
-		Description: "",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	})
-
-	result, err := service.Search(context.Background(), SearchInput{
-		Keyword:  "高鸿业 宏观",
-		Page:     1,
-		PageSize: 10,
-	})
-	if err != nil {
-		t.Fatalf("search failed: %v", err)
+	if result.Items[0].UploadedAt == nil || result.Items[0].UploadedAt.Unix() != 1700000000 {
+		t.Fatalf("UploadedAt = %v, want unix 1700000000", result.Items[0].UploadedAt)
 	}
-
-	if result.Total != 1 {
-		t.Fatalf("expected 1 result, got %d", result.Total)
-	}
-	if len(result.Items) != 1 || result.Items[0].ID != "macro-book" {
-		t.Fatalf("expected macro-book only, got %+v", result.Items)
+	if result.Items[1].EntityType != "folder" || result.Items[1].ID != "folder-1" {
+		t.Fatalf("second item = %+v, want folder folder-1", result.Items[1])
 	}
 }
 
-func TestSearchPrefersDirectFolderMatchesWithinScope(t *testing.T) {
+func TestSearchBuildsMeilisearchFolderScopeFilter(t *testing.T) {
 	db := newSearchTestSQLite(t)
-	service := NewSearchService(NewSearchRepository(db))
-
-	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
 	rootID := "folder-root"
 	childID := "folder-child"
+	mustCreateSearchFolder(t, db, model.Folder{ID: rootID, Name: "课程资料"})
+	mustCreateSearchFolder(t, db, model.Folder{ID: childID, ParentID: ptrString(rootID), Name: "试卷"})
 
-	mustCreateSearchFolder(t, db, model.Folder{
-		ID:        rootID,
-		Name:      "课程资料",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	mustCreateSearchFolder(t, db, model.Folder{
-		ID:        childID,
-		ParentID:  ptrString(rootID),
-		Name:      "归档",
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	mustCreateSearchFile(t, db, model.File{
-		ID:        "direct-file",
-		FolderID:  ptrString(rootID),
-		Name:      "lecture-direct.pdf",
-		Extension: "pdf",
-		Size:      2048,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	mustCreateSearchFile(t, db, model.File{
-		ID:        "nested-file",
-		FolderID:  ptrString(childID),
-		Name:      "lecture-nested.pdf",
-		Extension: "pdf",
-		Size:      2048,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
+	fake := &fakeSearchEngine{response: &meilisearch.SearchResponse{}}
+	service := newFakeSearchService(NewSearchRepository(db), fake)
 
-	result, err := service.Search(context.Background(), SearchInput{
-		Keyword:  "lecture",
+	_, err := service.Search(context.Background(), SearchInput{
+		Keyword:  "试卷",
 		FolderID: rootID,
 		Page:     1,
 		PageSize: 10,
 	})
 	if err != nil {
-		t.Fatalf("search failed: %v", err)
+		t.Fatalf("Search() error = %v", err)
 	}
 
-	if result.Total != 2 {
-		t.Fatalf("expected 2 scoped results, got %d", result.Total)
-	}
-	if len(result.Items) < 2 {
-		t.Fatalf("expected at least 2 items, got %d", len(result.Items))
-	}
-	if result.Items[0].ID != "direct-file" {
-		t.Fatalf("expected direct folder match first, got %q", result.Items[0].ID)
+	want := `(type = "file" AND folder_id IN ["folder-root", "folder-child"]) OR (type = "folder" AND resource_id IN ["folder-root", "folder-child"])`
+	if fake.request.Filter != want {
+		t.Fatalf("Filter = %#v, want %s", fake.request.Filter, want)
 	}
 }
 
-func TestSearchEscapesLikeWildcards(t *testing.T) {
-	db := newSearchTestSQLite(t)
-	service := NewSearchService(NewSearchRepository(db))
+func TestSearchRejectsDisabledSearchEngine(t *testing.T) {
+	service := NewSearchService(nil, config.SearchEngineConfig{})
 
-	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
-	mustCreateSearchFile(t, db, model.File{
-		ID:        "plain-file",
-		Name:      "ordinary.txt",
-		Extension: "txt",
-		Size:      1024,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-
-	result, err := service.Search(context.Background(), SearchInput{
-		Keyword:  "%",
-		Page:     1,
-		PageSize: 10,
-	})
-	if err != nil {
-		t.Fatalf("search failed: %v", err)
-	}
-
-	if result.Total != 0 {
-		t.Fatalf("expected 0 results for literal wildcard query, got %d", result.Total)
+	_, err := service.Search(context.Background(), SearchInput{Keyword: "数据结构"})
+	if !errors.Is(err, ErrSearchIndexDisabled) {
+		t.Fatalf("Search() error = %v, want ErrSearchIndexDisabled", err)
 	}
 }
 
-func TestSearchHidesHiddenFilesAndFolders(t *testing.T) {
-	db := newSearchTestSQLite(t)
-	service := NewSearchService(NewSearchRepository(db))
+func TestSearchValidatesInput(t *testing.T) {
+	service := newFakeSearchService(nil, &fakeSearchEngine{response: &meilisearch.SearchResponse{}})
 
-	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
-	visibleRootPath := "/srv/openshare/course"
-	hiddenFolderPath := "/srv/openshare/course/.secret"
-
-	mustCreateSearchFolder(t, db, model.Folder{
-		ID:         "visible-root",
-		Name:       "课程资料",
-		SourcePath: ptrString(visibleRootPath),
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	})
-	mustCreateSearchFolder(t, db, model.Folder{
-		ID:         "hidden-folder",
-		ParentID:   ptrString("visible-root"),
-		Name:       ".secret",
-		SourcePath: ptrString(hiddenFolderPath),
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	})
-	mustCreateSearchFile(t, db, model.File{
-		ID:        "visible-file",
-		FolderID:  ptrString("visible-root"),
-		Name:      "visible-logo.png",
-		Extension: "png",
-		Size:      1024,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	mustCreateSearchFile(t, db, model.File{
-		ID:        "hidden-dot-file",
-		FolderID:  ptrString("visible-root"),
-		Name:      ".hidden-logo.png",
-		Extension: "png",
-		Size:      1024,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	mustCreateSearchFile(t, db, model.File{
-		ID:        "hidden-folder-file",
-		FolderID:  ptrString("hidden-folder"),
-		Name:      "nested-logo.png",
-		Extension: "png",
-		Size:      1024,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-
-	result, err := service.Search(context.Background(), SearchInput{
-		Keyword:  "logo",
-		Page:     1,
-		PageSize: 10,
-	})
-	if err != nil {
-		t.Fatalf("search failed: %v", err)
+	if _, err := service.Search(context.Background(), SearchInput{Keyword: ""}); !errors.Is(err, ErrSearchQueryEmpty) {
+		t.Fatalf("empty query error = %v, want ErrSearchQueryEmpty", err)
 	}
-
-	if result.Total != 1 {
-		t.Fatalf("expected 1 visible result, got %d", result.Total)
+	if _, err := service.Search(context.Background(), SearchInput{Keyword: "ok", Page: -1}); !errors.Is(err, ErrSearchInvalidInput) {
+		t.Fatalf("invalid page error = %v, want ErrSearchInvalidInput", err)
 	}
-	if len(result.Items) != 1 || result.Items[0].ID != "visible-file" {
-		t.Fatalf("expected only visible file in results, got %+v", result.Items)
+	if _, err := service.Search(context.Background(), SearchInput{Keyword: "ok", Page: 6, PageSize: 20}); !errors.Is(err, ErrSearchInvalidInput) {
+		t.Fatalf("window error = %v, want ErrSearchInvalidInput", err)
 	}
 }
 
-func mustCreateSearchFile(t *testing.T, db *gorm.DB, file model.File) {
+type fakeSearchEngine struct {
+	query    string
+	request  *meilisearch.SearchRequest
+	response *meilisearch.SearchResponse
+	err      error
+}
+
+func (f *fakeSearchEngine) Search(_ context.Context, query string, request *meilisearch.SearchRequest) (*meilisearch.SearchResponse, error) {
+	f.query = query
+	f.request = request
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.response == nil {
+		return &meilisearch.SearchResponse{}, nil
+	}
+	return f.response, nil
+}
+
+func newFakeSearchService(repo *SearchRepository, fake *fakeSearchEngine) *SearchService {
+	service := NewSearchService(repo, config.SearchEngineConfig{
+		Enabled:   true,
+		Host:      "http://127.0.0.1:7700",
+		APIKey:    "test-key",
+		IndexName: "test_resources",
+	})
+	service.newSearcher = func(config.SearchEngineConfig) (meilisearchSearcher, error) {
+		return fake, nil
+	}
+	return service
+}
+
+func searchHit(t *testing.T, doc SearchDocument) meilisearch.Hit {
 	t.Helper()
-	if err := db.Create(&file).Error; err != nil {
-		t.Fatalf("create file %q failed: %v", file.ID, err)
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal hit failed: %v", err)
 	}
+	var hit meilisearch.Hit
+	if err := json.Unmarshal(data, &hit); err != nil {
+		t.Fatalf("unmarshal hit failed: %v", err)
+	}
+	return hit
 }
 
 func mustCreateSearchFolder(t *testing.T, db *gorm.DB, folder model.Folder) {

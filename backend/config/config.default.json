@@ -61,6 +61,7 @@
     "enabled": false,
     "host": "http://127.0.0.1:7700",
     "api_key": "",
-    "index_name": "openshare_resources"
+    "index_name": "openshare_resources",
+    "semantic_profile_path": "config/search_semantics.openwhu.json"
   }
 }
