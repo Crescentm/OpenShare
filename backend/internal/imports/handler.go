@@ -125,6 +125,16 @@ func (h *ImportHandler) GetFolderTree(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"items": tree})
 }
 
+func (h *ImportHandler) ListManagedRoots(ctx *gin.Context) {
+	roots, err := h.service.ListManagedRoots(ctx.Request.Context())
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load managed roots"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"items": roots})
+}
+
 func (h *ImportHandler) UnmanageManagedDirectory(ctx *gin.Context) {
 	identity, ok := session.GetAdminIdentity(ctx)
 	if !ok {

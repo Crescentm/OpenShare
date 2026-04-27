@@ -30,9 +30,12 @@ type FolderTreeFileRow struct {
 }
 
 type ManagedRootRow struct {
-	ID         string
-	Name       string
-	SourcePath *string
+	ID            string
+	Name          string
+	SourcePath    *string
+	SyncState     string
+	SyncError     string
+	LastScannedAt *time.Time
 }
 
 type ManagedSubtreeFolderRow struct {
@@ -104,7 +107,7 @@ func (r *ImportRepository) ListManagedRoots(ctx context.Context) ([]ManagedRootR
 	var rows []ManagedRootRow
 	if err := r.db.WithContext(ctx).
 		Model(&model.Folder{}).
-		Select("id, name, source_path").
+		Select("id, name, source_path, sync_state, sync_error, last_scanned_at").
 		Where("parent_id IS NULL").
 		Where("source_path IS NOT NULL AND TRIM(source_path) <> ''").
 		Order("source_path ASC").

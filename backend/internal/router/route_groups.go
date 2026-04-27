@@ -119,6 +119,11 @@ func registerAdminRoutes(api *gin.RouterGroup, handlers *routeHandlers) {
 		middleware.RequireAdminPermission(model.AdminPermissionManageSystem),
 		handlers.imports.RescanManagedDirectory,
 	)
+	adminProtected.GET(
+		"/folders/managed-roots",
+		middleware.RequireAdminPermission(model.AdminPermissionManageSystem),
+		handlers.imports.ListManagedRoots,
+	)
 	adminProtected.GET("/folders/tree", handlers.imports.GetFolderTree)
 	adminProtected.GET("/resources/files", handlers.resourceManagement.ListFiles)
 	adminProtected.PUT(

@@ -24,6 +24,35 @@ type FolderTreeFile struct {
 	DownloadCount int64  `json:"download_count"`
 }
 
+type ManagedRootNode struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	SourcePath    string  `json:"source_path"`
+	SyncState     string  `json:"sync_state"`
+	SyncError     string  `json:"sync_error"`
+	LastScannedAt *string `json:"last_scanned_at"`
+}
+
+func (s *ImportService) ListManagedRoots(ctx context.Context) ([]ManagedRootNode, error) {
+	roots, err := s.repository.ListManagedRoots(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list managed roots: %w", err)
+	}
+
+	result := make([]ManagedRootNode, 0, len(roots))
+	for _, root := range roots {
+		result = append(result, ManagedRootNode{
+			ID:            root.ID,
+			Name:          root.Name,
+			SourcePath:    derefString(root.SourcePath),
+			SyncState:     root.SyncState,
+			SyncError:     root.SyncError,
+			LastScannedAt: formatOptionalUTCTime(root.LastScannedAt),
+		})
+	}
+	return result, nil
+}
+
 func (s *ImportService) GetFolderTree(ctx context.Context) ([]FolderTreeNode, error) {
 	folders, err := s.repository.ListFolders(ctx)
 	if err != nil {

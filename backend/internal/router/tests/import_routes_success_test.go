@@ -118,6 +118,68 @@ func TestFolderTree(t *testing.T) {
 	}
 }
 
+func TestListManagedRootsReturnsOnlyRootMetadata(t *testing.T) {
+	_, _, cookie, engine, db := newImportRouteEnv(t, adminAccess{
+		username: "editor",
+		password: "s3cret-pass",
+		role:     string(model.AdminRoleAdmin),
+		permissions: []model.AdminPermission{
+			model.AdminPermissionManageSystem,
+		},
+	})
+	importRoot := createImportFixture(t)
+
+	importRecorder := importLocalDirectory(t, engine, cookie, importRoot)
+	if importRecorder.Code != http.StatusOK {
+		t.Fatalf("expected import status 200, got %d body=%s", importRecorder.Code, importRecorder.Body.String())
+	}
+
+	var rootFolder model.Folder
+	if err := db.Where("source_path = ?", importRoot).Take(&rootFolder).Error; err != nil {
+		t.Fatalf("find root folder failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/folders/managed-roots", nil)
+	request.AddCookie(cookie)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected managed roots status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Items []struct {
+			ID            string           `json:"id"`
+			Name          string           `json:"name"`
+			SourcePath    string           `json:"source_path"`
+			SyncState     string           `json:"sync_state"`
+			SyncError     string           `json:"sync_error"`
+			LastScannedAt *string          `json:"last_scanned_at"`
+			Folders       []map[string]any `json:"folders"`
+			Files         []map[string]any `json:"files"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode managed roots response failed: %v", err)
+	}
+	if len(response.Items) != 1 {
+		t.Fatalf("expected 1 managed root, got %d", len(response.Items))
+	}
+	item := response.Items[0]
+	if item.ID != rootFolder.ID {
+		t.Fatalf("expected root id %q, got %q", rootFolder.ID, item.ID)
+	}
+	if item.SourcePath != importRoot {
+		t.Fatalf("expected source_path %q, got %q", importRoot, item.SourcePath)
+	}
+	if item.SyncState == "" {
+		t.Fatalf("expected sync_state, got %+v", item)
+	}
+	if item.Folders != nil || item.Files != nil {
+		t.Fatalf("expected no subtree payload, got folders=%#v files=%#v", item.Folders, item.Files)
+	}
+}
+
 func TestImportDirectoryBrowser(t *testing.T) {
 	_, _, cookie, engine, db := newImportRouteEnv(t, adminAccess{
 		username: "sysadmin",

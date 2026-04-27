@@ -115,6 +115,24 @@ const supportsOfficePreview = computed(
     ),
 );
 
+const legacyOfficePreviewName = computed(() => {
+  if (
+    normalizedExtension.value === "ppt"
+    || normalizedMimeType.value === "application/vnd.ms-powerpoint"
+  ) {
+    return "老版 PowerPoint（.ppt）";
+  }
+
+  if (
+    normalizedExtension.value === "doc"
+    || normalizedMimeType.value === "application/msword"
+  ) {
+    return "老版 Word（.doc）";
+  }
+
+  return "";
+});
+
 const supportsTextPreview = computed(() => {
   if (!props.previewEnabled) {
     return false;
@@ -191,6 +209,10 @@ const unsupportedReason = computed(() => {
 
   if (supportsOfficePreview.value && !canPreviewOffice.value) {
     return `Office 预览仅支持 ${(MAX_OFFICE_PREVIEW_SIZE / (1024 * 1024)).toFixed(0)} MB 以内文件`;
+  }
+
+  if (legacyOfficePreviewName.value) {
+    return `${legacyOfficePreviewName.value} 暂不支持在线预览，请下载后查看或转换为新版 Office 格式`;
   }
 
   return "此文件类型暂不支持预览";

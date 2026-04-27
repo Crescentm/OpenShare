@@ -14,11 +14,13 @@ interface SystemPolicy {
   };
 }
 
-interface ManagedFolderNode {
+interface ManagedRootNode {
   id: string;
   name: string;
   source_path: string;
-  folders: ManagedFolderNode[];
+  sync_state: string;
+  sync_error: string;
+  last_scanned_at: string | null;
 }
 
 const loading = ref(false);
@@ -294,7 +296,7 @@ async function loadManagedFolders() {
   managedFoldersLoading.value = true;
   managedFoldersError.value = "";
   try {
-    const response = await httpClient.get<{ items: ManagedFolderNode[] }>("/admin/folders/tree");
+    const response = await httpClient.get<{ items: ManagedRootNode[] }>("/admin/folders/managed-roots");
     managedFolders.value = (response.items ?? []).map((item) => ({
       id: item.id,
       name: item.name,
