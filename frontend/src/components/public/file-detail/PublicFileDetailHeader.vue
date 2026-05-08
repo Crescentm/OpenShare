@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Flag } from "lucide-vue-next";
+import { Download, Flag } from "@lucide/vue";
 import type { PublicFileDetailResponse } from "./types";
 
 interface Props {

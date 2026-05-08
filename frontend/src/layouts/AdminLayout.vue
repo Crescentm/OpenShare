@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
-import { LayoutDashboard, Inbox, Megaphone, ScrollText, Shield, UserRound } from "lucide-vue-next";
+import { LayoutDashboard, Inbox, Megaphone, ScrollText, Shield, UserRound } from "@lucide/vue";
 
 import AdminSidebar, { type AdminSidebarItem } from "../components/admin/AdminSidebar.vue";
 import {

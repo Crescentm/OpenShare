@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import {
   ChevronRight,
   Home,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 
 import InfoPanelCard from "../../components/shared/InfoPanelCard.vue";
 import PublicAnnouncementDetailModal from "../../components/public/home/PublicAnnouncementDetailModal.vue";

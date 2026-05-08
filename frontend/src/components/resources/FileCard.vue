@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText } from "lucide-vue-next";
+import { FileText } from "@lucide/vue";
 
 withDefaults(
   defineProps<{

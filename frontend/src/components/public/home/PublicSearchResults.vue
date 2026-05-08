@@ -9,7 +9,7 @@ import {
   Folder,
   Layers,
   SearchX,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 import type { SearchResultItem } from "./types";
 
 export type SearchFilterKey =

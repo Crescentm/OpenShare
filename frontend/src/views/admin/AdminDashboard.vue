@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { CalendarClock, Download, Files, Users } from "lucide-vue-next";
+import { CalendarClock, Download, Files, Users } from "@lucide/vue";
 
 import AdminSuperadminControls from "../../components/admin/AdminSuperadminControls.vue";
 import StatCard from "../../components/admin/StatCard.vue";

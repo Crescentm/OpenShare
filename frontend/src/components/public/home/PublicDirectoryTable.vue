@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Folder } from "lucide-vue-next";
+import { Folder } from "@lucide/vue";
 import type { DirectoryRow } from "./types";
 
 defineProps<{

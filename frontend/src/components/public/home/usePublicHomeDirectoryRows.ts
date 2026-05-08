@@ -8,7 +8,7 @@ import {
   FileText,
   FileType2,
   FileVideo,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 import type {
   DirectoryRow,
   PublicFileItem,

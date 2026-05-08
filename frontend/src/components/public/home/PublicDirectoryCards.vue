@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Clock3, Download, Flag, Folder } from "lucide-vue-next";
+import { Clock3, Download, Flag, Folder } from "@lucide/vue";
 import type { DirectoryRow } from "./types";
 
 defineProps<{

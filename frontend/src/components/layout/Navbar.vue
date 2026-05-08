@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { Check, Github, UserRound } from "lucide-vue-next";
+import { Check, GitFork, UserRound } from "@lucide/vue";
 import { useRouter } from "vue-router";
 
 import {
@@ -144,7 +144,7 @@ function onPointerDown(event: PointerEvent) {
             aria-label="Open GitHub"
             class="absolute inset-0 inline-flex items-center justify-center rounded-full bg-black text-white transition hover:bg-neutral-800"
           >
-            <Github class="h-[17.2px] w-[17.2px]" />
+            <GitFork class="h-[17.2px] w-[17.2px]" />
           </a>
         </div>
 

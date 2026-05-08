@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from "vue";
-import { Home, Files } from "lucide-vue-next";
+import { Home, Files } from "@lucide/vue";
 
 export interface AdminSidebarItem {
   label: string;

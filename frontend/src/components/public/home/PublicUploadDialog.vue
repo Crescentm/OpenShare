@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { Upload } from "lucide-vue-next";
+import { Upload } from "@lucide/vue";
 
 interface UploadEntry {
   relativePath: string;

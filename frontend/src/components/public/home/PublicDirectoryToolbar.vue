@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, LayoutGrid, List, Upload } from "lucide-vue-next";
+import { ChevronLeft, ChevronRight, LayoutGrid, List, Upload } from "@lucide/vue";
 import type {
   PublicHomeSortDirection,
   PublicHomeSortMode,
