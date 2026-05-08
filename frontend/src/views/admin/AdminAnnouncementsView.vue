@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import EmptyState from "../../components/ui/EmptyState.vue";
 import PageHeader from "../../components/ui/PageHeader.vue";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
+import { formatOptionalNumericMinuteDateTime as formatDate } from "../../lib/formatters";
 import { httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
 import { renderSimpleMarkdown } from "../../lib/markdown";
@@ -168,20 +169,6 @@ async function confirmDelete() {
   } finally {
     deleting.value = false;
   }
-}
-
-function formatDate(value?: string) {
-  if (!value) {
-    return "未发布";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
 }
 
 function statusLabel(status: AnnouncementStatus) {

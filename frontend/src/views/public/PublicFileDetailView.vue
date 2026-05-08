@@ -2,7 +2,6 @@
 import {
   computed,
   defineAsyncComponent,
-  nextTick,
   onMounted,
   ref,
   watch,
@@ -26,6 +25,10 @@ import {
   readStoredReceiptCode,
 } from "../../lib/receiptCode";
 import { hasAdminPermission } from "../../lib/admin/session";
+import {
+  formatDateTime as formatDate,
+  formatFileSize as formatSize,
+} from "../../lib/formatters";
 import { renderSimpleMarkdown } from "../../lib/markdown";
 
 const route = useRoute();
@@ -54,7 +57,6 @@ const feedbackSubmitting = ref(false);
 const feedbackMessage = ref("");
 const feedbackError = ref("");
 const currentReceiptCode = ref("");
-const previewSectionRef = ref<HTMLElement | null>(null);
 const fileID = computed(() => String(route.params.fileID ?? ""));
 const downloadURL = computed(
   () => `/api/public/files/${encodeURIComponent(fileID.value)}/download`,
@@ -91,12 +93,6 @@ const editorDirty = computed(() => {
   );
 });
 
-function centerPreviewSection() {
-  previewSectionRef.value?.scrollIntoView({
-    block: "center",
-  });
-}
-
 onMounted(() => {
   void Promise.all([
     loadDetail(),
@@ -112,18 +108,6 @@ watch(fileID, () => {
     syncSessionReceiptCode(),
   ]);
 });
-
-watch(
-  detail,
-  async (currentDetail) => {
-    if (!currentDetail) {
-      return;
-    }
-
-    await nextTick();
-    centerPreviewSection();
-  },
-);
 
 async function loadDetail() {
   loading.value = true;
@@ -312,19 +296,6 @@ async function syncSessionReceiptCode() {
   }
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function formatSize(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function goBack() {
   const folderID = detail.value?.folder_id?.trim() ?? "";
   if (folderID) {
@@ -402,14 +373,13 @@ function downloadFile() {
               @open-delete="openDeleteDialog"
             />
 
-            <div ref="previewSectionRef">
+            <div>
               <FilePreview
                 :file-id="detail.id"
                 :file-name="detail.name"
                 :extension="detail.extension"
                 :mime-type="detail.mime_type"
                 :size="detail.size"
-                @preview-ready="centerPreviewSection"
               />
             </div>
 

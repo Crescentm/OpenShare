@@ -57,16 +57,28 @@ export interface SidebarDetailModalState {
   items: SidebarDetailItem[];
 }
 
+export interface SearchResultItem {
+  entity_type: "file" | "folder";
+  id: string;
+  name: string;
+  path?: string;
+  path_segments?: string[];
+  extension?: string;
+  file_kind?: string;
+  category?: string;
+  course?: string;
+  material_type?: string;
+  content_status?: string;
+  size?: number;
+  download_count?: number;
+  uploaded_at?: string;
+  updated_at?: string;
+  snippet?: string;
+  highlights?: Record<string, string>;
+}
+
 export interface SearchResultResponse {
-  items: Array<{
-    entity_type: "file" | "folder";
-    id: string;
-    name: string;
-    extension?: string;
-    size?: number;
-    download_count?: number;
-    uploaded_at?: string;
-  }>;
+  items: SearchResultItem[];
   page: number;
   page_size: number;
   total: number;

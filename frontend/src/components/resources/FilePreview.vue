@@ -35,9 +35,6 @@ const TextFilePreview = defineAsyncComponent(
 const props = withDefaults(defineProps<Props>(), {
   previewEnabled: true,
 });
-const emit = defineEmits<{
-  previewReady: [];
-}>();
 
 const previewLoading = ref(false);
 const previewError = ref("");
@@ -231,18 +228,6 @@ function resetFetchedPreviewState() {
   officeFileContent.value = null;
 }
 
-function emitPreviewReady(requestToken: number) {
-  if (requestToken !== previewRequestToken) {
-    return;
-  }
-
-  window.requestAnimationFrame(() => {
-    if (requestToken === previewRequestToken) {
-      emit("previewReady");
-    }
-  });
-}
-
 function getHttpErrorMessage(status: number): string {
   switch (status) {
     case 403:
@@ -328,7 +313,6 @@ async function loadTextContent(requestToken: number) {
   if (cached !== null) {
     if (requestToken === previewRequestToken) {
       textContent.value = cached;
-      emitPreviewReady(requestToken);
     }
     return;
   }
@@ -376,7 +360,6 @@ async function loadTextContent(requestToken: number) {
     textContent.value = content;
     previewProgress.value = 100;
     writeTextCache(content);
-    emitPreviewReady(requestToken);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "加载文本内容失败";
     setPreviewError(message, requestToken);
@@ -396,7 +379,6 @@ async function loadOfficeFileContent(requestToken: number) {
   if (cached) {
     if (requestToken === previewRequestToken) {
       officeFileContent.value = cached;
-      emitPreviewReady(requestToken);
     }
     return;
   }
@@ -448,7 +430,6 @@ async function loadOfficeFileContent(requestToken: number) {
     officePreviewCache.set(props.fileId, arrayBuffer);
     officeFileContent.value = arrayBuffer;
     previewProgress.value = 100;
-    emitPreviewReady(requestToken);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "加载 Office 文件失败";
     setPreviewError(message, requestToken);

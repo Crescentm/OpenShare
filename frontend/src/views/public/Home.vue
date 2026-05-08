@@ -16,6 +16,9 @@ import PublicDeleteResourceDialog from "../../components/public/home/PublicDelet
 import PublicFolderInfoPanel from "../../components/public/home/PublicFolderInfoPanel.vue";
 import PublicFolderDescriptionEditor from "../../components/public/home/PublicFolderDescriptionEditor.vue";
 import PublicHomeFeedbackDialog from "../../components/public/home/PublicHomeFeedbackDialog.vue";
+import PublicSearchResults, {
+  type SearchFilterKey,
+} from "../../components/public/home/PublicSearchResults.vue";
 import PublicHomeSidebarDetailModal from "../../components/public/home/PublicHomeSidebarDetailModal.vue";
 import PublicUploadDialog from "../../components/public/home/PublicUploadDialog.vue";
 import type {
@@ -23,6 +26,7 @@ import type {
   FolderDetailResponse,
   PublicFileItem,
   PublicFolderItem,
+  SearchResultItem,
   SearchResultResponse,
 } from "../../components/public/home/types";
 import {
@@ -42,6 +46,10 @@ import {
   readStoredReceiptCode,
 } from "../../lib/receiptCode";
 import { hasAdminPermission } from "../../lib/admin/session";
+import {
+  formatNumericDateTime as formatDateTime,
+  formatPreciseFileSize as formatSize,
+} from "../../lib/formatters";
 import { renderSimpleMarkdown } from "../../lib/markdown";
 import {
   collectDroppedEntries,
@@ -69,6 +77,9 @@ const searchKeyword = ref("");
 const searchLoading = ref(false);
 const searchError = ref("");
 const searchRows = ref<DirectoryRow[]>([]);
+const searchItems = ref<SearchResultItem[]>([]);
+const searchTotal = ref(0);
+const activeSearchFilter = ref<SearchFilterKey>("all");
 const breadcrumbs = ref<Array<{ id: string; name: string }>>([]);
 const currentFolderDetail = ref<FolderDetailResponse | null>(null);
 const canManageResourceDescriptions = ref(false);
@@ -80,6 +91,22 @@ const canUploadToCurrentFolder = computed(
   () => currentFolderID.value.length > 0,
 );
 const rootViewLocked = computed(() => route.query.root === "1");
+const searchFilters: Array<{ key: SearchFilterKey; label: string }> = [
+  { key: "all", label: "全部" },
+  { key: "file", label: "文件" },
+  { key: "folder", label: "目录" },
+  { key: "pdf", label: "PDF" },
+  { key: "office", label: "Office" },
+  { key: "image", label: "图片" },
+  { key: "archive", label: "压缩包" },
+  { key: "exam", label: "试卷" },
+  { key: "courseware", label: "课件" },
+  { key: "homework", label: "作业" },
+  { key: "note", label: "笔记" },
+  { key: "experiment", label: "实验" },
+  { key: "textbook", label: "教材" },
+  { key: "review", label: "复习资料" },
+];
 
 function buildPublicFileDownloadURL(fileID: string) {
   return `/api/public/files/${encodeURIComponent(fileID)}/download`;
@@ -553,29 +580,17 @@ async function runSearch(keyword: string) {
     if (currentFolderID.value) {
       query.set("folder_id", currentFolderID.value);
     }
+    applySearchFilterQuery(query, activeSearchFilter.value);
     const response = await httpClient.get<SearchResultResponse>(
       `/public/search?${query.toString()}`,
     );
-    searchRows.value = response.items.map((item) => ({
-      id: item.id,
-      kind: item.entity_type,
-      name: item.name,
-      extension:
-        item.entity_type === "file"
-          ? item.extension || extractExtension(item.name)
-          : "",
-      description: "",
-      downloadCount: item.download_count ?? 0,
-      fileCount: 0,
-      sizeText: item.entity_type === "file" ? formatSize(item.size ?? 0) : "-",
-      updatedAt: item.uploaded_at ? formatDateTime(item.uploaded_at) : "-",
-      downloadURL:
-        item.entity_type === "file"
-          ? buildPublicFileDownloadURL(item.id)
-          : `/api/public/folders/${encodeURIComponent(item.id)}/download`,
-    }));
+    searchItems.value = response.items;
+    searchTotal.value = response.total;
+    searchRows.value = response.items.map(searchItemToDirectoryRow);
   } catch (err: unknown) {
     searchRows.value = [];
+    searchItems.value = [];
+    searchTotal.value = 0;
     searchError.value = readApiError(err, "搜索失败。");
   } finally {
     searchLoading.value = false;
@@ -588,7 +603,120 @@ function clearSearchState() {
   searchLoading.value = false;
   searchError.value = "";
   searchRows.value = [];
+  searchItems.value = [];
+  searchTotal.value = 0;
+  activeSearchFilter.value = "all";
   clearSelection();
+}
+
+function applySearchFilterQuery(query: URLSearchParams, filter: SearchFilterKey) {
+  switch (filter) {
+    case "file":
+      query.set("type", "file");
+      break;
+    case "folder":
+      query.set("type", "folder");
+      break;
+    case "pdf":
+      query.set("type", "file");
+      query.set("file_kind", "pdf");
+      break;
+    case "office":
+      query.set("type", "file");
+      query.set("file_kind", "office");
+      break;
+    case "image":
+      query.set("type", "file");
+      query.set("file_kind", "image");
+      break;
+    case "archive":
+      query.set("type", "file");
+      query.set("file_kind", "archive");
+      break;
+    case "exam":
+      query.set("material_type", "试卷");
+      break;
+    case "courseware":
+      query.set("material_type", "课件");
+      break;
+    case "homework":
+      query.set("material_type", "作业");
+      break;
+    case "note":
+      query.set("material_type", "笔记");
+      break;
+    case "experiment":
+      query.set("material_type", "实验");
+      break;
+    case "textbook":
+      query.set("material_type", "教材");
+      break;
+    case "review":
+      query.set("material_type", "复习资料");
+      break;
+  }
+}
+
+function updateSearchFilter(filter: SearchFilterKey) {
+  activeSearchFilter.value = filter;
+  if (searchKeyword.value) {
+    void runSearch(searchKeyword.value);
+  }
+}
+
+function formatOptionalSearchDate(value?: string) {
+  return value ? formatDateTime(value) : "-";
+}
+
+function formatOptionalSearchSize(value?: number) {
+  return typeof value === "number" ? formatSize(value) : "-";
+}
+
+function searchItemToDirectoryRow(item: SearchResultItem): DirectoryRow {
+  const extension =
+    item.entity_type === "file"
+      ? item.extension || extractExtension(item.name)
+      : "";
+
+  return {
+    id: item.id,
+    kind: item.entity_type,
+    name: item.name,
+    extension,
+    description: item.snippet || item.path || "",
+    downloadCount: item.download_count ?? 0,
+    fileCount: 0,
+    sizeText: item.entity_type === "file" ? formatSize(item.size ?? 0) : "-",
+    updatedAt: item.updated_at
+      ? formatDateTime(item.updated_at)
+      : item.uploaded_at
+        ? formatDateTime(item.uploaded_at)
+        : "-",
+    downloadURL:
+      item.entity_type === "file"
+        ? buildPublicFileDownloadURL(item.id)
+        : `/api/public/folders/${encodeURIComponent(item.id)}/download`,
+  };
+}
+
+function openSearchItem(item: SearchResultItem) {
+  if (item.entity_type === "folder") {
+    openFolder(item.id);
+    return;
+  }
+  openFile(item.id);
+}
+
+function downloadSearchItem(item: SearchResultItem) {
+  downloadResource(searchItemToDirectoryRow(item));
+}
+
+function feedbackSearchItem(item: SearchResultItem) {
+  openFeedbackModal({
+    id: item.id,
+    type: item.entity_type,
+    name: item.name,
+  });
 }
 
 function openUpload() {
@@ -884,26 +1012,6 @@ async function submitFeedback() {
   }
 }
 
-function formatSize(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
-  if (size < 1024 * 1024 * 1024)
-    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
-  return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
-}
-
 async function syncSessionReceiptCode() {
   try {
     const receiptCode = await ensureSessionReceiptCode();
@@ -993,10 +1101,11 @@ async function syncSessionReceiptCode() {
             当前搜索：<span class="font-medium text-slate-900">{{
               searchKeyword
             }}</span>
-            <span class="ml-2">共 {{ searchRows.length }} 条结果</span>
+            <span class="ml-2">共 {{ searchTotal }} 条结果</span>
           </div>
 
           <PublicDirectoryToolbar
+            v-if="!searchKeyword"
             :all-visible-rows-selected="allVisibleRowsSelected"
             :back-button-label="backButtonLabel"
             :can-upload-to-current-folder="canUploadToCurrentFolder"
@@ -1039,11 +1148,27 @@ async function syncSessionReceiptCode() {
           >
             {{ error }}
           </div>
+          <PublicSearchResults
+            v-else-if="searchKeyword && !searchError"
+            :active-filter="activeSearchFilter"
+            :filters="searchFilters"
+            :format-date="formatOptionalSearchDate"
+            :format-size="formatOptionalSearchSize"
+            :items="searchItems"
+            :keyword="searchKeyword"
+            :loading="searchLoading"
+            :total="searchTotal"
+            @clear="clearSearchState"
+            @download="downloadSearchItem"
+            @feedback="feedbackSearchItem"
+            @open="openSearchItem"
+            @update-filter="updateSearchFilter"
+          />
           <div
             v-else-if="sortedRows.length === 0"
             class="px-4 py-8 text-sm text-slate-500 sm:px-6"
           >
-            {{ searchKeyword ? "没有找到匹配结果。" : "当前目录为空。" }}
+            当前目录为空。
           </div>
           <PublicDirectoryCards
             v-else-if="viewMode === 'cards'"
@@ -1071,6 +1196,7 @@ async function syncSessionReceiptCode() {
           />
 
           <PublicFolderInfoPanel
+            v-if="!searchKeyword"
             :can-manage-resource-descriptions="canManageResourceDescriptions"
             :current-folder-description-html="currentFolderDescriptionHTML"
             :current-folder-detail="currentFolderDetail"

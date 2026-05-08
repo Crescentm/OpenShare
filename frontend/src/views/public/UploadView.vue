@@ -5,6 +5,7 @@ import EmptyState from "../../components/ui/EmptyState.vue";
 import PageHeader from "../../components/ui/PageHeader.vue";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
 import { HttpError, httpClient } from "../../lib/http/client";
+import { formatDateTime as formatDate } from "../../lib/formatters";
 import { clearStoredReceiptCode, ensureSessionReceiptCode, readStoredReceiptCode } from "../../lib/receiptCode";
 
 interface SubmissionLookupResponse {
@@ -130,13 +131,6 @@ async function syncSessionReceiptCode() {
   } catch {
     receiptCode.value = readStoredReceiptCode();
   }
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
 }
 
 function submissionDisplayName(item: SubmissionLookupResponse["items"][number]) {

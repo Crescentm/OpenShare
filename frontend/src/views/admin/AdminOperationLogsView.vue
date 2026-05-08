@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from "vue";
 import EmptyState from "../../components/ui/EmptyState.vue";
 import PageHeader from "../../components/ui/PageHeader.vue";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
+import { formatDateTime as formatDate } from "../../lib/formatters";
 import { httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
 
@@ -57,13 +58,6 @@ function goToPage(next: number) {
   if (next < 1 || next > totalPages.value) return;
   page.value = next;
   void loadItems();
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
 }
 
 function actionLabel(action: string) {

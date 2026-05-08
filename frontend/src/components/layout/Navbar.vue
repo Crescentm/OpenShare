@@ -3,28 +3,16 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { Check, Github, UserRound } from "lucide-vue-next";
 import { useRouter } from "vue-router";
 
-import { HttpError, httpClient } from "../../lib/http/client";
+import {
+  loginAdminSession,
+  restoreAdminSession,
+} from "../../lib/admin/session";
+import { readApiError } from "../../lib/http/helpers";
 import { useSessionStore } from "../../stores/session";
 
 export interface NavbarItem {
   label: string;
   to: string;
-}
-
-interface AdminMeResponse {
-  admin: {
-    id: string;
-    username: string;
-    display_name: string;
-    avatar_url: string;
-    role: string;
-    status: string;
-    permissions: string[];
-  };
-}
-
-interface AdminDashboardStatsResponse {
-  pending_audit_count: number;
 }
 
 const props = withDefaults(
@@ -62,15 +50,7 @@ const userButtonLabel = computed(() => {
 
 onMounted(async () => {
   document.addEventListener("pointerdown", onPointerDown);
-
-  try {
-    const response = await httpClient.get<AdminMeResponse>("/admin/me");
-    applySession(response);
-    await loadPendingAuditCount();
-  } catch {
-    sessionStore.reset();
-    sessionStore.setPendingAuditCount(0);
-  }
+  await restoreAdminSession();
 });
 
 onUnmounted(() => {
@@ -96,12 +76,7 @@ async function login() {
   loginError.value = "";
 
   try {
-    const response = await httpClient.post<AdminMeResponse>("/admin/session/login", {
-      username: username.value,
-      password: password.value,
-    });
-    applySession(response);
-    await loadPendingAuditCount();
+    await loginAdminSession(username.value, password.value);
     password.value = "";
     loginSuccess.value = true;
 
@@ -110,39 +85,10 @@ async function login() {
       panelOpen.value = false;
     }, 1100);
   } catch (error: unknown) {
-    loginError.value = readApiError(error) ?? "登录失败，请检查账号或密码。";
+    loginError.value = readApiError(error, "登录失败，请检查账号或密码。");
   } finally {
     loginLoading.value = false;
   }
-}
-
-function applySession(response: AdminMeResponse) {
-  sessionStore.setAuthenticated(true, response.admin.display_name || response.admin.username, {
-    username: response.admin.username,
-    adminId: response.admin.id,
-    avatarUrl: response.admin.avatar_url,
-    role: response.admin.role,
-    status: response.admin.status,
-    permissions: response.admin.permissions,
-  });
-}
-
-async function loadPendingAuditCount() {
-  try {
-    const response = await httpClient.get<AdminDashboardStatsResponse>("/admin/dashboard/stats");
-    sessionStore.setPendingAuditCount(response.pending_audit_count ?? 0);
-  } catch {
-    sessionStore.setPendingAuditCount(0);
-  }
-}
-
-function readApiError(error: unknown) {
-  if (!(error instanceof HttpError) || typeof error.payload !== "object" || error.payload === null) {
-    return null;
-  }
-
-  const payload = error.payload as Record<string, unknown>;
-  return typeof payload.error === "string" ? payload.error : null;
 }
 
 function onPointerDown(event: PointerEvent) {

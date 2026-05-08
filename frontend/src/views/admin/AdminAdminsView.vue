@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import EmptyState from "../../components/ui/EmptyState.vue";
 import PageHeader from "../../components/ui/PageHeader.vue";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
+import { formatDateOnly as formatDate } from "../../lib/formatters";
 import { httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
 import { useSessionStore } from "../../stores/session";
@@ -300,11 +301,6 @@ function closeStatusModal() {
   statusConfirmAdmin.value = null;
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-  }).format(new Date(value));
-}
 </script>
 
 <template>

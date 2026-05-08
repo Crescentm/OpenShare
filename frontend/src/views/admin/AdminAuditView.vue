@@ -4,6 +4,10 @@ import { onMounted, ref } from "vue";
 import EmptyState from "../../components/ui/EmptyState.vue";
 import PageHeader from "../../components/ui/PageHeader.vue";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
+import {
+  formatDateTime as formatDate,
+  formatFileSize as formatSize,
+} from "../../lib/formatters";
 import { httpClient } from "../../lib/http/client";
 import { readApiError } from "../../lib/http/helpers";
 import { useSessionStore } from "../../stores/session";
@@ -186,19 +190,6 @@ async function submitFeedbackReview() {
   } finally {
     feedbackReviewSubmitting.value = false;
   }
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function formatSize(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function notifyPendingAuditChanged() {

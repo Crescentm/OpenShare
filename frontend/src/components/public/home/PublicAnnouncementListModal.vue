@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatDateTime } from "../../../lib/formatters";
+
 interface AnnouncementItem {
   id: string;
   title: string;
@@ -24,13 +26,6 @@ defineEmits<{
   close: [];
   openDetail: [item: { id: string; label: string }];
 }>();
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
 
 function announcementAuthorName(item: AnnouncementItem) {
   return (

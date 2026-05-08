@@ -4,24 +4,15 @@ import { RouterLink, RouterView, useRoute } from "vue-router";
 import { LayoutDashboard, Inbox, Megaphone, ScrollText, Shield, UserRound } from "lucide-vue-next";
 
 import AdminSidebar, { type AdminSidebarItem } from "../components/admin/AdminSidebar.vue";
-import { HttpError, httpClient } from "../lib/http/client";
+import {
+  loadAdminPendingAuditCount,
+  loginAdminSession,
+  logoutAdminSession,
+  restoreAdminSession,
+} from "../lib/admin/session";
+import { httpClient } from "../lib/http/client";
+import { readApiError } from "../lib/http/helpers";
 import { useSessionStore } from "../stores/session";
-
-interface AdminMeResponse {
-  admin: {
-    id: string;
-    username: string;
-    display_name: string;
-    avatar_url: string;
-    role: string;
-    status: string;
-    permissions: string[];
-  };
-}
-
-interface AdminDashboardStatsResponse {
-  pending_audit_count: number;
-}
 
 const sessionStore = useSessionStore();
 const route = useRoute();
@@ -31,11 +22,10 @@ const password = ref("");
 const loading = ref(true);
 const loginLoading = ref(false);
 const loginError = ref("");
-const pendingAuditCount = ref(0);
 
 const navItems = computed<AdminSidebarItem[]>(() => [
   { to: "/admin", label: "控制台", icon: LayoutDashboard },
-  { to: "/admin/audit", label: "审核", icon: Inbox, hasAlert: pendingAuditCount.value > 0 },
+  { to: "/admin/audit", label: "审核", icon: Inbox, hasAlert: sessionStore.pendingAuditCount > 0 },
   ...(sessionStore.hasPermission("announcements") ? [{ to: "/admin/announcements", label: "公告", icon: Megaphone }] : []),
   { to: "/admin/logs", label: "操作记录", icon: ScrollText },
   { to: "/admin/permissions", label: "权限管理", icon: Shield },
@@ -53,14 +43,11 @@ onBeforeUnmount(() => {
 async function restoreSession() {
   loading.value = true;
   try {
-    const response = await httpClient.get<AdminMeResponse>("/admin/me");
-    applySession(response);
-    await loadPendingAuditCount();
-    await trackVisit();
+    if (await restoreAdminSession()) {
+      await trackVisit();
+    }
   } catch {
     sessionStore.reset();
-    pendingAuditCount.value = 0;
-    sessionStore.setPendingAuditCount(0);
   } finally {
     loading.value = false;
   }
@@ -71,60 +58,22 @@ async function login() {
   loginError.value = "";
 
   try {
-    const response = await httpClient.post<AdminMeResponse>("/admin/session/login", {
-      username: username.value,
-      password: password.value,
-    });
-    applySession(response);
-    await loadPendingAuditCount();
+    await loginAdminSession(username.value, password.value);
     await trackVisit();
     password.value = "";
   } catch (error: unknown) {
-    loginError.value = readApiError(error) ?? "登录失败，请重试。";
+    loginError.value = readApiError(error, "登录失败，请重试。");
   } finally {
     loginLoading.value = false;
   }
 }
 
 async function logout() {
-  await httpClient.post("/admin/session/logout");
-  pendingAuditCount.value = 0;
-  sessionStore.setPendingAuditCount(0);
-  sessionStore.reset();
-}
-
-function applySession(response: AdminMeResponse) {
-  sessionStore.setAuthenticated(true, response.admin.display_name || response.admin.username, {
-    username: response.admin.username,
-    adminId: response.admin.id,
-    avatarUrl: response.admin.avatar_url,
-    role: response.admin.role,
-    status: response.admin.status,
-    permissions: response.admin.permissions,
-  });
-}
-
-async function loadPendingAuditCount() {
-  try {
-    const response = await httpClient.get<AdminDashboardStatsResponse>("/admin/dashboard/stats");
-    pendingAuditCount.value = response.pending_audit_count ?? 0;
-    sessionStore.setPendingAuditCount(pendingAuditCount.value);
-  } catch {
-    pendingAuditCount.value = 0;
-    sessionStore.setPendingAuditCount(0);
-  }
+  await logoutAdminSession();
 }
 
 function handlePendingAuditRefresh() {
-  void loadPendingAuditCount();
-}
-
-function readApiError(error: unknown) {
-  if (!(error instanceof HttpError) || typeof error.payload !== "object" || error.payload === null) {
-    return null;
-  }
-  const payload = error.payload as Record<string, unknown>;
-  return typeof payload.error === "string" ? payload.error : null;
+  void loadAdminPendingAuditCount();
 }
 
 async function trackVisit() {
