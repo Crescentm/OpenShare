@@ -15,10 +15,12 @@ services:
       OPENSHARE_SEARCH_ENGINE_API_KEY: ${MEILI_MASTER_KEY:-openshare-development-master-key-change-me}
       OPENSHARE_SEARCH_ENGINE_INDEX_NAME: ${OPENSHARE_SEARCH_ENGINE_INDEX_NAME:-openshare_resources}
       OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH: ${OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH:-config/search_semantics.openwhu.json}
+      HOME: ${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
       GIN_MODE: release
     volumes:
       - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
       - ${OPENSHARE_CONFIG:-./config/config.local.json}:/app/config/config.local.json
+      - ${OPENSHARE_IMPORTS_PATH:-./imports}:${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
   openshare-worker:
     image: openshare:local
     container_name: ${OPENSHARE_WORKER_CONTAINER_NAME:-openshare-worker}
@@ -31,10 +33,12 @@ services:
       OPENSHARE_SEARCH_ENGINE_API_KEY: ${MEILI_MASTER_KEY:-openshare-development-master-key-change-me}
       OPENSHARE_SEARCH_ENGINE_INDEX_NAME: ${OPENSHARE_SEARCH_ENGINE_INDEX_NAME:-openshare_resources}
       OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH: ${OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH:-config/search_semantics.openwhu.json}
+      HOME: ${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
       GIN_MODE: release
     volumes:
       - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
       - ${OPENSHARE_CONFIG:-./config/config.local.json}:/app/config/config.local.json
+      - ${OPENSHARE_IMPORTS_PATH:-./imports}:${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
   meilisearch:
     image: getmeili/meilisearch:v1
     container_name: ${MEILI_CONTAINER_NAME:-openshare-meilisearch}

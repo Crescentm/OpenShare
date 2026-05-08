@@ -25,6 +25,8 @@ echo "  Admin        : http://127.0.0.1:${OPENSHARE_HTTP_PORT}/admin"
 echo "  API Health   : http://127.0.0.1:${OPENSHARE_HTTP_PORT}/healthz"
 echo "  Meilisearch  : http://127.0.0.1:${MEILI_HTTP_PORT}/"
 echo "  Runtime data : $OPENSHARE_TEST_RUNTIME_DIR"
+echo "  Data path    : $OPENSHARE_DATA_PATH"
+echo "  Import path  : $OPENSHARE_IMPORTS_PATH -> $OPENSHARE_IMPORTS_CONTAINER_PATH"
 echo
 
 if [[ -n "$admin_line" ]]; then
