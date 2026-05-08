@@ -182,35 +182,46 @@ func (s *PublicCatalogService) GetPublicFolderDetail(ctx context.Context, folder
 		return nil, ErrFolderNotFound
 	}
 
-	current, err := s.repository.FindPublicFolderByID(ctx, trimmed)
+	ancestors, err := s.repository.ListPublicFolderAncestors(ctx, trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("find public folder: %w", err)
+		return nil, fmt.Errorf("list public folder ancestors: %w", err)
 	}
-	if current == nil {
+	if len(ancestors) == 0 || ancestors[0].ID != trimmed {
 		return nil, ErrFolderNotFound
 	}
 
-	breadcrumbs := []PublicFolderBreadcrumbItem{{ID: current.ID, Name: current.Name}}
-	parentID := current.ParentID
-	for parentID != nil {
-		parent, err := s.repository.FindPublicFolderByID(ctx, *parentID)
-		if err != nil {
-			return nil, fmt.Errorf("find public folder ancestor: %w", err)
-		}
-		if parent == nil {
+	seen := make(map[string]struct{}, len(ancestors))
+	for index, folder := range ancestors {
+		folderID := strings.TrimSpace(folder.ID)
+		if folderID == "" {
 			return nil, ErrFolderNotFound
 		}
-		breadcrumbs = append(breadcrumbs, PublicFolderBreadcrumbItem{
-			ID:   parent.ID,
-			Name: parent.Name,
-		})
-		parentID = parent.ParentID
+		if _, ok := seen[folderID]; ok {
+			return nil, ErrFolderNotFound
+		}
+		seen[folderID] = struct{}{}
+
+		parentID := strings.TrimSpace(optionalFolderID(folder.ParentID))
+		if parentID == "" {
+			break
+		}
+		if index+1 >= len(ancestors) || ancestors[index+1].ID != parentID {
+			return nil, ErrFolderNotFound
+		}
 	}
 
+	breadcrumbs := make([]PublicFolderBreadcrumbItem, 0, len(ancestors))
+	for _, folder := range ancestors {
+		breadcrumbs = append(breadcrumbs, PublicFolderBreadcrumbItem{
+			ID:   folder.ID,
+			Name: folder.Name,
+		})
+	}
 	for i, j := 0, len(breadcrumbs)-1; i < j; i, j = i+1, j-1 {
 		breadcrumbs[i], breadcrumbs[j] = breadcrumbs[j], breadcrumbs[i]
 	}
 
+	current := ancestors[0]
 	return &PublicFolderDetail{
 		ID:            current.ID,
 		Name:          current.Name,
@@ -222,6 +233,13 @@ func (s *PublicCatalogService) GetPublicFolderDetail(ctx context.Context, folder
 		TotalSize:     current.TotalSize,
 		UpdatedAt:     current.UpdatedAt,
 	}, nil
+}
+
+func optionalFolderID(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 type normalizedPublicFolderFileListInput struct {

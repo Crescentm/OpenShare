@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -164,4 +165,59 @@ func (r *PublicCatalogRepository) FindPublicFolderByID(ctx context.Context, fold
 	}
 
 	return &folder, nil
+}
+
+func (r *PublicCatalogRepository) ListPublicFolderAncestors(ctx context.Context, folderID string) ([]PublicFolderRow, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return nil, nil
+	}
+
+	var rows []PublicFolderRow
+	err := r.db.WithContext(ctx).
+		Raw(`
+WITH RECURSIVE folder_ancestors(
+	id,
+	parent_id,
+	name,
+	description,
+	updated_at,
+	file_count,
+	download_count,
+	total_size,
+	source_path,
+	depth
+) AS (
+	SELECT id, parent_id, name, description, updated_at, file_count, download_count, total_size, source_path, 0
+	FROM folders
+	WHERE id = ?
+	UNION ALL
+	SELECT
+		parent.id,
+		parent.parent_id,
+		parent.name,
+		parent.description,
+		parent.updated_at,
+		parent.file_count,
+		parent.download_count,
+		parent.total_size,
+		parent.source_path,
+		folder_ancestors.depth + 1
+	FROM folders AS parent
+	JOIN folder_ancestors ON folder_ancestors.parent_id = parent.id
+	WHERE folder_ancestors.depth < 128
+)
+SELECT id, parent_id, name, description, updated_at, file_count, download_count, total_size
+FROM folder_ancestors
+WHERE name NOT LIKE ?
+	AND (COALESCE(source_path, '') = '' OR COALESCE(source_path, '') NOT LIKE ?)
+ORDER BY depth ASC
+`, folderID, ".%", "%/.%").
+		Scan(&rows).
+		Error
+	if err != nil {
+		return nil, fmt.Errorf("list public folder ancestors: %w", err)
+	}
+
+	return rows, nil
 }

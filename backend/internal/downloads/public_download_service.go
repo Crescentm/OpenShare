@@ -232,49 +232,26 @@ func (s *PublicDownloadService) buildFilePath(ctx context.Context, file *model.F
 		return "主页根目录", nil
 	}
 
-	folderIDs := make([]string, 0, 8)
-	seen := make(map[string]struct{}, 8)
-	currentID := strings.TrimSpace(*file.FolderID)
-
-	for currentID != "" {
-		if _, ok := seen[currentID]; ok {
-			break
-		}
-		seen[currentID] = struct{}{}
-		folderIDs = append(folderIDs, currentID)
-
-		folders, err := s.repository.ListManagedFoldersByIDs(ctx, []string{currentID})
-		if err != nil {
-			return "", err
-		}
-		if len(folders) == 0 || folders[0].ParentID == nil {
-			break
-		}
-		currentID = strings.TrimSpace(*folders[0].ParentID)
-	}
-
-	folders, err := s.repository.ListManagedFoldersByIDs(ctx, folderIDs)
+	folders, err := s.repository.ListManagedFolderAncestors(ctx, strings.TrimSpace(*file.FolderID))
 	if err != nil {
 		return "", err
 	}
-
-	byID := make(map[string]ManagedFolderNode, len(folders))
-	for _, folder := range folders {
-		byID[folder.ID] = folder
+	if len(folders) == 0 {
+		return "主页根目录", nil
 	}
 
-	segments := make([]string, 0, len(folderIDs)+1)
-	currentID = strings.TrimSpace(*file.FolderID)
-	for currentID != "" {
-		folder, ok := byID[currentID]
-		if !ok {
+	segments := make([]string, 0, len(folders))
+	seen := make(map[string]struct{}, len(folders))
+	for _, folder := range folders {
+		folderID := strings.TrimSpace(folder.ID)
+		if folderID == "" {
 			break
 		}
+		if _, ok := seen[folderID]; ok {
+			break
+		}
+		seen[folderID] = struct{}{}
 		segments = append([]string{folder.Name}, segments...)
-		if folder.ParentID == nil {
-			break
-		}
-		currentID = strings.TrimSpace(*folder.ParentID)
 	}
 
 	if len(segments) == 0 {
@@ -503,22 +480,23 @@ func (s *PublicDownloadService) PrepareFolderDownload(ctx context.Context, folde
 }
 
 func (s *PublicDownloadService) resolveManagedRootPath(ctx context.Context, folder *model.Folder) (string, error) {
-	current := folder
-	for current != nil && current.ParentID != nil && strings.TrimSpace(*current.ParentID) != "" {
-		parent, err := s.repository.FindManagedFolderByID(ctx, strings.TrimSpace(*current.ParentID))
-		if err != nil {
-			return "", err
-		}
-		if parent == nil {
-			return "", ErrDownloadFolderNotFound
-		}
-		current = parent
-	}
-
-	if current == nil || current.SourcePath == nil || strings.TrimSpace(*current.SourcePath) == "" {
+	if folder == nil || strings.TrimSpace(folder.ID) == "" {
 		return "", ErrDownloadFolderNotFound
 	}
-	return filepath.Clean(strings.TrimSpace(*current.SourcePath)), nil
+
+	folders, err := s.repository.ListManagedFolderAncestors(ctx, folder.ID)
+	if err != nil {
+		return "", err
+	}
+	if len(folders) == 0 {
+		return "", ErrDownloadFolderNotFound
+	}
+
+	root := folders[len(folders)-1]
+	if root.SourcePath == nil || strings.TrimSpace(*root.SourcePath) == "" {
+		return "", ErrDownloadFolderNotFound
+	}
+	return filepath.Clean(strings.TrimSpace(*root.SourcePath)), nil
 }
 
 func (s *PublicDownloadService) RecordDownload(ctx context.Context, fileID string) error {

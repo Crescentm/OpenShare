@@ -105,6 +105,38 @@ func (r *PublicDownloadRepository) ListManagedFoldersByIDs(ctx context.Context, 
 	return rows, nil
 }
 
+func (r *PublicDownloadRepository) ListManagedFolderAncestors(ctx context.Context, folderID string) ([]ManagedFolderNode, error) {
+	folderID = strings.TrimSpace(folderID)
+	if folderID == "" {
+		return nil, nil
+	}
+
+	var rows []ManagedFolderNode
+	err := r.db.WithContext(ctx).
+		Raw(`
+WITH RECURSIVE folder_ancestors(id, parent_id, name, source_path, depth) AS (
+	SELECT id, parent_id, name, source_path, 0
+	FROM folders
+	WHERE id = ?
+	UNION ALL
+	SELECT parent.id, parent.parent_id, parent.name, parent.source_path, folder_ancestors.depth + 1
+	FROM folders AS parent
+	JOIN folder_ancestors ON folder_ancestors.parent_id = parent.id
+	WHERE folder_ancestors.depth < 128
+)
+SELECT id, parent_id, name, source_path
+FROM folder_ancestors
+ORDER BY depth ASC
+`, folderID).
+		Scan(&rows).
+		Error
+	if err != nil {
+		return nil, fmt.Errorf("list managed folder ancestors: %w", err)
+	}
+
+	return rows, nil
+}
+
 func (r *PublicDownloadRepository) IncrementDownloadCount(ctx context.Context, fileID string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var file model.File
