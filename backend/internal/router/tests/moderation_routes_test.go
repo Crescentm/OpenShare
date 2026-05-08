@@ -52,6 +52,9 @@ func TestListPendingSubmissions(t *testing.T) {
 			ReceiptCode string `json:"receipt_code"`
 			Status      string `json:"status"`
 		} `json:"items"`
+		Page     int   `json:"page"`
+		PageSize int   `json:"page_size"`
+		Total    int64 `json:"total"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response failed: %v", err)
@@ -61,6 +64,58 @@ func TestListPendingSubmissions(t *testing.T) {
 	}
 	if response.Items[0].ReceiptCode != "PENDING01" {
 		t.Fatalf("unexpected receipt code %q", response.Items[0].ReceiptCode)
+	}
+	if response.Page != 1 || response.PageSize != 20 || response.Total != 1 {
+		t.Fatalf("unexpected pagination metadata: %+v", response)
+	}
+}
+
+func TestListPendingSubmissionsIsPaginated(t *testing.T) {
+	cfg := newRouterTestConfig(t)
+	db := newRouterTestDB(t)
+	admin := createRouterTestAdminWithAccess(t, db, adminAccess{
+		username: "reviewer",
+		password: "s3cret-pass",
+		role:     string(model.AdminRoleAdmin),
+		permissions: []model.AdminPermission{
+			model.AdminPermissionReviewSubmissions,
+		},
+	})
+	createPendingModerationRecord(t, cfg, db, "PAGE01")
+	createPendingModerationRecord(t, cfg, db, "PAGE02")
+	createPendingModerationRecord(t, cfg, db, "PAGE03")
+	manager := newRouterSessionManager(db)
+	engine := router.New(db, cfg, manager)
+
+	cookieValue, _, err := manager.Create(t.Context(), admin)
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/submissions/pending?page=2&page_size=2", nil)
+	request.AddCookie(&http.Cookie{Name: manager.CookieName(), Value: cookieValue, Path: "/"})
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Items    []struct{} `json:"items"`
+		Page     int        `json:"page"`
+		PageSize int        `json:"page_size"`
+		Total    int64      `json:"total"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.Page != 2 || response.PageSize != 2 || response.Total != 3 {
+		t.Fatalf("unexpected pagination metadata: %+v", response)
+	}
+	if len(response.Items) != 1 {
+		t.Fatalf("expected 1 item on second page, got %d", len(response.Items))
 	}
 }
 

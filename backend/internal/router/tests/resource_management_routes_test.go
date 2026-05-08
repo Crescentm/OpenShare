@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -54,6 +55,41 @@ func TestAdminUpdateFolderAllowsSameNameInDifferentDirectories(t *testing.T) {
 	}
 	if updated.SourcePath == nil || filepath.Base(*updated.SourcePath) != "半导体物理" {
 		t.Fatalf("expected folder source path renamed, got %+v", updated.SourcePath)
+	}
+}
+
+func TestAdminListManagedFilesIsPaginated(t *testing.T) {
+	db, cookie, engine := newResourceManagementRouteEnv(t)
+
+	folderID := createPublicTestFolder(t, db, "分页目录")
+	createManagedTestFile(t, db, &folderID, "first.pdf")
+	createManagedTestFile(t, db, &folderID, "second.pdf")
+	createManagedTestFile(t, db, &folderID, "third.pdf")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/resources/files?page=2&page_size=2", nil)
+	request.AddCookie(cookie)
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Items    []struct{} `json:"items"`
+		Page     int        `json:"page"`
+		PageSize int        `json:"page_size"`
+		Total    int64      `json:"total"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if response.Page != 2 || response.PageSize != 2 || response.Total != 3 {
+		t.Fatalf("unexpected pagination metadata: %+v", response)
+	}
+	if len(response.Items) != 1 {
+		t.Fatalf("expected 1 item on second page, got %d", len(response.Items))
 	}
 }
 

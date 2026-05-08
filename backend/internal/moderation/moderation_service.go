@@ -22,6 +22,13 @@ var (
 	ErrSubmissionReviewReasonRequired = errors.New("submission review reason is required")
 	ErrApproveNoFolder                = errors.New("cannot approve: file has no target folder")
 	ErrApproveFolderMissing           = errors.New("cannot approve: target folder not found or has no source path")
+	ErrInvalidModerationQuery         = errors.New("invalid moderation query")
+)
+
+const (
+	defaultPendingSubmissionPage     = 1
+	defaultPendingSubmissionPageSize = 20
+	maxPendingSubmissionPageSize     = 100
 )
 
 type ModerationService struct {
@@ -43,6 +50,18 @@ type PendingSubmissionItem struct {
 	MimeType     string                 `json:"mime_type"`
 }
 
+type PendingSubmissionListInput struct {
+	Page     int
+	PageSize int
+}
+
+type PendingSubmissionListResult struct {
+	Items    []PendingSubmissionItem `json:"items"`
+	Page     int                     `json:"page"`
+	PageSize int                     `json:"page_size"`
+	Total    int64                   `json:"total"`
+}
+
 type ReviewResult struct {
 	SubmissionID string                 `json:"submission_id"`
 	Status       model.SubmissionStatus `json:"status"`
@@ -58,8 +77,16 @@ func NewModerationService(repository *ModerationRepository, storageService *stor
 	}
 }
 
-func (s *ModerationService) ListPendingSubmissions(ctx context.Context) ([]PendingSubmissionItem, error) {
-	rows, err := s.repository.ListPendingSubmissions(ctx)
+func (s *ModerationService) ListPendingSubmissions(ctx context.Context, input PendingSubmissionListInput) (*PendingSubmissionListResult, error) {
+	page, pageSize, err := normalizePendingSubmissionPagination(input.Page, input.PageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, total, err := s.repository.ListPendingSubmissions(ctx, PendingSubmissionListQuery{
+		Offset: (page - 1) * pageSize,
+		Limit:  pageSize,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list pending submissions: %w", err)
 	}
@@ -94,7 +121,25 @@ func (s *ModerationService) ListPendingSubmissions(ctx context.Context) ([]Pendi
 		})
 	}
 
-	return items, nil
+	return &PendingSubmissionListResult{
+		Items:    items,
+		Page:     page,
+		PageSize: pageSize,
+		Total:    total,
+	}, nil
+}
+
+func normalizePendingSubmissionPagination(page int, pageSize int) (int, int, error) {
+	if page == 0 {
+		page = defaultPendingSubmissionPage
+	}
+	if pageSize == 0 {
+		pageSize = defaultPendingSubmissionPageSize
+	}
+	if page < 1 || pageSize < 1 || pageSize > maxPendingSubmissionPageSize {
+		return 0, 0, ErrInvalidModerationQuery
+	}
+	return page, pageSize, nil
 }
 
 func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID string, adminID string, operatorIP string) (*ReviewResult, error) {

@@ -3,6 +3,7 @@ package moderation
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,13 +29,31 @@ func NewModerationHandler(service *ModerationService, indexNotifier SearchIndexN
 }
 
 func (h *ModerationHandler) ListPendingSubmissions(ctx *gin.Context) {
-	items, err := h.service.ListPendingSubmissions(ctx.Request.Context())
+	page, err := parseIntQuery(ctx.Query("page"))
 	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page"})
+		return
+	}
+	pageSize, err := parseIntQuery(ctx.Query("page_size"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page_size"})
+		return
+	}
+
+	result, err := h.service.ListPendingSubmissions(ctx.Request.Context(), PendingSubmissionListInput{
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		if errors.Is(err, ErrInvalidModerationQuery) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid moderation query"})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list pending submissions"})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"items": items})
+	ctx.JSON(http.StatusOK, result)
 }
 
 func (h *ModerationHandler) ApproveSubmission(ctx *gin.Context) {
@@ -100,4 +119,11 @@ func (h *ModerationHandler) RejectSubmission(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, result)
+}
+
+func parseIntQuery(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(raw)
 }

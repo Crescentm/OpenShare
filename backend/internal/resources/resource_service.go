@@ -14,6 +14,13 @@ var (
 	ErrManagedFolderNotFound = errors.New("managed folder not found")
 	ErrManagedFolderConflict = errors.New("managed folder conflict")
 	ErrInvalidResourceEdit   = errors.New("invalid resource edit")
+	ErrInvalidResourceQuery  = errors.New("invalid resource query")
+)
+
+const (
+	defaultManagedFilePage     = 1
+	defaultManagedFilePageSize = 20
+	maxManagedFilePageSize     = 100
 )
 
 type ResourceManagementService struct {
@@ -34,8 +41,17 @@ type ManagedFileItem struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+type ManagedFileListResult struct {
+	Items    []ManagedFileItem `json:"items"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"page_size"`
+	Total    int64             `json:"total"`
+}
+
 type ListManagedFilesInput struct {
-	Query string
+	Query    string
+	Page     int
+	PageSize int
 }
 
 type UpdateManagedFileInput struct {
@@ -60,8 +76,17 @@ func NewResourceManagementService(repo *ResourceManagementRepository, storageSer
 	}
 }
 
-func (s *ResourceManagementService) ListFiles(ctx context.Context, input ListManagedFilesInput) ([]ManagedFileItem, error) {
-	rows, err := s.repo.ListFiles(ctx, input.Query)
+func (s *ResourceManagementService) ListFiles(ctx context.Context, input ListManagedFilesInput) (*ManagedFileListResult, error) {
+	page, pageSize, err := normalizeManagedFileListPagination(input.Page, input.PageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, total, err := s.repo.ListFiles(ctx, ManagedFileListQuery{
+		Query:  input.Query,
+		Offset: (page - 1) * pageSize,
+		Limit:  pageSize,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -79,5 +104,23 @@ func (s *ResourceManagementService) ListFiles(ctx context.Context, input ListMan
 			UpdatedAt:     row.UpdatedAt,
 		})
 	}
-	return items, nil
+	return &ManagedFileListResult{
+		Items:    items,
+		Page:     page,
+		PageSize: pageSize,
+		Total:    total,
+	}, nil
+}
+
+func normalizeManagedFileListPagination(page int, pageSize int) (int, int, error) {
+	if page == 0 {
+		page = defaultManagedFilePage
+	}
+	if pageSize == 0 {
+		pageSize = defaultManagedFilePageSize
+	}
+	if page < 1 || pageSize < 1 || pageSize > maxManagedFilePageSize {
+		return 0, 0, ErrInvalidResourceQuery
+	}
+	return page, pageSize, nil
 }

@@ -35,14 +35,27 @@ type PendingSubmissionRecord struct {
 	Submission model.Submission
 }
 
+type PendingSubmissionListQuery struct {
+	Offset int
+	Limit  int
+}
+
 func NewModerationRepository(db *gorm.DB) *ModerationRepository {
 	return &ModerationRepository{db: db}
 }
 
-func (r *ModerationRepository) ListPendingSubmissions(ctx context.Context) ([]PendingSubmissionRow, error) {
-	var rows []PendingSubmissionRow
-	err := r.db.WithContext(ctx).
+func (r *ModerationRepository) ListPendingSubmissions(ctx context.Context, query PendingSubmissionListQuery) ([]PendingSubmissionRow, int64, error) {
+	base := r.db.WithContext(ctx).
 		Table("submissions").
+		Where("submissions.status = ?", model.SubmissionStatusPending)
+
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("count pending submissions: %w", err)
+	}
+
+	var rows []PendingSubmissionRow
+	listQuery := base.
 		Select(`
 				submissions.id AS submission_id,
 				submissions.receipt_code AS receipt_code,
@@ -56,15 +69,15 @@ func (r *ModerationRepository) ListPendingSubmissions(ctx context.Context) ([]Pe
 			submissions.size AS size,
 			submissions.mime_type AS mime_type
 		`).
-		Where("submissions.status = ?", model.SubmissionStatusPending).
-		Order("submissions.created_at DESC").
-		Scan(&rows).
-		Error
-	if err != nil {
-		return nil, fmt.Errorf("list pending submissions: %w", err)
+		Order("submissions.created_at DESC, submissions.id DESC")
+	if query.Limit > 0 {
+		listQuery = listQuery.Offset(query.Offset).Limit(query.Limit)
+	}
+	if err := listQuery.Scan(&rows).Error; err != nil {
+		return nil, 0, fmt.Errorf("list pending submissions: %w", err)
 	}
 
-	return rows, nil
+	return rows, total, nil
 }
 
 func (r *ModerationRepository) FindPendingSubmission(ctx context.Context, submissionID string) (*PendingSubmissionRecord, error) {

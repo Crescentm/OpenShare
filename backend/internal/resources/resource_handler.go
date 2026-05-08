@@ -3,6 +3,7 @@ package resources
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -47,14 +48,31 @@ func NewResourceManagementHandler(
 }
 
 func (h *ResourceManagementHandler) ListFiles(ctx *gin.Context) {
-	items, err := h.service.ListFiles(ctx.Request.Context(), ListManagedFilesInput{
-		Query: ctx.Query("q"),
+	page, err := parseIntQuery(ctx.Query("page"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page"})
+		return
+	}
+	pageSize, err := parseIntQuery(ctx.Query("page_size"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page_size"})
+		return
+	}
+
+	result, err := h.service.ListFiles(ctx.Request.Context(), ListManagedFilesInput{
+		Query:    ctx.Query("q"),
+		Page:     page,
+		PageSize: pageSize,
 	})
 	if err != nil {
+		if errors.Is(err, ErrInvalidResourceQuery) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource query"})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list resources"})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"items": items})
+	ctx.JSON(http.StatusOK, result)
 }
 
 func (h *ResourceManagementHandler) UpdateFile(ctx *gin.Context) {
@@ -205,4 +223,11 @@ func (h *ResourceManagementHandler) notifySearchIndex(reason string) {
 	if h.indexNotifier != nil {
 		h.indexNotifier.NotifySearchResourcesChanged(reason)
 	}
+}
+
+func parseIntQuery(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(raw)
 }

@@ -41,9 +41,29 @@ type FolderTreeNode struct {
 	ID string
 }
 
-func (r *ResourceManagementRepository) ListFiles(ctx context.Context, query string) ([]ManagedFileRow, error) {
-	dbq := r.db.WithContext(ctx).
+type ManagedFileListQuery struct {
+	Query  string
+	Offset int
+	Limit  int
+}
+
+func (r *ResourceManagementRepository) ListFiles(ctx context.Context, query ManagedFileListQuery) ([]ManagedFileRow, int64, error) {
+	base := r.db.WithContext(ctx).
 		Table("files").
+		Joins("LEFT JOIN folders ON folders.id = files.folder_id")
+	base = ApplyVisibleManagedFileFilter(base, "files.name", "files.folder_id", "folders.source_path")
+	if trimmed := strings.TrimSpace(query.Query); trimmed != "" {
+		like := "%" + trimmed + "%"
+		base = base.Where("files.name LIKE ? OR files.description LIKE ?", like, like)
+	}
+
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("count managed files: %w", err)
+	}
+
+	var rows []ManagedFileRow
+	listQuery := base.
 		Select(`
 			files.id,
 			files.name,
@@ -55,18 +75,14 @@ func (r *ResourceManagementRepository) ListFiles(ctx context.Context, query stri
 			files.updated_at,
 			COALESCE(folders.name, '') AS folder_name
 		`).
-		Joins("LEFT JOIN folders ON folders.id = files.folder_id")
-	dbq = ApplyVisibleManagedFileFilter(dbq, "files.name", "files.folder_id", "folders.source_path")
-	if trimmed := strings.TrimSpace(query); trimmed != "" {
-		like := "%" + trimmed + "%"
-		dbq = dbq.Where("files.name LIKE ? OR files.description LIKE ?", like, like)
+		Order("files.updated_at DESC, files.id DESC")
+	if query.Limit > 0 {
+		listQuery = listQuery.Offset(query.Offset).Limit(query.Limit)
 	}
-
-	var rows []ManagedFileRow
-	if err := dbq.Order("files.updated_at DESC, files.id DESC").Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("list managed files: %w", err)
+	if err := listQuery.Scan(&rows).Error; err != nil {
+		return nil, 0, fmt.Errorf("list managed files: %w", err)
 	}
-	return rows, nil
+	return rows, total, nil
 }
 
 func (r *ResourceManagementRepository) FindFileByID(ctx context.Context, fileID string) (*model.File, error) {

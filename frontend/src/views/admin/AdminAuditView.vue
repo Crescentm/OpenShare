@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import EmptyState from "../../components/ui/EmptyState.vue";
 import PageHeader from "../../components/ui/PageHeader.vue";
@@ -44,6 +44,12 @@ const submissions = ref<PendingSubmissionItem[]>([]);
 const submissionsLoading = ref(false);
 const submissionsLoaded = ref(false);
 const submissionsError = ref("");
+const submissionPage = ref(1);
+const submissionPageSize = 20;
+const submissionTotal = ref(0);
+const submissionTotalPages = computed(() =>
+  Math.max(1, Math.ceil(submissionTotal.value / submissionPageSize)),
+);
 const submissionActionMessage = ref("");
 const submissionActionError = ref("");
 const submissionRejectTarget = ref<PendingSubmissionItem | null>(null);
@@ -74,8 +80,16 @@ async function loadSubmissions() {
   submissionsLoading.value = true;
   submissionsError.value = "";
   try {
-    const response = await httpClient.get<{ items: PendingSubmissionItem[] }>("/admin/submissions/pending");
+    const params = new URLSearchParams({
+      page: String(submissionPage.value),
+      page_size: String(submissionPageSize),
+    });
+    const response = await httpClient.get<{
+      items: PendingSubmissionItem[];
+      total: number;
+    }>(`/admin/submissions/pending?${params.toString()}`);
     submissions.value = response.items ?? [];
+    submissionTotal.value = response.total ?? 0;
   } catch (err: unknown) {
     submissionsError.value = readApiError(err, "加载上传审核列表失败。");
   } finally {
@@ -84,13 +98,21 @@ async function loadSubmissions() {
   }
 }
 
+async function goToSubmissionPage(next: number) {
+  if (next < 1 || next > submissionTotalPages.value) {
+    return;
+  }
+  submissionPage.value = next;
+  await loadSubmissions();
+}
+
 async function approveSubmission(item: PendingSubmissionItem) {
   submissionActionMessage.value = "";
   submissionActionError.value = "";
   try {
     await httpClient.post(`/admin/submissions/${item.submission_id}/approve`);
     submissionActionMessage.value = `《${item.name}》已审核通过。`;
-    await loadSubmissions();
+    await reloadCurrentSubmissionPage();
     notifyPendingAuditChanged();
   } catch (err: unknown) {
     submissionActionError.value = readApiError(err, "审核通过失败。");
@@ -124,13 +146,25 @@ async function rejectSubmission() {
       review_reason: submissionReviewReason.value.trim(),
     });
     submissionActionMessage.value = `《${submissionRejectTarget.value.name}》已驳回。`;
-    await loadSubmissions();
+    await reloadCurrentSubmissionPage();
     notifyPendingAuditChanged();
     closeRejectSubmissionDialog();
   } catch (err: unknown) {
     submissionActionError.value = readApiError(err, "驳回失败。");
   } finally {
     submissionRejectSubmitting.value = false;
+  }
+}
+
+async function reloadCurrentSubmissionPage() {
+  await loadSubmissions();
+  if (
+    submissionPage.value > 1 &&
+    submissions.value.length === 0 &&
+    submissionTotal.value > 0
+  ) {
+    submissionPage.value -= 1;
+    await loadSubmissions();
   }
 }
 
@@ -239,6 +273,28 @@ function notifyPendingAuditChanged() {
             </div>
           </div>
           <EmptyState v-if="!submissionsLoading && submissions.length === 0" title="当前没有待审核资料" />
+          <div
+            v-if="submissionTotalPages > 1"
+            class="flex items-center justify-center gap-3 pt-2"
+          >
+            <button
+              class="btn-secondary"
+              :disabled="submissionPage <= 1 || submissionsLoading"
+              @click="goToSubmissionPage(submissionPage - 1)"
+            >
+              上一页
+            </button>
+            <span class="text-sm text-slate-500">
+              {{ submissionPage }} / {{ submissionTotalPages }}
+            </span>
+            <button
+              class="btn-secondary"
+              :disabled="submissionPage >= submissionTotalPages || submissionsLoading"
+              @click="goToSubmissionPage(submissionPage + 1)"
+            >
+              下一页
+            </button>
+          </div>
         </div>
       </SurfaceCard>
 
