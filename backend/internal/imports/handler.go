@@ -11,13 +11,18 @@ import (
 )
 
 type ImportHandler struct {
-	service      *ImportService
-	authService  *admin.AdminAuthService
-	syncNotifier ManagedRootSyncNotifier
+	service       *ImportService
+	authService   *admin.AdminAuthService
+	syncNotifier  ManagedRootSyncNotifier
+	indexNotifier SearchIndexNotifier
 }
 
 type ManagedRootSyncNotifier interface {
 	NotifyManagedRootsChanged()
+}
+
+type SearchIndexNotifier interface {
+	NotifySearchResourcesChanged(reason string)
 }
 
 type importLocalRequest struct {
@@ -47,8 +52,14 @@ func NewImportHandler(
 	service *ImportService,
 	authService *admin.AdminAuthService,
 	syncNotifier ManagedRootSyncNotifier,
+	indexNotifier SearchIndexNotifier,
 ) *ImportHandler {
-	return &ImportHandler{service: service, authService: authService, syncNotifier: syncNotifier}
+	return &ImportHandler{
+		service:       service,
+		authService:   authService,
+		syncNotifier:  syncNotifier,
+		indexNotifier: indexNotifier,
+	}
 }
 
 func (h *ImportHandler) ImportLocalDirectory(ctx *gin.Context) {
@@ -85,6 +96,9 @@ func (h *ImportHandler) ImportLocalDirectory(ctx *gin.Context) {
 	if h.syncNotifier != nil {
 		h.syncNotifier.NotifyManagedRootsChanged()
 	}
+	if h.indexNotifier != nil {
+		h.indexNotifier.NotifySearchResourcesChanged("local_import")
+	}
 
 	ctx.JSON(http.StatusOK, result)
 }
@@ -110,6 +124,10 @@ func (h *ImportHandler) RescanManagedDirectory(ctx *gin.Context) {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rescan managed directory"})
 		}
 		return
+	}
+
+	if h.indexNotifier != nil {
+		h.indexNotifier.NotifySearchResourcesChanged("managed_directory_rescan")
 	}
 
 	ctx.JSON(http.StatusOK, result)
@@ -176,6 +194,9 @@ func (h *ImportHandler) UnmanageManagedDirectory(ctx *gin.Context) {
 
 	if h.syncNotifier != nil {
 		h.syncNotifier.NotifyManagedRootsChanged()
+	}
+	if h.indexNotifier != nil {
+		h.indexNotifier.NotifySearchResourcesChanged("managed_directory_unmanage")
 	}
 
 	ctx.Status(http.StatusNoContent)

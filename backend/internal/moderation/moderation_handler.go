@@ -10,7 +10,12 @@ import (
 )
 
 type ModerationHandler struct {
-	service *ModerationService
+	service       *ModerationService
+	indexNotifier SearchIndexNotifier
+}
+
+type SearchIndexNotifier interface {
+	NotifySearchResourcesChanged(reason string)
 }
 
 type reviewSubmissionRequest struct {
@@ -18,8 +23,8 @@ type reviewSubmissionRequest struct {
 	RejectReason string `json:"reject_reason"`
 }
 
-func NewModerationHandler(service *ModerationService) *ModerationHandler {
-	return &ModerationHandler{service: service}
+func NewModerationHandler(service *ModerationService, indexNotifier SearchIndexNotifier) *ModerationHandler {
+	return &ModerationHandler{service: service, indexNotifier: indexNotifier}
 }
 
 func (h *ModerationHandler) ListPendingSubmissions(ctx *gin.Context) {
@@ -52,6 +57,10 @@ func (h *ModerationHandler) ApproveSubmission(ctx *gin.Context) {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to approve submission"})
 		}
 		return
+	}
+
+	if h.indexNotifier != nil {
+		h.indexNotifier.NotifySearchResourcesChanged("submission_approved")
 	}
 
 	ctx.JSON(http.StatusOK, result)

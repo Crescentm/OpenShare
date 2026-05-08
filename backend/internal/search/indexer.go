@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -19,14 +20,17 @@ import (
 const (
 	searchIndexBatchSize    = 500
 	searchIndexTaskInterval = 200 * time.Millisecond
+	searchIndexRebuildLimit = 10 * time.Minute
 )
 
 var ErrSearchIndexDisabled = errors.New("search index is disabled")
 
 type SearchIndexService struct {
-	mu         sync.Mutex
-	cfg        config.SearchEngineConfig
-	searchRepo *SearchRepository
+	mu              sync.Mutex
+	cfg             config.SearchEngineConfig
+	searchRepo      *SearchRepository
+	rebuildOnce     sync.Once
+	rebuildRequests chan string
 }
 
 type SearchIndexStatus struct {
@@ -69,9 +73,69 @@ type searchIndexFolderSnapshot struct {
 
 func NewSearchIndexService(searchRepo *SearchRepository, cfg config.SearchEngineConfig) *SearchIndexService {
 	return &SearchIndexService{
-		cfg:        cfg,
-		searchRepo: searchRepo,
+		cfg:             cfg,
+		searchRepo:      searchRepo,
+		rebuildRequests: make(chan string, 1),
 	}
+}
+
+func (s *SearchIndexService) NotifySearchResourcesChanged(reason string) {
+	if !s.cfg.Enabled {
+		return
+	}
+
+	s.rebuildOnce.Do(func() {
+		go s.rebuildLoop()
+	})
+
+	select {
+	case s.rebuildRequests <- strings.TrimSpace(reason):
+	default:
+	}
+}
+
+func (s *SearchIndexService) rebuildLoop() {
+	for reason := range s.rebuildRequests {
+		s.rebuildAfterResourceChange(reason)
+
+		pendingReason := ""
+		for {
+			select {
+			case nextReason := <-s.rebuildRequests:
+				pendingReason = nextReason
+			default:
+				if pendingReason != "" {
+					select {
+					case s.rebuildRequests <- pendingReason:
+					default:
+					}
+				}
+				goto next
+			}
+		}
+	next:
+	}
+}
+
+func (s *SearchIndexService) rebuildAfterResourceChange(reason string) {
+	ctx, cancel := context.WithTimeout(context.Background(), searchIndexRebuildLimit)
+	defer cancel()
+
+	result, err := s.Rebuild(ctx)
+	if err != nil {
+		log.Printf("[search-index] automatic rebuild failed; reason=%s error=%v", reason, err)
+		return
+	}
+
+	log.Printf(
+		"[search-index] automatic rebuild completed; reason=%s documents=%d files=%d folders=%d skipped_files=%d skipped_folders=%d",
+		reason,
+		result.IndexedDocuments,
+		result.IndexedFiles,
+		result.IndexedFolders,
+		result.SkippedFiles,
+		result.SkippedFolders,
+	)
 }
 
 func (s *SearchIndexService) Status(ctx context.Context) SearchIndexStatus {

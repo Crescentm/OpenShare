@@ -22,6 +22,13 @@ func NewSearchHandler(service *SearchService) *SearchHandler {
 //	Query parameters:
 //	  q         – keyword
 //	  folder_id – optional folder scope
+//	  type      – optional resource type: file or folder
+//	  file_kind – optional file kind: pdf, office, image, archive, ...
+//	  extension – optional file extension
+//	  category  – optional semantic category
+//	  course    – optional course name
+//	  material_type – optional material type
+//	  content_status – optional extracted content status
 //	  page      – page number (default 1)
 //	  page_size – results per page (default 20, max 100)
 func (h *SearchHandler) Search(ctx *gin.Context) {
@@ -38,10 +45,17 @@ func (h *SearchHandler) Search(ctx *gin.Context) {
 	}
 
 	result, err := h.service.Search(ctx.Request.Context(), SearchInput{
-		Keyword:  ctx.Query("q"),
-		FolderID: ctx.Query("folder_id"),
-		Page:     page,
-		PageSize: pageSize,
+		Keyword:       ctx.Query("q"),
+		FolderID:      ctx.Query("folder_id"),
+		Type:          ctx.Query("type"),
+		FileKind:      ctx.Query("file_kind"),
+		Extension:     ctx.Query("extension"),
+		Category:      ctx.Query("category"),
+		Course:        ctx.Query("course"),
+		MaterialType:  ctx.Query("material_type"),
+		ContentStatus: ctx.Query("content_status"),
+		Page:          page,
+		PageSize:      pageSize,
 	})
 	if err != nil {
 		switch {

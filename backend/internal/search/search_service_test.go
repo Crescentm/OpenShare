@@ -21,19 +21,37 @@ func TestSearchUsesMeilisearchAndShapesResults(t *testing.T) {
 	fake := &fakeSearchEngine{
 		response: &meilisearch.SearchResponse{
 			Hits: meilisearch.Hits{
-				searchHit(t, SearchDocument{
+				searchHitWithFormatted(t, SearchDocument{
 					Type:          SearchDocumentTypeFile,
 					ResourceID:    "file-1",
 					Name:          "2022年数据结构期末试卷.pdf",
+					Path:          "专业课/数据结构/试卷/2022年数据结构期末试卷.pdf",
+					PathSegments:  []string{"专业课", "数据结构", "试卷"},
 					Extension:     "pdf",
+					FileKind:      SearchFileKindPDF,
+					Category:      "专业课",
+					Course:        "数据结构",
+					MaterialType:  "试卷",
+					ContentStatus: SearchContentStatusNone,
 					Size:          1024,
 					DownloadCount: 7,
 					CreatedAt:     time.Unix(1700000000, 0).Unix(),
+					UpdatedAt:     time.Unix(1700000300, 0).Unix(),
+				}, map[string]string{
+					"name":        "2022年[[数据结构]]期末试卷.pdf",
+					"path":        "专业课/[[数据结构]]/试卷/2022年数据结构期末试卷.pdf",
+					"description": "历年[[试卷]]合集",
 				}),
 				searchHit(t, SearchDocument{
-					Type:       SearchDocumentTypeFolder,
-					ResourceID: "folder-1",
-					Name:       "数据结构",
+					Type:          SearchDocumentTypeFolder,
+					ResourceID:    "folder-1",
+					Name:          "数据结构",
+					Path:          "专业课/数据结构",
+					PathSegments:  []string{"专业课", "数据结构"},
+					Category:      "专业课",
+					Course:        "数据结构",
+					DownloadCount: 3,
+					UpdatedAt:     time.Unix(1700000400, 0).Unix(),
 				}),
 			},
 			TotalHits: 2,
@@ -56,6 +74,9 @@ func TestSearchUsesMeilisearchAndShapesResults(t *testing.T) {
 	if fake.request.MatchingStrategy != meilisearch.All {
 		t.Fatalf("MatchingStrategy = %q, want all", fake.request.MatchingStrategy)
 	}
+	assertStringSliceContains(t, fake.request.AttributesToRetrieve, "path")
+	assertStringSliceContains(t, fake.request.AttributesToRetrieve, "file_kind")
+	assertStringSliceContains(t, fake.request.AttributesToHighlight, "content_text")
 	if result.Total != 2 {
 		t.Fatalf("Total = %d, want 2", result.Total)
 	}
@@ -65,11 +86,32 @@ func TestSearchUsesMeilisearchAndShapesResults(t *testing.T) {
 	if result.Items[0].EntityType != "file" || result.Items[0].ID != "file-1" {
 		t.Fatalf("first item = %+v, want file file-1", result.Items[0])
 	}
+	if result.Items[0].Path != "专业课/数据结构/试卷/2022年数据结构期末试卷.pdf" {
+		t.Fatalf("Path = %q", result.Items[0].Path)
+	}
+	if result.Items[0].FileKind != SearchFileKindPDF {
+		t.Fatalf("FileKind = %q, want %q", result.Items[0].FileKind, SearchFileKindPDF)
+	}
+	if result.Items[0].Course != "数据结构" || result.Items[0].MaterialType != "试卷" {
+		t.Fatalf("semantic fields = course %q material %q", result.Items[0].Course, result.Items[0].MaterialType)
+	}
+	if result.Items[0].Snippet != "历年[[试卷]]合集" {
+		t.Fatalf("Snippet = %q", result.Items[0].Snippet)
+	}
+	if result.Items[0].Highlights["path"] == "" {
+		t.Fatalf("expected path highlight, got %+v", result.Items[0].Highlights)
+	}
 	if result.Items[0].UploadedAt == nil || result.Items[0].UploadedAt.Unix() != 1700000000 {
 		t.Fatalf("UploadedAt = %v, want unix 1700000000", result.Items[0].UploadedAt)
 	}
+	if result.Items[0].UpdatedAt == nil || result.Items[0].UpdatedAt.Unix() != 1700000300 {
+		t.Fatalf("UpdatedAt = %v, want unix 1700000300", result.Items[0].UpdatedAt)
+	}
 	if result.Items[1].EntityType != "folder" || result.Items[1].ID != "folder-1" {
 		t.Fatalf("second item = %+v, want folder folder-1", result.Items[1])
+	}
+	if result.Items[1].Path != "专业课/数据结构" || result.Items[1].DownloadCount != 3 {
+		t.Fatalf("second item metadata = %+v", result.Items[1])
 	}
 }
 
@@ -93,7 +135,33 @@ func TestSearchBuildsMeilisearchFolderScopeFilter(t *testing.T) {
 		t.Fatalf("Search() error = %v", err)
 	}
 
-	want := `(type = "file" AND folder_id IN ["folder-root", "folder-child"]) OR (type = "folder" AND resource_id IN ["folder-root", "folder-child"])`
+	want := `((type = "file" AND folder_id IN ["folder-root", "folder-child"]) OR (type = "folder" AND resource_id IN ["folder-root", "folder-child"]))`
+	if fake.request.Filter != want {
+		t.Fatalf("Filter = %#v, want %s", fake.request.Filter, want)
+	}
+}
+
+func TestSearchBuildsMeilisearchMetadataFilters(t *testing.T) {
+	fake := &fakeSearchEngine{response: &meilisearch.SearchResponse{}}
+	service := newFakeSearchService(nil, fake)
+
+	_, err := service.Search(context.Background(), SearchInput{
+		Keyword:       "数据结构",
+		Type:          "file",
+		FileKind:      "PDF",
+		Extension:     ".pdf",
+		Category:      "专业课",
+		Course:        "数据结构",
+		MaterialType:  "试卷",
+		ContentStatus: SearchContentStatusNone,
+		Page:          1,
+		PageSize:      10,
+	})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	want := `(type = "file") AND (file_kind = "pdf") AND (extension = "pdf") AND (category = "专业课") AND (course = "数据结构") AND (material_type = "试卷") AND (content_status = "none")`
 	if fake.request.Filter != want {
 		t.Fatalf("Filter = %#v, want %s", fake.request.Filter, want)
 	}
@@ -119,6 +187,9 @@ func TestSearchValidatesInput(t *testing.T) {
 	}
 	if _, err := service.Search(context.Background(), SearchInput{Keyword: "ok", Page: 6, PageSize: 20}); !errors.Is(err, ErrSearchInvalidInput) {
 		t.Fatalf("window error = %v, want ErrSearchInvalidInput", err)
+	}
+	if _, err := service.Search(context.Background(), SearchInput{Keyword: "ok", Type: "bad"}); !errors.Is(err, ErrSearchInvalidInput) {
+		t.Fatalf("invalid type error = %v, want ErrSearchInvalidInput", err)
 	}
 }
 
@@ -165,6 +236,27 @@ func searchHit(t *testing.T, doc SearchDocument) meilisearch.Hit {
 		t.Fatalf("unmarshal hit failed: %v", err)
 	}
 	return hit
+}
+
+func searchHitWithFormatted(t *testing.T, doc SearchDocument, formatted map[string]string) meilisearch.Hit {
+	t.Helper()
+	hit := searchHit(t, doc)
+	raw, err := json.Marshal(formatted)
+	if err != nil {
+		t.Fatalf("marshal formatted hit failed: %v", err)
+	}
+	hit["_formatted"] = raw
+	return hit
+}
+
+func assertStringSliceContains(t *testing.T, values []string, want string) {
+	t.Helper()
+	for _, value := range values {
+		if value == want {
+			return
+		}
+	}
+	t.Fatalf("%v does not contain %q", values, want)
 }
 
 func mustCreateSearchFolder(t *testing.T, db *gorm.DB, folder model.Folder) {

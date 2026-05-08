@@ -11,8 +11,13 @@ import (
 )
 
 type ResourceManagementHandler struct {
-	service     *ResourceManagementService
-	authService *admin.AdminAuthService
+	service       *ResourceManagementService
+	authService   *admin.AdminAuthService
+	indexNotifier SearchIndexNotifier
+}
+
+type SearchIndexNotifier interface {
+	NotifySearchResourcesChanged(reason string)
 }
 
 type updateManagedFileRequest struct {
@@ -29,8 +34,16 @@ type deleteManagedResourceRequest struct {
 	Password string `json:"password"`
 }
 
-func NewResourceManagementHandler(service *ResourceManagementService, authService *admin.AdminAuthService) *ResourceManagementHandler {
-	return &ResourceManagementHandler{service: service, authService: authService}
+func NewResourceManagementHandler(
+	service *ResourceManagementService,
+	authService *admin.AdminAuthService,
+	indexNotifier SearchIndexNotifier,
+) *ResourceManagementHandler {
+	return &ResourceManagementHandler{
+		service:       service,
+		authService:   authService,
+		indexNotifier: indexNotifier,
+	}
 }
 
 func (h *ResourceManagementHandler) ListFiles(ctx *gin.Context) {
@@ -76,6 +89,7 @@ func (h *ResourceManagementHandler) UpdateFile(ctx *gin.Context) {
 		}
 		return
 	}
+	h.notifySearchIndex("managed_file_update")
 	ctx.Status(http.StatusNoContent)
 }
 
@@ -111,6 +125,7 @@ func (h *ResourceManagementHandler) UpdateFolderDescription(ctx *gin.Context) {
 		}
 		return
 	}
+	h.notifySearchIndex("managed_folder_update")
 	ctx.Status(http.StatusNoContent)
 }
 
@@ -146,6 +161,7 @@ func (h *ResourceManagementHandler) DeleteFile(ctx *gin.Context) {
 		}
 		return
 	}
+	h.notifySearchIndex("managed_file_delete")
 	ctx.Status(http.StatusNoContent)
 }
 
@@ -181,5 +197,12 @@ func (h *ResourceManagementHandler) DeleteFolder(ctx *gin.Context) {
 		}
 		return
 	}
+	h.notifySearchIndex("managed_folder_delete")
 	ctx.Status(http.StatusNoContent)
+}
+
+func (h *ResourceManagementHandler) notifySearchIndex(reason string) {
+	if h.indexNotifier != nil {
+		h.indexNotifier.NotifySearchResourcesChanged(reason)
+	}
 }
