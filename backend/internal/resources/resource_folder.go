@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"openshare/backend/internal/pathutil"
 	"openshare/backend/internal/storage"
 	"openshare/backend/pkg/identity"
 )
@@ -84,7 +85,7 @@ func (s *ResourceManagementService) UpdateFolderDescription(ctx context.Context,
 			continue
 		}
 		sourcePath := strings.TrimSpace(*folder.SourcePath)
-		if sourcePath == "" || sourcePath == oldRootPath || !isPathWithinRoot(sourcePath, oldRootPath) {
+		if sourcePath == "" || sourcePath == oldRootPath || !pathutil.WithinOrEqual(sourcePath, oldRootPath) {
 			continue
 		}
 		relative, relErr := filepath.Rel(oldRootPath, sourcePath)
@@ -108,13 +109,4 @@ func normalizePathPointer(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
-}
-
-func isPathWithinRoot(path, root string) bool {
-	path = filepath.Clean(strings.TrimSpace(path))
-	root = filepath.Clean(strings.TrimSpace(root))
-	if path == "" || root == "" {
-		return false
-	}
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }

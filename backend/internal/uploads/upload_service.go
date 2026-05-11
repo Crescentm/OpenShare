@@ -254,7 +254,7 @@ func (s *PublicUploadService) publishDirectUploadBatch(
 			return nil, fmt.Errorf("move direct upload into managed folder: %w", err)
 		}
 
-		finalRelativePath := replaceRelativePathBase(submission.RelativePath, finalName)
+		finalRelativePath := resources.ReplaceRelativePathBase(submission.RelativePath, finalName)
 		published = append(published, directPublishedUpload{
 			submission:        submission,
 			finalPath:         finalPath,
@@ -318,18 +318,4 @@ func (s *PublicUploadService) MaxUploadTotalBytes(ctx context.Context) int64 {
 		return policy.Upload.MaxUploadTotalBytes
 	}
 	return s.config.MaxUploadTotalBytes
-}
-
-func replaceRelativePathBase(path string, fileName string) string {
-	path = resources.NormalizeRelativePathForStorage(path)
-	fileName = resources.NormalizeRelativePathForStorage(fileName)
-	if path == "" {
-		return fileName
-	}
-
-	dir := resources.NormalizeRelativePathForStorage(filepath.ToSlash(filepath.Dir(path)))
-	if dir == "" {
-		return fileName
-	}
-	return dir + "/" + fileName
 }

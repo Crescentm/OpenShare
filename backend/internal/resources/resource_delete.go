@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/stringsx"
 	"openshare/backend/pkg/identity"
 )
 
@@ -21,7 +22,7 @@ func (s *ResourceManagementService) DeleteFile(ctx context.Context, fileID strin
 		return ErrManagedFileNotFound
 	}
 
-	folder, err := s.repo.FindFolderByID(ctx, modelValue(current.FolderID))
+	folder, err := s.repo.FindFolderByID(ctx, stringsx.TrimmedPtr(current.FolderID))
 	if err != nil {
 		return err
 	}

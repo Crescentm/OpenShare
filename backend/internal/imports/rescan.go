@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/stringsx"
 	"openshare/backend/pkg/identity"
 )
 
@@ -308,7 +309,7 @@ func (s *ImportService) rescanManagedDirectory(
 			return currentFolderID, nil
 		}
 
-		touchUpdatedAt := optionalStringValue(existing.ParentID) != optionalStringValue(parentID) ||
+		touchUpdatedAt := stringsx.TrimmedPtr(existing.ParentID) != stringsx.TrimmedPtr(parentID) ||
 			existing.Name != folderName ||
 			normalizeOptionalPath(existing.SourcePath) != currentPath
 		updatedFolders = append(updatedFolders, ManagedFolderUpdate{
@@ -411,7 +412,7 @@ func buildManagedRescanIndex(
 	}
 
 	for _, file := range files {
-		folderID := optionalStringValue(file.FolderID)
+		folderID := stringsx.TrimmedPtr(file.FolderID)
 		if folderID == "" {
 			continue
 		}

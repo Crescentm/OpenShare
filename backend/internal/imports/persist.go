@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/pathutil"
 	"openshare/backend/internal/storage"
 	"openshare/backend/pkg/identity"
 )
@@ -114,9 +115,9 @@ func (s *ImportService) validateNewManagedRoot(ctx context.Context, rootPath str
 		switch {
 		case candidate == existingComparable:
 			return &ManagedDirectoryConflictError{Message: "该目录已托管，请使用“重新扫描”。"}
-		case isManagedPathWithin(candidate, existingComparable):
+		case pathutil.Within(candidate, existingComparable):
 			return &ManagedDirectoryConflictError{Message: "该目录位于已托管目录内，请对上级托管目录执行“重新扫描”。"}
-		case isManagedPathWithin(existingComparable, candidate):
+		case pathutil.Within(existingComparable, candidate):
 			return &ManagedDirectoryConflictError{Message: "该目录包含已托管目录，不能重复导入父目录。"}
 		}
 	}

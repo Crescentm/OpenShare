@@ -77,22 +77,6 @@ func normalizeOptionalPath(path *string) string {
 	return normalizeRescanPath(*path)
 }
 
-func optionalStringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return strings.TrimSpace(*value)
-}
-
-func isManagedPathWithin(path, root string) bool {
-	path = normalizeRescanPath(path)
-	root = normalizeRescanPath(root)
-	if path == "" || root == "" || path == root {
-		return false
-	}
-	return strings.HasPrefix(path, root+string(filepath.Separator))
-}
-
 func stringPtr(value string) *string {
 	copied := value
 	return &copied

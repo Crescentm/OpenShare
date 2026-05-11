@@ -14,6 +14,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/pathutil"
 )
 
 const (
@@ -468,7 +469,7 @@ func (m *ImportSyncManager) removeWatch(path string) {
 func (m *ImportSyncManager) enqueue(rootID, rootName, rootPath, path string, forceFull bool) {
 	rootPath = normalizeRescanPath(rootPath)
 	path = normalizeRescanPath(path)
-	if path == "" || path == "." || !isPathWithinOrEqual(path, rootPath) {
+	if path == "" || path == "." || !pathutil.WithinOrEqual(path, rootPath) {
 		path = rootPath
 	}
 
@@ -486,14 +487,14 @@ func (m *ImportSyncManager) enqueue(rootID, rootName, rootPath, path string, for
 			request.ReadyAt = now.Add(m.debounceInterval)
 			m.pending[existingPath] = request
 			return
-		case isPathWithinOrEqual(path, existingPath):
+		case pathutil.WithinOrEqual(path, existingPath):
 			if forceFull {
 				request.ForceFull = true
 				request.ReadyAt = now.Add(m.debounceInterval)
 				m.pending[existingPath] = request
 			}
 			return
-		case isPathWithinOrEqual(existingPath, path):
+		case pathutil.WithinOrEqual(existingPath, path):
 			forceFull = forceFull || request.ForceFull
 			delete(m.pending, existingPath)
 		}
@@ -557,7 +558,7 @@ func (m *ImportSyncManager) resolveRootForPath(path string) (managedRootSyncStat
 		if root.Path == "" {
 			continue
 		}
-		if isPathWithinOrEqual(path, root.Path) {
+		if pathutil.WithinOrEqual(path, root.Path) {
 			return root, true
 		}
 	}
@@ -571,13 +572,13 @@ func (m *ImportSyncManager) resolveAffectedDirectory(rootPath, rawPath string) s
 		info, err := os.Stat(path)
 		if err == nil {
 			if info.IsDir() {
-				if isPathWithinOrEqual(path, rootPath) {
+				if pathutil.WithinOrEqual(path, rootPath) {
 					return path
 				}
 				return rootPath
 			}
 			parent := filepath.Dir(path)
-			if isPathWithinOrEqual(parent, rootPath) {
+			if pathutil.WithinOrEqual(parent, rootPath) {
 				return parent
 			}
 			return rootPath
@@ -594,18 +595,9 @@ func (m *ImportSyncManager) resolveAffectedDirectory(rootPath, rawPath string) s
 
 func pathBelongsToAnyRoot(path string, roots []managedRootSyncState) bool {
 	for _, root := range roots {
-		if root.Path != "" && isPathWithinOrEqual(path, root.Path) {
+		if root.Path != "" && pathutil.WithinOrEqual(path, root.Path) {
 			return true
 		}
 	}
 	return false
-}
-
-func isPathWithinOrEqual(path, root string) bool {
-	path = normalizeRescanPath(path)
-	root = normalizeRescanPath(root)
-	if path == "" || root == "" {
-		return false
-	}
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }

@@ -7,6 +7,7 @@ import (
 
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/resources"
+	"openshare/backend/internal/stringsx"
 )
 
 const (
@@ -209,7 +210,7 @@ func (b *SearchDocumentBuilder) BuildFile(input FileSearchDocumentInput) *Search
 		Type:          SearchDocumentTypeFile,
 		ResourceID:    strings.TrimSpace(file.ID),
 		RootFolderID:  strings.TrimSpace(input.RootFolderID),
-		FolderID:      modelValue(file.FolderID),
+		FolderID:      stringsx.TrimmedPtr(file.FolderID),
 		Name:          strings.TrimSpace(file.Name),
 		Extension:     extension,
 		FileKind:      inferSearchFileKind(extension, file.MimeType),
@@ -250,7 +251,7 @@ func (b *SearchDocumentBuilder) BuildFolder(input FolderSearchDocumentInput) *Se
 		Type:           SearchDocumentTypeFolder,
 		ResourceID:     strings.TrimSpace(folder.ID),
 		RootFolderID:   strings.TrimSpace(input.RootFolderID),
-		ParentFolderID: modelValue(folder.ParentID),
+		ParentFolderID: stringsx.TrimmedPtr(folder.ParentID),
 		Name:           strings.TrimSpace(folder.Name),
 		Description:    strings.TrimSpace(folder.Description),
 		Readme:         strings.TrimSpace(input.Readme),
@@ -407,11 +408,4 @@ func unixSeconds(value time.Time) int64 {
 		return 0
 	}
 	return value.Unix()
-}
-
-func modelValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return strings.TrimSpace(*value)
 }

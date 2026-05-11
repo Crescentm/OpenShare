@@ -10,6 +10,7 @@ import (
 
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/storage"
+	"openshare/backend/internal/stringsx"
 	"openshare/backend/pkg/identity"
 )
 
@@ -52,7 +53,7 @@ func (s *ResourceManagementService) UpdateFile(ctx context.Context, fileID strin
 		return fmt.Errorf("generate resource update log id: %w", err)
 	}
 	if current.Name != name {
-		folder, err := s.repo.FindFolderByID(ctx, normalizeTrimmedString(modelValue(current.FolderID)))
+		folder, err := s.repo.FindFolderByID(ctx, stringsx.TrimmedPtr(current.FolderID))
 		if err != nil {
 			return err
 		}

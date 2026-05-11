@@ -12,8 +12,10 @@ import (
 
 	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/pathutil"
 	"openshare/backend/internal/settings"
 	"openshare/backend/internal/storage"
+	"openshare/backend/internal/stringsx"
 )
 
 var (
@@ -163,7 +165,7 @@ func (s *PublicDownloadService) GetFileDetail(ctx context.Context, fileID string
 		ID:            file.ID,
 		Name:          file.Name,
 		Extension:     file.Extension,
-		FolderID:      strings.TrimSpace(optionalString(file.FolderID)),
+		FolderID:      stringsx.TrimmedPtr(file.FolderID),
 		Path:          fullPath,
 		Description:   file.Description,
 		MimeType:      file.MimeType,
@@ -197,7 +199,7 @@ func (s *PublicDownloadService) PrepareFolderAssetDownload(ctx context.Context, 
 	}
 
 	targetPath := filepath.Clean(filepath.Join(strings.TrimSpace(*folder.SourcePath), filepath.FromSlash(relativePath)))
-	if !isWithinManagedRoot(targetPath, rootPath) {
+	if !pathutil.WithinOrEqual(targetPath, rootPath) {
 		return nil, ErrDownloadFileNotFound
 	}
 
@@ -258,13 +260,6 @@ func (s *PublicDownloadService) buildFilePath(ctx context.Context, file *model.F
 		return "主页根目录", nil
 	}
 	return strings.Join(segments, " / "), nil
-}
-
-func optionalString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func (s *PublicDownloadService) resolveManagedFilePath(ctx context.Context, file *model.File) (string, error) {
@@ -566,23 +561,4 @@ func buildFolderZipPath(fileName string, folderID *string, parentByFolder map[st
 	}
 
 	return strings.Join(parts, "/")
-}
-
-func isWithinManagedRoot(targetPath string, rootPath string) bool {
-	targetPath = filepath.Clean(strings.TrimSpace(targetPath))
-	rootPath = filepath.Clean(strings.TrimSpace(rootPath))
-	if targetPath == "" || rootPath == "" {
-		return false
-	}
-
-	relativePath, err := filepath.Rel(rootPath, targetPath)
-	if err != nil {
-		return false
-	}
-	if relativePath == "." {
-		return true
-	}
-
-	return relativePath != ".." &&
-		!strings.HasPrefix(relativePath, ".."+string(filepath.Separator))
 }

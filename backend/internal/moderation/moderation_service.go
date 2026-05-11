@@ -190,7 +190,7 @@ func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID 
 	if err != nil {
 		return nil, fmt.Errorf("move staged file to folder: %w", err)
 	}
-	finalRelativePath := replaceRelativePathBase(relativePath, finalName)
+	finalRelativePath := resources.ReplaceRelativePathBase(relativePath, finalName)
 
 	reviewedAt := s.nowFunc()
 	if err := s.repository.ApproveSubmission(
@@ -215,20 +215,6 @@ func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID 
 		Status:       model.SubmissionStatusApproved,
 		ReviewedAt:   reviewedAt,
 	}, nil
-}
-
-func replaceRelativePathBase(path string, fileName string) string {
-	path = resources.NormalizeRelativePathForStorage(path)
-	fileName = resources.NormalizeRelativePathForStorage(fileName)
-	if path == "" {
-		return fileName
-	}
-
-	dir := resources.NormalizeRelativePathForStorage(filepath.ToSlash(filepath.Dir(path)))
-	if dir == "" {
-		return fileName
-	}
-	return dir + "/" + fileName
 }
 
 func (s *ModerationService) ensureApprovalTargetFolder(ctx context.Context, rootFolder *model.Folder, relativePath string) (*model.Folder, error) {

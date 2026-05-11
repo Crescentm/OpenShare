@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"openshare/backend/internal/config"
+	"openshare/backend/internal/pathutil"
 	"openshare/backend/pkg/identity"
 )
 
@@ -98,7 +99,7 @@ func (s *Service) DeleteStagedFile(diskPath string) error {
 	if strings.TrimSpace(diskPath) == "" {
 		return nil
 	}
-	if !strings.HasPrefix(diskPath, s.stagingDir+string(os.PathSeparator)) && diskPath != s.stagingDir {
+	if !pathutil.WithinOrEqual(diskPath, s.stagingDir) {
 		return fmt.Errorf("refuse to delete file outside staging directory")
 	}
 	if err := os.Remove(diskPath); err != nil && !os.IsNotExist(err) {
@@ -108,7 +109,7 @@ func (s *Service) DeleteStagedFile(diskPath string) error {
 }
 
 func (s *Service) StagedFileExists(diskPath string) (bool, error) {
-	if !s.isWithinDir(diskPath, s.stagingDir) {
+	if !pathutil.WithinOrEqual(diskPath, s.stagingDir) {
 		return false, fmt.Errorf("file is outside staging directory")
 	}
 
@@ -131,7 +132,7 @@ func (s *Service) StagedFileExists(diskPath string) (bool, error) {
 // numeric suffix (_1, _2, …) is appended before the extension.
 // Returns the final absolute path and the chosen filename.
 func (s *Service) MoveStagedFileToFolder(stagedPath, targetDir, originalName string) (finalPath, finalName string, err error) {
-	if !s.isWithinDir(stagedPath, s.stagingDir) {
+	if !pathutil.WithinOrEqual(stagedPath, s.stagingDir) {
 		return "", "", fmt.Errorf("file is outside staging directory")
 	}
 	targetDir = filepath.Clean(targetDir)
@@ -158,7 +159,7 @@ func (s *Service) MoveStagedFileToFolder(stagedPath, targetDir, originalName str
 			candidate = fmt.Sprintf("%s_%d%s", base, i, ext)
 		}
 		destPath := filepath.Join(targetDir, candidate)
-		if !s.isWithinDir(destPath, targetDir) {
+		if !pathutil.WithinOrEqual(destPath, targetDir) {
 			return "", "", fmt.Errorf("target path traversal detected")
 		}
 		if _, err := os.Stat(destPath); err == nil {
@@ -179,7 +180,7 @@ func (s *Service) MoveStagedFileToFolder(stagedPath, targetDir, originalName str
 
 // MoveFileBackToStaging moves an approved file back to its original staging path for rollback.
 func (s *Service) MoveFileBackToStaging(diskPath, stagingPath string) (string, error) {
-	if !s.isWithinDir(stagingPath, s.stagingDir) {
+	if !pathutil.WithinOrEqual(stagingPath, s.stagingDir) {
 		return "", fmt.Errorf("target staging path is outside staging directory")
 	}
 	if err := os.Rename(diskPath, stagingPath); err != nil {
@@ -547,18 +548,4 @@ func generateStoredName(extension string) (string, error) {
 	}
 
 	return fileID + extension, nil
-}
-
-func (s *Service) isWithinDir(path, dir string) bool {
-	path = filepath.Clean(strings.TrimSpace(path))
-	dir = filepath.Clean(strings.TrimSpace(dir))
-	if path == "" || dir == "" {
-		return false
-	}
-
-	if path == dir {
-		return true
-	}
-
-	return strings.HasPrefix(path, dir+string(os.PathSeparator))
 }
