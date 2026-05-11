@@ -30,10 +30,12 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Path      string      `json:"path"`
-	LogLevel  string      `json:"log_level"`
-	Pragmas   []SQLPragma `json:"pragmas"`
-	EnableWAL bool        `json:"enable_wal"`
+	Path         string      `json:"path"`
+	LogLevel     string      `json:"log_level"`
+	Pragmas      []SQLPragma `json:"pragmas"`
+	EnableWAL    bool        `json:"enable_wal"`
+	MaxOpenConns int         `json:"max_open_conns"`
+	MaxIdleConns int         `json:"max_idle_conns"`
 }
 
 type SQLPragma struct {
@@ -105,9 +107,11 @@ func Default() Config {
 			Port: 8080,
 		},
 		Database: DatabaseConfig{
-			Path:      filepath.Join(defaultStorageRoot, "openshare.db"),
-			LogLevel:  "warn",
-			EnableWAL: true,
+			Path:         filepath.Join(defaultStorageRoot, "openshare.db"),
+			LogLevel:     "warn",
+			EnableWAL:    true,
+			MaxOpenConns: 8,
+			MaxIdleConns: 4,
 			Pragmas: []SQLPragma{
 				{Name: "foreign_keys", Value: "ON"},
 				{Name: "busy_timeout", Value: "5000"},
@@ -208,6 +212,8 @@ func applyEnv(cfg *Config) error {
 	overrideString("OPENSHARE_DATABASE_PATH", &cfg.Database.Path)
 	overrideString("OPENSHARE_DATABASE_LOG_LEVEL", &cfg.Database.LogLevel)
 	overrideBool("OPENSHARE_DATABASE_ENABLE_WAL", &cfg.Database.EnableWAL, &errs)
+	overrideInt("OPENSHARE_DATABASE_MAX_OPEN_CONNS", &cfg.Database.MaxOpenConns, &errs)
+	overrideInt("OPENSHARE_DATABASE_MAX_IDLE_CONNS", &cfg.Database.MaxIdleConns, &errs)
 	overrideString("OPENSHARE_STORAGE_ROOT", &cfg.Storage.Root)
 	overrideString("OPENSHARE_STORAGE_STAGING", &cfg.Storage.Staging)
 	overrideString("OPENSHARE_STORAGE_TRASH", &cfg.Storage.Trash)
@@ -256,6 +262,15 @@ func (c Config) Validate() error {
 	case "silent", "error", "warn", "info":
 	default:
 		return errors.New("database.log_level must be one of: silent, error, warn, info")
+	}
+	if c.Database.MaxOpenConns <= 0 {
+		return errors.New("database.max_open_conns must be greater than 0")
+	}
+	if c.Database.MaxIdleConns <= 0 {
+		return errors.New("database.max_idle_conns must be greater than 0")
+	}
+	if c.Database.MaxIdleConns > c.Database.MaxOpenConns {
+		return errors.New("database.max_idle_conns must be less than or equal to database.max_open_conns")
 	}
 
 	if c.Storage.Root == "" {

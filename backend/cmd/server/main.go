@@ -79,9 +79,11 @@ func toDatabaseOptions(cfg config.DatabaseConfig) database.Options {
 		pragmas[i] = database.Pragma{Name: p.Name, Value: p.Value}
 	}
 	return database.Options{
-		Path:      cfg.Path,
-		LogLevel:  cfg.LogLevel,
-		EnableWAL: cfg.EnableWAL,
-		Pragmas:   pragmas,
+		Path:         cfg.Path,
+		LogLevel:     cfg.LogLevel,
+		EnableWAL:    cfg.EnableWAL,
+		Pragmas:      pragmas,
+		MaxOpenConns: cfg.MaxOpenConns,
+		MaxIdleConns: cfg.MaxIdleConns,
 	}
 }

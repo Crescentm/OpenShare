@@ -71,6 +71,61 @@ func TestLoadPreservesManagedSyncDefaultsForPartialOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadPreservesDatabasePoolDefaultsForPartialOverrides(t *testing.T) {
+	defaultPath, localPath := writeTestConfigFiles(
+		t,
+		Default(),
+		`{"database":{"path":"/tmp/openshare-test.db"}}`,
+	)
+
+	cfg, err := Load(defaultPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Database.MaxOpenConns != Default().Database.MaxOpenConns {
+		t.Fatalf("MaxOpenConns = %d, want %d", cfg.Database.MaxOpenConns, Default().Database.MaxOpenConns)
+	}
+	if cfg.Database.MaxIdleConns != Default().Database.MaxIdleConns {
+		t.Fatalf("MaxIdleConns = %d, want %d", cfg.Database.MaxIdleConns, Default().Database.MaxIdleConns)
+	}
+}
+
+func TestLoadRejectsInvalidDatabasePoolConfig(t *testing.T) {
+	defaultPath, localPath := writeTestConfigFiles(
+		t,
+		Default(),
+		`{"database":{"max_open_conns":4,"max_idle_conns":5}}`,
+	)
+
+	_, err := Load(defaultPath, localPath)
+	if err == nil {
+		t.Fatal("Load() error = nil, want validation error")
+	}
+	if !strings.Contains(err.Error(), "database.max_idle_conns must be less than or equal to database.max_open_conns") {
+		t.Fatalf("Load() error = %v, want database.max_idle_conns validation error", err)
+	}
+}
+
+func TestLoadAppliesDatabasePoolEnvOverrides(t *testing.T) {
+	t.Setenv("OPENSHARE_DATABASE_MAX_OPEN_CONNS", "12")
+	t.Setenv("OPENSHARE_DATABASE_MAX_IDLE_CONNS", "6")
+
+	defaultPath, localPath := writeTestConfigFiles(t, Default(), `{}`)
+
+	cfg, err := Load(defaultPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Database.MaxOpenConns != 12 {
+		t.Fatalf("MaxOpenConns = %d, want 12", cfg.Database.MaxOpenConns)
+	}
+	if cfg.Database.MaxIdleConns != 6 {
+		t.Fatalf("MaxIdleConns = %d, want 6", cfg.Database.MaxIdleConns)
+	}
+}
+
 func TestLoadRejectsInvalidManagedSyncOverride(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,

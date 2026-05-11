@@ -24,10 +24,12 @@ type Pragma struct {
 // Options holds all parameters needed to open a SQLite database via GORM.
 // Defined here so that pkg/database has no dependency on internal/config.
 type Options struct {
-	Path      string
-	LogLevel  string
-	EnableWAL bool
-	Pragmas   []Pragma
+	Path         string
+	LogLevel     string
+	EnableWAL    bool
+	Pragmas      []Pragma
+	MaxOpenConns int
+	MaxIdleConns int
 }
 
 // allowedPragmas is a whitelist of safe PRAGMA names to prevent injection.
@@ -64,7 +66,7 @@ func NewSQLite(opts Options) (*gorm.DB, error) {
 		return nil, fmt.Errorf("fetch sql.DB: %w", err)
 	}
 
-	configurePool(sqlDB)
+	configurePool(sqlDB, opts)
 
 	if err := applyPragmas(db, opts.Pragmas); err != nil {
 		return nil, err
@@ -88,13 +90,20 @@ func buildDSN(opts Options) (string, error) {
 			return "", fmt.Errorf("parse sqlite dsn query: %w", err)
 		}
 	}
+	if values == nil {
+		values = make(url.Values)
+	}
 
-	if opts.EnableWAL {
-		if values == nil {
-			values = make(url.Values)
+	for _, pragma := range opts.Pragmas {
+		name := strings.TrimSpace(pragma.Name)
+		if name == "" || !allowedPragmas[name] {
+			continue
 		}
+		values.Set("_"+name, strings.TrimSpace(pragma.Value))
+	}
+	if opts.EnableWAL {
 		values.Set("_journal_mode", "WAL")
-	} else if values != nil {
+	} else {
 		values.Del("_journal_mode")
 	}
 
@@ -129,9 +138,18 @@ func newLogger(level string) gormlogger.Interface {
 	)
 }
 
-func configurePool(sqlDB *sql.DB) {
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
+func configurePool(sqlDB *sql.DB, opts Options) {
+	maxOpenConns := opts.MaxOpenConns
+	if maxOpenConns <= 0 {
+		maxOpenConns = 8
+	}
+	maxIdleConns := opts.MaxIdleConns
+	if maxIdleConns <= 0 || maxIdleConns > maxOpenConns {
+		maxIdleConns = min(4, maxOpenConns)
+	}
+
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
 	sqlDB.SetConnMaxLifetime(10 * time.Minute)
 }
 
