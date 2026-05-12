@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/operations"
 )
 
 func (r *ResourceManagementRepository) DeleteFileWithLog(
@@ -27,7 +28,7 @@ func (r *ResourceManagementRepository) DeleteFileWithLog(
 			return err
 		}
 
-		if err := detachDeletedResourcesTx(tx, []string{fileID}, nil); err != nil {
+		if err := model.DetachDeletedResourcesTx(tx, []string{fileID}, nil); err != nil {
 			return err
 		}
 
@@ -46,7 +47,7 @@ func (r *ResourceManagementRepository) DeleteFileWithLog(
 			return fmt.Errorf("adjust deleted file daily stats: %w", err)
 		}
 
-		return createOperationLogTx(tx, logID, operatorID, "resource_deleted", "file", fileID, detail, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "resource_deleted", "file", fileID, detail, operatorIP, now)
 	})
 }
 
@@ -93,7 +94,7 @@ func (r *ResourceManagementRepository) DeleteFolderTreeWithLog(
 			return fmt.Errorf("list deleted folder tree files: %w", err)
 		}
 
-		if err := detachDeletedResourcesTx(tx, fileIDs, folderIDs); err != nil {
+		if err := model.DetachDeletedResourcesTx(tx, fileIDs, folderIDs); err != nil {
 			return err
 		}
 
@@ -125,6 +126,6 @@ func (r *ResourceManagementRepository) DeleteFolderTreeWithLog(
 			}
 		}
 
-		return createOperationLogTx(tx, logID, operatorID, "resource_deleted", "folder", rootFolderID, detail, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "resource_deleted", "folder", rootFolderID, detail, operatorIP, now)
 	})
 }

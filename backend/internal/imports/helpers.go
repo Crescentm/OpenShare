@@ -77,11 +77,6 @@ func normalizeOptionalPath(path *string) string {
 	return normalizeRescanPath(*path)
 }
 
-func stringPtr(value string) *string {
-	copied := value
-	return &copied
-}
-
 func resolveBrowsePath(rootPath string) (string, error) {
 	trimmed := strings.TrimSpace(rootPath)
 	if trimmed == "" {
@@ -105,11 +100,4 @@ func resolveBrowsePath(rootPath string) (string, error) {
 	}
 
 	return cleaned, nil
-}
-
-func derefString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }

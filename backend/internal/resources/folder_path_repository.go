@@ -10,9 +10,15 @@ import (
 
 	"gorm.io/gorm"
 
+	"openshare/backend/internal/cache"
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/stringsx"
 	"openshare/backend/pkg/identity"
 )
+
+const folderDisplayPathCacheTTL = 30 * time.Second
+
+var folderDisplayPathCache = cache.NewTTL[string, string](folderDisplayPathCacheTTL)
 
 func EnsureManagedFolderPathTx(tx *gorm.DB, rootFolder *model.Folder, relativePath string, now time.Time) (*model.Folder, error) {
 	current := rootFolder
@@ -39,11 +45,11 @@ func EnsureManagedFolderPathTx(tx *gorm.DB, rootFolder *model.Folder, relativePa
 		if idErr != nil {
 			return nil, fmt.Errorf("generate folder id: %w", idErr)
 		}
-		sourcePath := filepath.Join(strings.TrimSpace(derefString(current.SourcePath)), segment)
+		sourcePath := filepath.Join(strings.TrimSpace(stringsx.Deref(current.SourcePath)), segment)
 		child = model.Folder{
 			ID:          id,
 			ParentID:    &current.ID,
-			SourcePath:  stringPtr(sourcePath),
+			SourcePath:  stringsx.Ptr(sourcePath),
 			Name:        segment,
 			Description: "",
 			CreatedAt:   now,
@@ -61,6 +67,11 @@ func EnsureManagedFolderPathTx(tx *gorm.DB, rootFolder *model.Folder, relativePa
 func BuildFolderDisplayPath(ctx context.Context, db *gorm.DB, folderID *string) (string, error) {
 	if db == nil || folderID == nil || strings.TrimSpace(*folderID) == "" {
 		return "", nil
+	}
+
+	cacheKey := strings.TrimSpace(*folderID)
+	if path, ok := folderDisplayPathCache.Get(cacheKey); ok {
+		return path, nil
 	}
 
 	segments := make([]string, 0)
@@ -93,7 +104,9 @@ func BuildFolderDisplayPath(ctx context.Context, db *gorm.DB, folderID *string) 
 		}
 		filtered = append(filtered, segment)
 	}
-	return strings.Join(filtered, "/"), nil
+	path := strings.Join(filtered, "/")
+	folderDisplayPathCache.Set(cacheKey, path)
+	return path, nil
 }
 
 func BuildFolderDisplayPathFromFolder(ctx context.Context, db *gorm.DB, folder *model.Folder) (string, error) {
@@ -153,16 +166,4 @@ func NormalizeRelativePathForStorage(value string) string {
 		cleaned = append(cleaned, part)
 	}
 	return strings.Join(cleaned, "/")
-}
-
-func derefString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func stringPtr(value string) *string {
-	copied := value
-	return &copied
 }

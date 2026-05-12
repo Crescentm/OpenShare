@@ -27,10 +27,12 @@ var ErrSearchIndexDisabled = errors.New("search index is disabled")
 
 type SearchIndexService struct {
 	mu              sync.Mutex
+	clientMu        sync.Mutex
 	cfg             config.SearchEngineConfig
 	searchRepo      *SearchRepository
 	rebuildOnce     sync.Once
 	rebuildRequests chan string
+	client          *searchengine.MeilisearchClient
 }
 
 type SearchIndexStatus struct {
@@ -149,7 +151,7 @@ func (s *SearchIndexService) Status(ctx context.Context) SearchIndexStatus {
 		return status
 	}
 
-	client, err := searchengine.NewMeilisearchClient(s.cfg)
+	client, err := s.meilisearchClient()
 	if err != nil {
 		status.Status = "unavailable"
 		status.Error = err.Error()
@@ -175,7 +177,7 @@ func (s *SearchIndexService) Rebuild(ctx context.Context) (*SearchIndexRebuildRe
 		return nil, ErrSearchIndexDisabled
 	}
 
-	client, err := searchengine.NewMeilisearchClient(s.cfg)
+	client, err := s.meilisearchClient()
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +196,22 @@ func (s *SearchIndexService) Rebuild(ctx context.Context) (*SearchIndexRebuildRe
 		builder: builder,
 	}
 	return indexer.Rebuild(ctx)
+}
+
+func (s *SearchIndexService) meilisearchClient() (*searchengine.MeilisearchClient, error) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+
+	if s.client != nil {
+		return s.client, nil
+	}
+
+	client, err := searchengine.NewMeilisearchClient(s.cfg)
+	if err != nil {
+		return nil, err
+	}
+	s.client = client
+	return client, nil
 }
 
 func (s *SearchIndexService) newDocumentBuilder() (*SearchDocumentBuilder, error) {

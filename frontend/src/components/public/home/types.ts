@@ -14,6 +14,22 @@ export interface AnnouncementItem {
   updated_at: string;
 }
 
+export function announcementAuthorName(item: AnnouncementItem) {
+  return (
+    item.creator?.display_name?.trim()
+    || item.creator?.username?.trim()
+    || "OpenShare"
+  );
+}
+
+export function announcementAuthorInitial(item: AnnouncementItem) {
+  return announcementAuthorName(item).slice(0, 1).toUpperCase() || "A";
+}
+
+export function announcementAuthorIsSuperAdmin(item: AnnouncementItem) {
+  return item.creator?.role === "super_admin";
+}
+
 export interface PublicFolderItem {
   id: string;
   name: string;

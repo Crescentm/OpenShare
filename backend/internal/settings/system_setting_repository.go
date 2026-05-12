@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/operations"
 )
 
 type SystemSettingRepository struct {
@@ -71,6 +72,6 @@ func (r *SystemSettingRepository) UpsertWithLog(
 			}
 		}
 
-		return createOperationLogTx(tx, logID, updatedBy, "system_settings_updated", "system_setting", key, key, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, updatedBy, "system_settings_updated", "system_setting", key, key, operatorIP, now)
 	})
 }

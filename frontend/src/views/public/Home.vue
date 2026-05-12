@@ -44,6 +44,7 @@ import { readApiError } from "../../lib/http/helpers";
 import {
   ensureSessionReceiptCode,
   readStoredReceiptCode,
+  storeReceiptCode,
 } from "../../lib/receiptCode";
 import { hasAdminPermission } from "../../lib/admin/session";
 import {
@@ -819,10 +820,7 @@ async function submitUpload() {
       response.status === "approved"
         ? `已上传 ${response.item_count} 个文件，请保存回执码 ${response.receipt_code}。`
         : `已提交 ${response.item_count} 个文件进入审核，请保存回执码 ${response.receipt_code}。`;
-    window.sessionStorage.setItem(
-      "openshare_receipt_code",
-      response.receipt_code,
-    );
+    storeReceiptCode(response.receipt_code);
     currentReceiptCode.value = response.receipt_code;
     resetUploadForm();
     clearUploadEntries();
@@ -991,10 +989,7 @@ async function submitFeedback() {
       },
     );
     feedbackState.message = `反馈已提交，请保存回执码 ${response.receipt_code}。`;
-    window.sessionStorage.setItem(
-      "openshare_receipt_code",
-      response.receipt_code,
-    );
+    storeReceiptCode(response.receipt_code);
     currentReceiptCode.value = response.receipt_code;
     closeFeedbackModal();
     feedbackState.successOpen = true;

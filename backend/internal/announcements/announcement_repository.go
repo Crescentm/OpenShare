@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/operations"
 )
 
 type AnnouncementRepository struct {
@@ -68,7 +69,7 @@ func (r *AnnouncementRepository) CreateWithLog(
 		if err := tx.Create(item).Error; err != nil {
 			return fmt.Errorf("create announcement: %w", err)
 		}
-		return createOperationLogTx(tx, logID, operatorID, "announcement_created", "announcement", item.ID, item.Title, operatorIP, item.UpdatedAt)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "announcement_created", "announcement", item.ID, item.Title, operatorIP, item.UpdatedAt)
 	})
 }
 
@@ -90,7 +91,7 @@ func (r *AnnouncementRepository) UpdateWithLog(
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
-		return createOperationLogTx(tx, logID, operatorID, "announcement_updated", "announcement", id, detail, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "announcement_updated", "announcement", id, detail, operatorIP, now)
 	})
 }
 
@@ -113,6 +114,6 @@ func (r *AnnouncementRepository) SoftDeleteWithLog(
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
-		return createOperationLogTx(tx, logID, operatorID, "announcement_deleted", "announcement", id, detail, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "announcement_deleted", "announcement", id, detail, operatorIP, now)
 	})
 }

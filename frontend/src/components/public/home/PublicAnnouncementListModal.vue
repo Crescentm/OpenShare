@@ -1,21 +1,11 @@
 <script setup lang="ts">
 import { formatDateTime } from "../../../lib/formatters";
-
-interface AnnouncementItem {
-  id: string;
-  title: string;
-  content: string;
-  is_pinned: boolean;
-  creator: {
-    id: string;
-    username: string;
-    display_name: string;
-    avatar_url: string;
-    role: string;
-  };
-  published_at?: string;
-  updated_at: string;
-}
+import {
+  announcementAuthorInitial,
+  announcementAuthorIsSuperAdmin,
+  announcementAuthorName,
+  type AnnouncementItem,
+} from "./types";
 
 defineProps<{
   announcements: AnnouncementItem[];
@@ -27,21 +17,6 @@ defineEmits<{
   openDetail: [item: { id: string; label: string }];
 }>();
 
-function announcementAuthorName(item: AnnouncementItem) {
-  return (
-    item.creator?.display_name?.trim()
-    || item.creator?.username?.trim()
-    || "OpenShare"
-  );
-}
-
-function announcementAuthorInitial(item: AnnouncementItem) {
-  return announcementAuthorName(item).slice(0, 1).toUpperCase() || "A";
-}
-
-function announcementAuthorIsSuperAdmin(item: AnnouncementItem) {
-  return item.creator?.role === "super_admin";
-}
 </script>
 
 <template>

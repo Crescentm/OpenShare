@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/operations"
 	"openshare/backend/pkg/identity"
 )
 
@@ -56,7 +57,7 @@ type RescanSyncInput struct {
 func (r *ImportRepository) ApplyRescanSync(ctx context.Context, input RescanSyncInput) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if len(input.DeletedFileIDs) > 0 || len(input.DeletedFolderIDs) > 0 {
-			if err := detachDeletedResourcesTx(tx, input.DeletedFileIDs, input.DeletedFolderIDs); err != nil {
+			if err := model.DetachDeletedResourcesTx(tx, input.DeletedFileIDs, input.DeletedFolderIDs); err != nil {
 				return err
 			}
 			if len(input.DeletedFileIDs) > 0 {
@@ -139,7 +140,7 @@ func (r *ImportRepository) ApplyRescanSync(ctx context.Context, input RescanSync
 		if err != nil {
 			return fmt.Errorf("generate rescan operation log id: %w", err)
 		}
-		return createOperationLogTx(tx, logID, input.OperatorID, "managed_directory_rescanned", "folder", input.RootFolderID, input.Detail, input.OperatorIP, input.Now)
+		return operations.CreateOperationLogTx(tx, logID, input.OperatorID, "managed_directory_rescanned", "folder", input.RootFolderID, input.Detail, input.OperatorIP, input.Now)
 	})
 }
 

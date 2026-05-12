@@ -3,9 +3,10 @@ package catalog
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"openshare/backend/internal/httpapi"
 )
 
 type PublicCatalogHandler struct {
@@ -17,13 +18,13 @@ func NewPublicCatalogHandler(service *PublicCatalogService) *PublicCatalogHandle
 }
 
 func (h *PublicCatalogHandler) ListPublicFolderFiles(ctx *gin.Context) {
-	page, err := parseIntQuery(ctx.Query("page"))
+	page, err := httpapi.ParseIntQuery(ctx.Query("page"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page"})
 		return
 	}
 
-	pageSize, err := parseIntQuery(ctx.Query("page_size"))
+	pageSize, err := httpapi.ParseIntQuery(ctx.Query("page_size"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page_size"})
 		return
@@ -51,7 +52,7 @@ func (h *PublicCatalogHandler) ListPublicFolderFiles(ctx *gin.Context) {
 }
 
 func (h *PublicCatalogHandler) ListHotFiles(ctx *gin.Context) {
-	limit, err := parseIntQuery(ctx.Query("limit"))
+	limit, err := httpapi.ParseIntQuery(ctx.Query("limit"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid limit"})
 		return
@@ -66,7 +67,7 @@ func (h *PublicCatalogHandler) ListHotFiles(ctx *gin.Context) {
 }
 
 func (h *PublicCatalogHandler) ListLatestFiles(ctx *gin.Context) {
-	limit, err := parseIntQuery(ctx.Query("limit"))
+	limit, err := httpapi.ParseIntQuery(ctx.Query("limit"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid limit"})
 		return
@@ -108,17 +109,4 @@ func (h *PublicCatalogHandler) GetPublicFolderDetail(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, detail)
-}
-
-func parseIntQuery(raw string) (int, error) {
-	if raw == "" {
-		return 0, nil
-	}
-
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, err
-	}
-
-	return value, nil
 }

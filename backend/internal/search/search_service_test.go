@@ -167,6 +167,31 @@ func TestSearchBuildsMeilisearchMetadataFilters(t *testing.T) {
 	}
 }
 
+func TestSearchReusesMeilisearchSearcher(t *testing.T) {
+	fake := &fakeSearchEngine{response: &meilisearch.SearchResponse{}}
+	service := NewSearchService(nil, config.SearchEngineConfig{
+		Enabled:   true,
+		Host:      "http://127.0.0.1:7700",
+		APIKey:    "test-key",
+		IndexName: "test_resources",
+	})
+	factoryCalls := 0
+	service.newSearcher = func(config.SearchEngineConfig) (meilisearchSearcher, error) {
+		factoryCalls++
+		return fake, nil
+	}
+
+	for i := 0; i < 2; i++ {
+		if _, err := service.Search(context.Background(), SearchInput{Keyword: "数据结构"}); err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+	}
+
+	if factoryCalls != 1 {
+		t.Fatalf("newSearcher calls = %d, want 1", factoryCalls)
+	}
+}
+
 func TestSearchRejectsDisabledSearchEngine(t *testing.T) {
 	service := NewSearchService(nil, config.SearchEngineConfig{})
 

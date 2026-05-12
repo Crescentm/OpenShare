@@ -23,6 +23,7 @@ import { readApiError } from "../../lib/http/helpers";
 import {
   ensureSessionReceiptCode,
   readStoredReceiptCode,
+  storeReceiptCode,
 } from "../../lib/receiptCode";
 import { hasAdminPermission } from "../../lib/admin/session";
 import {
@@ -269,10 +270,7 @@ async function submitFeedback() {
     );
     feedbackMessage.value = `反馈已提交，请保存回执码 ${response.receipt_code}。`;
     currentReceiptCode.value = response.receipt_code;
-    window.sessionStorage.setItem(
-      "openshare_receipt_code",
-      response.receipt_code,
-    );
+    storeReceiptCode(response.receipt_code);
     closeFeedbackModal();
     feedbackSuccessModalOpen.value = true;
   } catch (err: unknown) {

@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/pagination"
 	"openshare/backend/internal/resources"
 	"openshare/backend/internal/storage"
 )
@@ -78,14 +79,14 @@ func NewModerationService(repository *ModerationRepository, storageService *stor
 }
 
 func (s *ModerationService) ListPendingSubmissions(ctx context.Context, input PendingSubmissionListInput) (*PendingSubmissionListResult, error) {
-	page, pageSize, err := normalizePendingSubmissionPagination(input.Page, input.PageSize)
-	if err != nil {
-		return nil, err
+	page, ok := pagination.Normalize(input.Page, input.PageSize, defaultPendingSubmissionPage, defaultPendingSubmissionPageSize, maxPendingSubmissionPageSize)
+	if !ok {
+		return nil, ErrInvalidModerationQuery
 	}
 
 	rows, total, err := s.repository.ListPendingSubmissions(ctx, PendingSubmissionListQuery{
-		Offset: (page - 1) * pageSize,
-		Limit:  pageSize,
+		Offset: page.Offset,
+		Limit:  page.Limit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list pending submissions: %w", err)
@@ -123,23 +124,10 @@ func (s *ModerationService) ListPendingSubmissions(ctx context.Context, input Pe
 
 	return &PendingSubmissionListResult{
 		Items:    items,
-		Page:     page,
-		PageSize: pageSize,
+		Page:     page.Page,
+		PageSize: page.PageSize,
 		Total:    total,
 	}, nil
-}
-
-func normalizePendingSubmissionPagination(page int, pageSize int) (int, int, error) {
-	if page == 0 {
-		page = defaultPendingSubmissionPage
-	}
-	if pageSize == 0 {
-		pageSize = defaultPendingSubmissionPageSize
-	}
-	if page < 1 || pageSize < 1 || pageSize > maxPendingSubmissionPageSize {
-		return 0, 0, ErrInvalidModerationQuery
-	}
-	return page, pageSize, nil
 }
 
 func (s *ModerationService) ApproveSubmission(ctx context.Context, submissionID string, adminID string, operatorIP string) (*ReviewResult, error) {

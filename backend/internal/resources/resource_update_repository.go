@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/operations"
 )
 
 func (r *ResourceManagementRepository) UpdateFileMetadata(
@@ -35,7 +36,7 @@ func (r *ResourceManagementRepository) UpdateFileMetadata(
 			return gorm.ErrRecordNotFound
 		}
 
-		return createOperationLogTx(tx, logID, operatorID, "resource_updated", "file", fileID, name, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "resource_updated", "file", fileID, name, operatorIP, now)
 	})
 }
 
@@ -62,7 +63,7 @@ func (r *ResourceManagementRepository) UpdateFolderMetadata(
 			return gorm.ErrRecordNotFound
 		}
 
-		return createOperationLogTx(tx, logID, operatorID, "folder_updated", "folder", folderID, name, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "folder_updated", "folder", folderID, name, operatorIP, now)
 	})
 }
 
@@ -107,6 +108,6 @@ func (r *ResourceManagementRepository) UpdateFolderTreePaths(
 			}
 		}
 
-		return createOperationLogTx(tx, logID, operatorID, "folder_updated", "folder", folderID, name, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "folder_updated", "folder", folderID, name, operatorIP, now)
 	})
 }

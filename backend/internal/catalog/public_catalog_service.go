@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/pagination"
 )
 
 var (
@@ -255,19 +256,8 @@ func normalizePublicFolderFileListInput(input PublicFolderFileListInput) (*norma
 		return nil, ErrInvalidPublicFileQuery
 	}
 
-	page := input.Page
-	if page == 0 {
-		page = defaultPublicFilePage
-	}
-	if page < 1 {
-		return nil, ErrInvalidPublicFileQuery
-	}
-
-	pageSize := input.PageSize
-	if pageSize == 0 {
-		pageSize = defaultPublicFilePageSize
-	}
-	if pageSize < 1 || pageSize > maxPublicFilePageSize {
+	page, ok := pagination.Normalize(input.Page, input.PageSize, defaultPublicFilePage, defaultPublicFilePageSize, maxPublicFilePageSize)
+	if !ok {
 		return nil, ErrInvalidPublicFileQuery
 	}
 
@@ -278,8 +268,8 @@ func normalizePublicFolderFileListInput(input PublicFolderFileListInput) (*norma
 
 	return &normalizedPublicFolderFileListInput{
 		FolderID: folderID,
-		Page:     page,
-		PageSize: pageSize,
+		Page:     page.Page,
+		PageSize: page.PageSize,
 		OrderBy:  orderBy,
 	}, nil
 }

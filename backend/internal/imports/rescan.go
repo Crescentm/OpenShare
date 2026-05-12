@@ -220,13 +220,13 @@ func (s *ImportService) rescanManagedDirectory(
 					delete(existingChildFolders, entry.Name)
 					childForce := forceFull || hasDirtyPathWithin(childPath, dirtyPaths)
 					childCopy := childRow
-					if _, err := scanDirectory(childPath, stringPtr(currentFolderID), &childCopy, childForce); err != nil {
+					if _, err := scanDirectory(childPath, stringsx.Ptr(currentFolderID), &childCopy, childForce); err != nil {
 						return "", err
 					}
 					continue
 				}
 
-				if _, err := scanDirectory(childPath, stringPtr(currentFolderID), nil, true); err != nil {
+				if _, err := scanDirectory(childPath, stringsx.Ptr(currentFolderID), nil, true); err != nil {
 					return "", err
 				}
 				continue
@@ -246,7 +246,7 @@ func (s *ImportService) rescanManagedDirectory(
 					verifiedAt := now
 					updatedFiles = append(updatedFiles, ManagedFileUpdate{
 						ID:             existingFile.ID,
-						FolderID:       stringPtr(currentFolderID),
+						FolderID:       stringsx.Ptr(currentFolderID),
 						Name:           entry.Name,
 						Description:    existingFile.Description,
 						Extension:      entry.Extension,
@@ -268,7 +268,7 @@ func (s *ImportService) rescanManagedDirectory(
 			verifiedAt := now
 			addedFiles = append(addedFiles, &model.File{
 				ID:             fileID,
-				FolderID:       stringPtr(currentFolderID),
+				FolderID:       stringsx.Ptr(currentFolderID),
 				Name:           entry.Name,
 				Description:    "",
 				Extension:      entry.Extension,
@@ -295,7 +295,7 @@ func (s *ImportService) rescanManagedDirectory(
 			addedFolders = append(addedFolders, &model.Folder{
 				ID:            currentFolderID,
 				ParentID:      parentID,
-				SourcePath:    stringPtr(currentPath),
+				SourcePath:    stringsx.Ptr(currentPath),
 				Name:          folderName,
 				Description:   "",
 				FsDirMtimeNs:  dirMtime,

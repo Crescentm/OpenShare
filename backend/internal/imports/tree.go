@@ -3,6 +3,8 @@ package imports
 import (
 	"context"
 	"fmt"
+
+	"openshare/backend/internal/stringsx"
 	"time"
 )
 
@@ -44,7 +46,7 @@ func (s *ImportService) ListManagedRoots(ctx context.Context) ([]ManagedRootNode
 		result = append(result, ManagedRootNode{
 			ID:            root.ID,
 			Name:          root.Name,
-			SourcePath:    derefString(root.SourcePath),
+			SourcePath:    stringsx.Deref(root.SourcePath),
 			SyncState:     root.SyncState,
 			SyncError:     root.SyncError,
 			LastScannedAt: formatOptionalUTCTime(root.LastScannedAt),
@@ -71,7 +73,7 @@ func (s *ImportService) GetFolderTree(ctx context.Context) ([]FolderTreeNode, er
 		nodes[folder.ID] = &FolderTreeNode{
 			ID:            folder.ID,
 			Name:          folder.Name,
-			SourcePath:    derefString(folder.SourcePath),
+			SourcePath:    stringsx.Deref(folder.SourcePath),
 			SyncState:     folder.SyncState,
 			SyncError:     folder.SyncError,
 			LastScannedAt: formatOptionalUTCTime(folder.LastScannedAt),

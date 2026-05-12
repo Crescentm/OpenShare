@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"openshare/backend/internal/pagination"
 )
 
 var ErrInvalidOperationLogQuery = errors.New("invalid operation log query")
@@ -51,19 +53,12 @@ func NewOperationLogService(repo *OperationLogRepository) *OperationLogService {
 }
 
 func (s *OperationLogService) List(ctx context.Context, input ListOperationLogsInput) (*OperationLogListResult, error) {
-	page := input.Page
-	if page == 0 {
-		page = defaultOperationLogPage
-	}
-	pageSize := input.PageSize
-	if pageSize == 0 {
-		pageSize = defaultOperationLogPageSize
-	}
-	if page < 1 || pageSize < 1 || pageSize > maxOperationLogPageSize {
+	page, ok := pagination.Normalize(input.Page, input.PageSize, defaultOperationLogPage, defaultOperationLogPageSize, maxOperationLogPageSize)
+	if !ok {
 		return nil, ErrInvalidOperationLogQuery
 	}
 
-	rows, total, err := s.repo.List(ctx, strings.TrimSpace(input.Action), strings.TrimSpace(input.TargetType), page, pageSize)
+	rows, total, err := s.repo.List(ctx, strings.TrimSpace(input.Action), strings.TrimSpace(input.TargetType), page.Page, page.PageSize)
 	if err != nil {
 		return nil, fmt.Errorf("list operation logs: %w", err)
 	}
@@ -85,8 +80,8 @@ func (s *OperationLogService) List(ctx context.Context, input ListOperationLogsI
 
 	return &OperationLogListResult{
 		Items:    items,
-		Page:     page,
-		PageSize: pageSize,
+		Page:     page.Page,
+		PageSize: page.PageSize,
 		Total:    total,
 	}, nil
 }

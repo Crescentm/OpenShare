@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
 	"github.com/meilisearch/meilisearch-go"
 
 	"openshare/backend/internal/config"
+	"openshare/backend/internal/pagination"
 	"openshare/backend/internal/searchengine"
 )
 
@@ -38,6 +40,8 @@ type SearchService struct {
 	searchRepo      *SearchRepository
 	searchEngineCfg config.SearchEngineConfig
 	newSearcher     meilisearchSearcherFactory
+	searcherMu      sync.Mutex
+	searcher        meilisearchSearcher
 }
 
 func NewSearchService(searchRepo *SearchRepository, cfg config.SearchEngineConfig) *SearchService {
@@ -90,9 +94,9 @@ type SearchResultItem struct {
 }
 
 func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchResult, error) {
-	page, pageSize, err := normalizeSearchPagination(input.Page, input.PageSize, defaultSearchResultWindow())
-	if err != nil {
-		return nil, err
+	page, ok := pagination.NormalizeWindow(input.Page, input.PageSize, defaultSearchPage, defaultSearchPageSize, maxSearchPageSize, defaultSearchResultWindow())
+	if !ok {
+		return nil, ErrSearchInvalidInput
 	}
 
 	query, err := normalizeSearchKeyword(input.Keyword)
@@ -105,8 +109,8 @@ func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchR
 	}
 
 	request := &meilisearch.SearchRequest{
-		Page:             int64(page),
-		HitsPerPage:      int64(pageSize),
+		Page:             int64(page.Page),
+		HitsPerPage:      int64(page.PageSize),
 		MatchingStrategy: meilisearch.All,
 		AttributesToRetrieve: []string{
 			"type",
@@ -164,7 +168,7 @@ func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchR
 		request.Filter = filter
 	}
 
-	searcher, err := s.newSearcher(s.searchEngineCfg)
+	searcher, err := s.meilisearchSearcher()
 	if err != nil {
 		return nil, err
 	}
@@ -181,10 +185,26 @@ func (s *SearchService) Search(ctx context.Context, input SearchInput) (*SearchR
 
 	return &SearchResult{
 		Items:    items,
-		Page:     page,
-		PageSize: pageSize,
+		Page:     page.Page,
+		PageSize: page.PageSize,
 		Total:    searchResponseTotal(response),
 	}, nil
+}
+
+func (s *SearchService) meilisearchSearcher() (meilisearchSearcher, error) {
+	s.searcherMu.Lock()
+	defer s.searcherMu.Unlock()
+
+	if s.searcher != nil {
+		return s.searcher, nil
+	}
+
+	searcher, err := s.newSearcher(s.searchEngineCfg)
+	if err != nil {
+		return nil, err
+	}
+	s.searcher = searcher
+	return searcher, nil
 }
 
 func newMeilisearchSearcher(cfg config.SearchEngineConfig) (meilisearchSearcher, error) {
@@ -454,25 +474,6 @@ func searchResultSnippet(highlights map[string]string) string {
 
 func defaultSearchResultWindow() int {
 	return 100
-}
-
-func normalizeSearchPagination(page, pageSize, resultWindow int) (int, int, error) {
-	if page == 0 {
-		page = defaultSearchPage
-	}
-	if page < 1 {
-		return 0, 0, ErrSearchInvalidInput
-	}
-	if pageSize == 0 {
-		pageSize = defaultSearchPageSize
-	}
-	if pageSize < 1 || pageSize > maxSearchPageSize {
-		return 0, 0, ErrSearchInvalidInput
-	}
-	if resultWindow > 0 && page*pageSize > resultWindow {
-		return 0, 0, ErrSearchInvalidInput
-	}
-	return page, pageSize, nil
 }
 
 func collapseSearchWhitespace(value string) string {

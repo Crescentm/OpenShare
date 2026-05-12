@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"openshare/backend/internal/pagination"
 	"openshare/backend/internal/storage"
 )
 
@@ -77,15 +78,15 @@ func NewResourceManagementService(repo *ResourceManagementRepository, storageSer
 }
 
 func (s *ResourceManagementService) ListFiles(ctx context.Context, input ListManagedFilesInput) (*ManagedFileListResult, error) {
-	page, pageSize, err := normalizeManagedFileListPagination(input.Page, input.PageSize)
-	if err != nil {
-		return nil, err
+	page, ok := pagination.Normalize(input.Page, input.PageSize, defaultManagedFilePage, defaultManagedFilePageSize, maxManagedFilePageSize)
+	if !ok {
+		return nil, ErrInvalidResourceQuery
 	}
 
 	rows, total, err := s.repo.ListFiles(ctx, ManagedFileListQuery{
 		Query:  input.Query,
-		Offset: (page - 1) * pageSize,
-		Limit:  pageSize,
+		Offset: page.Offset,
+		Limit:  page.Limit,
 	})
 	if err != nil {
 		return nil, err
@@ -106,21 +107,8 @@ func (s *ResourceManagementService) ListFiles(ctx context.Context, input ListMan
 	}
 	return &ManagedFileListResult{
 		Items:    items,
-		Page:     page,
-		PageSize: pageSize,
+		Page:     page.Page,
+		PageSize: page.PageSize,
 		Total:    total,
 	}, nil
-}
-
-func normalizeManagedFileListPagination(page int, pageSize int) (int, int, error) {
-	if page == 0 {
-		page = defaultManagedFilePage
-	}
-	if pageSize == 0 {
-		pageSize = defaultManagedFilePageSize
-	}
-	if page < 1 || pageSize < 1 || pageSize > maxManagedFilePageSize {
-		return 0, 0, ErrInvalidResourceQuery
-	}
-	return page, pageSize, nil
 }

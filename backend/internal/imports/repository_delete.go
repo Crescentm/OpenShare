@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/operations"
 )
 
 type ManagedRootUnmanageResult struct {
@@ -133,7 +134,7 @@ func (r *ImportRepository) UnmanageManagedRootWithLog(ctx context.Context, rootF
 			}
 		}
 
-		return createOperationLogTx(tx, logID, operatorID, "managed_directory_unmanaged", "folder", rootFolderID, detail, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, "managed_directory_unmanaged", "folder", rootFolderID, detail, operatorIP, now)
 	})
 	if err != nil {
 		return nil, err

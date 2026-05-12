@@ -103,10 +103,3 @@ func (s *ResourceManagementService) UpdateFolderDescription(ctx context.Context,
 	}
 	return nil
 }
-
-func normalizePathPointer(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return strings.TrimSpace(*value)
-}

@@ -3,9 +3,10 @@ package operations
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"openshare/backend/internal/httpapi"
 )
 
 type OperationLogHandler struct {
@@ -17,13 +18,13 @@ func NewOperationLogHandler(service *OperationLogService) *OperationLogHandler {
 }
 
 func (h *OperationLogHandler) List(ctx *gin.Context) {
-	page, err := parseIntQuery(ctx.Query("page"))
+	page, err := httpapi.ParseIntQuery(ctx.Query("page"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page"})
 		return
 	}
 
-	pageSize, err := parseIntQuery(ctx.Query("page_size"))
+	pageSize, err := httpapi.ParseIntQuery(ctx.Query("page_size"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page_size"})
 		return
@@ -45,11 +46,4 @@ func (h *OperationLogHandler) List(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, result)
-}
-
-func parseIntQuery(raw string) (int, error) {
-	if raw == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(raw)
 }

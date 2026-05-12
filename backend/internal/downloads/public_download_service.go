@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"openshare/backend/internal/cache"
 	"openshare/backend/internal/config"
 	"openshare/backend/internal/model"
 	"openshare/backend/internal/pathutil"
@@ -17,6 +18,8 @@ import (
 	"openshare/backend/internal/storage"
 	"openshare/backend/internal/stringsx"
 )
+
+const publicDownloadFolderPathCacheTTL = 30 * time.Second
 
 var (
 	ErrDownloadFileNotFound    = errors.New("download file not found")
@@ -31,6 +34,7 @@ type PublicDownloadService struct {
 	storage       *storage.Service
 	config        config.DownloadConfig
 	systemSetting *settings.SystemSettingService
+	folderPath    *cache.TTL[string, string]
 }
 
 type DownloadableFile struct {
@@ -74,6 +78,7 @@ func NewPublicDownloadService(repository *PublicDownloadRepository, storageServi
 		storage:       storageService,
 		config:        cfg,
 		systemSetting: systemSettingService,
+		folderPath:    cache.NewTTL[string, string](publicDownloadFolderPathCacheTTL),
 	}
 }
 
@@ -234,12 +239,19 @@ func (s *PublicDownloadService) buildFilePath(ctx context.Context, file *model.F
 		return "主页根目录", nil
 	}
 
-	folders, err := s.repository.ListManagedFolderAncestors(ctx, strings.TrimSpace(*file.FolderID))
+	folderID := strings.TrimSpace(*file.FolderID)
+	if path, ok := s.folderPath.Get(folderID); ok {
+		return path, nil
+	}
+
+	folders, err := s.repository.ListManagedFolderAncestors(ctx, folderID)
 	if err != nil {
 		return "", err
 	}
 	if len(folders) == 0 {
-		return "主页根目录", nil
+		path := "主页根目录"
+		s.folderPath.Set(folderID, path)
+		return path, nil
 	}
 
 	segments := make([]string, 0, len(folders))
@@ -257,9 +269,13 @@ func (s *PublicDownloadService) buildFilePath(ctx context.Context, file *model.F
 	}
 
 	if len(segments) == 0 {
-		return "主页根目录", nil
+		path := "主页根目录"
+		s.folderPath.Set(folderID, path)
+		return path, nil
 	}
-	return strings.Join(segments, " / "), nil
+	path := strings.Join(segments, " / ")
+	s.folderPath.Set(folderID, path)
+	return path, nil
 }
 
 func (s *PublicDownloadService) resolveManagedFilePath(ctx context.Context, file *model.File) (string, error) {

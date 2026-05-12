@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"openshare/backend/internal/model"
+	"openshare/backend/internal/operations"
 )
 
 type AdminRepository struct {
@@ -105,7 +106,7 @@ func (r *AdminRepository) CreateWithLog(
 		if err := tx.Create(admin).Error; err != nil {
 			return fmt.Errorf("create admin: %w", err)
 		}
-		return createOperationLogTx(tx, logID, operatorID, action, "admin", admin.ID, detail, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, action, "admin", admin.ID, detail, operatorIP, now)
 	})
 }
 
@@ -128,7 +129,7 @@ func (r *AdminRepository) UpdateAdminWithLog(
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
-		return createOperationLogTx(tx, logID, operatorID, action, "admin", adminID, detail, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, action, "admin", adminID, detail, operatorIP, now)
 	})
 }
 
@@ -153,6 +154,6 @@ func (r *AdminRepository) DeleteAdminWithLog(
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
-		return createOperationLogTx(tx, logID, operatorID, action, "admin", adminID, detail, operatorIP, now)
+		return operations.CreateOperationLogTx(tx, logID, operatorID, action, "admin", adminID, detail, operatorIP, now)
 	})
 }

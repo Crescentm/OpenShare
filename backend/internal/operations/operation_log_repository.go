@@ -70,7 +70,7 @@ func (r *OperationLogRepository) List(ctx context.Context, action string, target
 	return rows, total, nil
 }
 
-func createOperationLogTx(
+func CreateOperationLogTx(
 	tx *gorm.DB,
 	logID string,
 	adminID string,

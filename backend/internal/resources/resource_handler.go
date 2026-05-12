@@ -3,11 +3,11 @@ package resources
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"openshare/backend/internal/admin"
+	"openshare/backend/internal/httpapi"
 	"openshare/backend/internal/session"
 )
 
@@ -48,12 +48,12 @@ func NewResourceManagementHandler(
 }
 
 func (h *ResourceManagementHandler) ListFiles(ctx *gin.Context) {
-	page, err := parseIntQuery(ctx.Query("page"))
+	page, err := httpapi.ParseIntQuery(ctx.Query("page"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page"})
 		return
 	}
-	pageSize, err := parseIntQuery(ctx.Query("page_size"))
+	pageSize, err := httpapi.ParseIntQuery(ctx.Query("page_size"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid page_size"})
 		return
@@ -223,11 +223,4 @@ func (h *ResourceManagementHandler) notifySearchIndex(reason string) {
 	if h.indexNotifier != nil {
 		h.indexNotifier.NotifySearchResourcesChanged(reason)
 	}
-}
-
-func parseIntQuery(raw string) (int, error) {
-	if raw == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(raw)
 }

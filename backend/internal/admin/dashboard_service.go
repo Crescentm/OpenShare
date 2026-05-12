@@ -4,11 +4,16 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"openshare/backend/internal/cache"
 )
 
+const adminDashboardStatsCacheTTL = 5 * time.Second
+
 type AdminDashboardService struct {
-	repo    *AdminDashboardRepository
-	nowFunc func() time.Time
+	repo       *AdminDashboardRepository
+	nowFunc    func() time.Time
+	statsCache *cache.TTL[string, AdminDashboardStats]
 }
 
 type AdminDashboardStats struct {
@@ -25,19 +30,24 @@ type AdminDashboardStats struct {
 
 func NewAdminDashboardService(repo *AdminDashboardRepository) *AdminDashboardService {
 	return &AdminDashboardService{
-		repo:    repo,
-		nowFunc: func() time.Time { return time.Now().UTC() },
+		repo:       repo,
+		nowFunc:    func() time.Time { return time.Now().UTC() },
+		statsCache: cache.NewTTL[string, AdminDashboardStats](adminDashboardStatsCacheTTL),
 	}
 }
 
 func (s *AdminDashboardService) GetStats(ctx context.Context) (*AdminDashboardStats, error) {
+	if stats, ok := s.statsCache.Get("stats"); ok {
+		return &stats, nil
+	}
+
 	since := s.nowFunc().Add(-7 * 24 * time.Hour)
 	row, err := s.repo.GetStats(ctx, since)
 	if err != nil {
 		return nil, fmt.Errorf("load admin dashboard stats: %w", err)
 	}
 
-	return &AdminDashboardStats{
+	stats := AdminDashboardStats{
 		TotalVisits:        row.TotalVisits,
 		TotalFiles:         row.TotalFiles,
 		TotalDownloads:     row.TotalDownloads,
@@ -47,5 +57,7 @@ func (s *AdminDashboardService) GetStats(ctx context.Context) (*AdminDashboardSt
 		PendingSubmissions: row.PendingSubmissions,
 		PendingFeedbacks:   row.PendingFeedbacks,
 		PendingAuditCount:  row.PendingSubmissions + row.PendingFeedbacks,
-	}, nil
+	}
+	s.statsCache.Set("stats", stats)
+	return &stats, nil
 }

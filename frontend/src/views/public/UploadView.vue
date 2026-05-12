@@ -6,7 +6,12 @@ import PageHeader from "../../components/ui/PageHeader.vue";
 import SurfaceCard from "../../components/ui/SurfaceCard.vue";
 import { HttpError, httpClient } from "../../lib/http/client";
 import { formatDateTime as formatDate } from "../../lib/formatters";
-import { clearStoredReceiptCode, ensureSessionReceiptCode, readStoredReceiptCode } from "../../lib/receiptCode";
+import {
+  clearStoredReceiptCode,
+  ensureSessionReceiptCode,
+  readStoredReceiptCode,
+  storeReceiptCode,
+} from "../../lib/receiptCode";
 
 interface SubmissionLookupResponse {
   receipt_code: string;
@@ -104,11 +109,11 @@ async function lookupReceipt() {
 
   if (submissionResult.status === "fulfilled") {
     submissionLookupResult.value = submissionResult.value;
-    sessionStorage.setItem("openshare_receipt_code", submissionResult.value.receipt_code);
+    storeReceiptCode(submissionResult.value.receipt_code);
   }
   if (feedbackResult.status === "fulfilled") {
     feedbackLookupResult.value = feedbackResult.value;
-    sessionStorage.setItem("openshare_receipt_code", feedbackResult.value.receipt_code);
+    storeReceiptCode(feedbackResult.value.receipt_code);
   }
 
   if (!submissionLookupResult.value && !feedbackLookupResult.value) {

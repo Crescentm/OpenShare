@@ -1,15 +1,22 @@
 import { httpClient } from "./http/client";
 
-const receiptCodeStorageKey = "openshare_receipt_code";
-const receiptCodeCookieName = "openshare_receipt_code";
+export const receiptCodeStorageKey = "openshare_receipt_code";
+const receiptCodeCookieName = receiptCodeStorageKey;
 
 export async function ensureSessionReceiptCode() {
   const response = await httpClient.get<{ receipt_code: string }>("/public/receipt-code");
   const receiptCode = response.receipt_code?.trim() ?? "";
   if (receiptCode) {
-    window.sessionStorage.setItem(receiptCodeStorageKey, receiptCode);
+    storeReceiptCode(receiptCode);
   }
   return receiptCode;
+}
+
+export function storeReceiptCode(receiptCode: string) {
+  const normalized = receiptCode.trim();
+  if (normalized) {
+    window.sessionStorage.setItem(receiptCodeStorageKey, normalized);
+  }
 }
 
 export function readStoredReceiptCode() {
