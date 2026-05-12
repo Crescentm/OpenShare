@@ -1,62 +1,63 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const defaultStorageRoot = "/data/openshare"
 
 type Config struct {
-	Server       ServerConfig       `json:"server"`
-	Database     DatabaseConfig     `json:"database"`
-	Storage      StorageConfig      `json:"storage"`
-	Upload       UploadConfig       `json:"upload"`
-	Download     DownloadConfig     `json:"download"`
-	Session      SessionConfig      `json:"session"`
-	RateLimit    RateLimitConfig    `json:"rate_limit"`
-	ManagedSync  ManagedSyncConfig  `json:"managed_sync"`
-	SearchEngine SearchEngineConfig `json:"search_engine"`
+	Server       ServerConfig       `toml:"server"`
+	Database     DatabaseConfig     `toml:"database"`
+	Storage      StorageConfig      `toml:"storage"`
+	Upload       UploadConfig       `toml:"upload"`
+	Download     DownloadConfig     `toml:"download"`
+	Session      SessionConfig      `toml:"session"`
+	RateLimit    RateLimitConfig    `toml:"rate_limit"`
+	ManagedSync  ManagedSyncConfig  `toml:"managed_sync"`
+	SearchEngine SearchEngineConfig `toml:"search_engine"`
 }
 
 type ServerConfig struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
+	Host string `toml:"host"`
+	Port int    `toml:"port"`
 }
 
 type DatabaseConfig struct {
-	Path         string      `json:"path"`
-	LogLevel     string      `json:"log_level"`
-	Pragmas      []SQLPragma `json:"pragmas"`
-	EnableWAL    bool        `json:"enable_wal"`
-	MaxOpenConns int         `json:"max_open_conns"`
-	MaxIdleConns int         `json:"max_idle_conns"`
+	Path         string      `toml:"path"`
+	LogLevel     string      `toml:"log_level"`
+	Pragmas      []SQLPragma `toml:"pragmas"`
+	EnableWAL    bool        `toml:"enable_wal"`
+	MaxOpenConns int         `toml:"max_open_conns"`
+	MaxIdleConns int         `toml:"max_idle_conns"`
 }
 
 type SQLPragma struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name  string `toml:"name"`
+	Value string `toml:"value"`
 }
 
 type StorageConfig struct {
-	Root    string `json:"root"`
-	Staging string `json:"staging"`
-	Trash   string `json:"trash"`
+	Root    string `toml:"root"`
+	Staging string `toml:"staging"`
+	Trash   string `toml:"trash"`
 }
 
 type UploadConfig struct {
-	MaxUploadTotalBytes  int64 `json:"max_upload_total_bytes"`
-	MaxDescriptionLength int   `json:"max_description_length"`
-	ReceiptCodeLength    int   `json:"receipt_code_length"`
+	MaxUploadTotalBytes  int64 `toml:"max_upload_total_bytes"`
+	MaxDescriptionLength int   `toml:"max_description_length"`
+	ReceiptCodeLength    int   `toml:"receipt_code_length"`
 }
 
 type DownloadConfig struct {
-	MaxDownloadTotalBytes int64 `json:"max_download_total_bytes"`
+	MaxDownloadTotalBytes int64 `toml:"max_download_total_bytes"`
 }
 
 func setIfPresent[T any](target *T, value *T) {
@@ -66,38 +67,38 @@ func setIfPresent[T any](target *T, value *T) {
 }
 
 type SessionConfig struct {
-	Name            string `json:"name"`
-	Secret          string `json:"secret"`
-	Path            string `json:"path"`
-	MaxAgeSeconds   int    `json:"max_age_seconds"`
-	Secure          bool   `json:"secure"`
-	HTTPOnly        bool   `json:"http_only"`
-	SameSite        string `json:"same_site"`
-	RenewWindowSecs int    `json:"renew_window_seconds"`
+	Name            string `toml:"name"`
+	Secret          string `toml:"secret"`
+	Path            string `toml:"path"`
+	MaxAgeSeconds   int    `toml:"max_age_seconds"`
+	Secure          bool   `toml:"secure"`
+	HTTPOnly        bool   `toml:"http_only"`
+	SameSite        string `toml:"same_site"`
+	RenewWindowSecs int    `toml:"renew_window_seconds"`
 }
 
 type RateLimitConfig struct {
-	Upload RateLimitRule `json:"upload"`
-	Search RateLimitRule `json:"search"`
+	Upload RateLimitRule `toml:"upload"`
+	Search RateLimitRule `toml:"search"`
 }
 
 type RateLimitRule struct {
-	Enabled bool `json:"enabled"`
-	Limit   int  `json:"limit"`
-	Window  int  `json:"window_seconds"`
+	Enabled bool `toml:"enabled"`
+	Limit   int  `toml:"limit"`
+	Window  int  `toml:"window_seconds"`
 }
 
 type ManagedSyncConfig struct {
-	RefreshIntervalSeconds int `json:"refresh_interval_seconds"`
-	AuditIntervalSeconds   int `json:"audit_interval_seconds"`
+	RefreshIntervalSeconds int `toml:"refresh_interval_seconds"`
+	AuditIntervalSeconds   int `toml:"audit_interval_seconds"`
 }
 
 type SearchEngineConfig struct {
-	Enabled             bool   `json:"enabled"`
-	Host                string `json:"host"`
-	APIKey              string `json:"api_key"`
-	IndexName           string `json:"index_name"`
-	SemanticProfilePath string `json:"semantic_profile_path"`
+	Enabled             bool   `toml:"enabled"`
+	Host                string `toml:"host"`
+	APIKey              string `toml:"api_key"`
+	IndexName           string `toml:"index_name"`
+	SemanticProfilePath string `toml:"semantic_profile_path"`
 }
 
 func Default() Config {
@@ -152,9 +153,20 @@ func Default() Config {
 			Enabled:             false,
 			Host:                "http://127.0.0.1:7700",
 			IndexName:           "openshare_resources",
-			SemanticProfilePath: "config/search_semantics.openwhu.json",
+			SemanticProfilePath: "config/search.profile.openwhu.yaml",
 		},
 	}
+}
+
+func DefaultPath() string {
+	return "config/openshare.default.toml"
+}
+
+func LocalPath() string {
+	if path := strings.TrimSpace(os.Getenv("OPENSHARE_CONFIG")); path != "" {
+		return path
+	}
+	return "config/openshare.toml"
 }
 
 func Load(defaultPath, localPath string) (Config, error) {
@@ -197,7 +209,7 @@ func mergeFromFile(cfg *Config, path string, optional bool) error {
 		return fmt.Errorf("config file %q is empty", path)
 	}
 
-	if err := json.Unmarshal(data, cfg); err != nil {
+	if err := toml.Unmarshal(data, cfg); err != nil {
 		return fmt.Errorf("parse config file %q: %w", path, err)
 	}
 

@@ -9,17 +9,16 @@ services:
     ports:
       - "127.0.0.1:${OPENSHARE_HTTP_PORT:-8080}:8080"
     environment:
-      OPENSHARE_SESSION_SECRET: ${OPENSHARE_SESSION_SECRET}
+      OPENSHARE_SESSION_SECRET: ${OPENSHARE_SESSION_SECRET:-openshare-development-session-secret-change-me}
       OPENSHARE_SEARCH_ENGINE_ENABLED: ${OPENSHARE_SEARCH_ENGINE_ENABLED:-false}
       OPENSHARE_SEARCH_ENGINE_HOST: http://meilisearch:7700
       OPENSHARE_SEARCH_ENGINE_API_KEY: ${MEILI_MASTER_KEY:-openshare-development-master-key-change-me}
       OPENSHARE_SEARCH_ENGINE_INDEX_NAME: ${OPENSHARE_SEARCH_ENGINE_INDEX_NAME:-openshare_resources}
-      OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH: ${OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH:-config/search_semantics.openwhu.json}
+      OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH: ${OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH:-config/search.profile.openwhu.yaml}
       HOME: ${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
       GIN_MODE: release
     volumes:
       - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
-      - ${OPENSHARE_CONFIG:-./config/config.local.json}:/app/config/config.local.json
       - ${OPENSHARE_IMPORTS_PATH:-./imports}:${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
   openshare-worker:
     image: openshare:local
@@ -27,17 +26,16 @@ services:
     restart: unless-stopped
     command: ["./openshare-worker"]
     environment:
-      OPENSHARE_SESSION_SECRET: ${OPENSHARE_SESSION_SECRET}
+      OPENSHARE_SESSION_SECRET: ${OPENSHARE_SESSION_SECRET:-openshare-development-session-secret-change-me}
       OPENSHARE_SEARCH_ENGINE_ENABLED: ${OPENSHARE_SEARCH_ENGINE_ENABLED:-false}
       OPENSHARE_SEARCH_ENGINE_HOST: http://meilisearch:7700
       OPENSHARE_SEARCH_ENGINE_API_KEY: ${MEILI_MASTER_KEY:-openshare-development-master-key-change-me}
       OPENSHARE_SEARCH_ENGINE_INDEX_NAME: ${OPENSHARE_SEARCH_ENGINE_INDEX_NAME:-openshare_resources}
-      OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH: ${OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH:-config/search_semantics.openwhu.json}
+      OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH: ${OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH:-config/search.profile.openwhu.yaml}
       HOME: ${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
       GIN_MODE: release
     volumes:
       - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
-      - ${OPENSHARE_CONFIG:-./config/config.local.json}:/app/config/config.local.json
       - ${OPENSHARE_IMPORTS_PATH:-./imports}:${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
   meilisearch:
     image: getmeili/meilisearch:v1

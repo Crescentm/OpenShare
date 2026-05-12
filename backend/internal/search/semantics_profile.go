@@ -1,20 +1,21 @@
 package search
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type SemanticProfile struct {
-	Categories            map[string][]string `json:"categories"`
-	MaterialTypes         map[string][]string `json:"material_types"`
-	CustomTokens          []string            `json:"custom_tokens"`
-	IgnoredPathSegments   []string            `json:"ignored_path_segments"`
-	IgnoredFileExtensions []string            `json:"ignored_file_extensions"`
+	Categories            map[string][]string `json:"categories" yaml:"categories"`
+	MaterialTypes         map[string][]string `json:"material_types" yaml:"material_types"`
+	CustomTokens          []string            `json:"custom_tokens" yaml:"custom_tokens"`
+	IgnoredPathSegments   []string            `json:"ignored_path_segments" yaml:"ignored_path_segments"`
+	IgnoredFileExtensions []string            `json:"ignored_file_extensions" yaml:"ignored_file_extensions"`
 }
 
 type ProfileSearchSemantics struct {
@@ -42,8 +43,12 @@ func LoadSemanticProfile(filename string) (*SemanticProfile, error) {
 		return nil, fmt.Errorf("read semantic profile: %w", err)
 	}
 
+	return ParseSemanticProfileYAML(data)
+}
+
+func ParseSemanticProfileYAML(data []byte) (*SemanticProfile, error) {
 	var profile SemanticProfile
-	if err := json.Unmarshal(data, &profile); err != nil {
+	if err := yaml.Unmarshal(data, &profile); err != nil {
 		return nil, fmt.Errorf("parse semantic profile: %w", err)
 	}
 	if err := profile.Validate(); err != nil {

@@ -26,7 +26,7 @@ interface ManagedRootNode {
 interface SearchIndexStatus {
   enabled: boolean;
   index_name: string;
-  semantic_profile_path: string;
+  semantic_profile_mode: string;
   status: "disabled" | "available" | "unavailable" | string;
   error?: string;
 }
@@ -39,6 +39,14 @@ interface SearchIndexRebuildResult {
   skipped_files: number;
   skipped_folders: number;
   last_task_uid?: number;
+}
+
+interface SearchProfile {
+  categories: Record<string, string[]>;
+  material_types: Record<string, string[]>;
+  custom_tokens: string[];
+  ignored_path_segments: string[];
+  ignored_file_extensions: string[];
 }
 
 const loading = ref(false);
@@ -73,6 +81,16 @@ const searchIndexLoading = ref(false);
 const searchIndexRebuilding = ref(false);
 const searchIndexError = ref("");
 const searchIndexMessage = ref("");
+const searchProfileLoading = ref(false);
+const searchProfileSaving = ref(false);
+const searchProfileError = ref("");
+const searchProfileMessage = ref("");
+const searchProfileSnapshot = ref("");
+const searchCategoriesText = ref("");
+const searchMaterialTypesText = ref("");
+const searchCustomTokensText = ref("");
+const searchIgnoredPathSegmentsText = ref("");
+const searchIgnoredFileExtensionsText = ref("");
 const uploadSizeValue = ref(5);
 const uploadSizeUnit = ref<"B" | "KB" | "MB" | "GB">("GB");
 const downloadSizeValue = ref(5);
@@ -90,7 +108,7 @@ const form = reactive<SystemPolicy>({
 });
 
 onMounted(() => {
-  void Promise.all([loadPolicy(), loadDirectories(""), loadManagedFolders(), loadSearchIndexStatus()]);
+  void Promise.all([loadPolicy(), loadDirectories(""), loadManagedFolders(), loadSearchIndexStatus(), loadSearchProfile()]);
 });
 
 async function loadPolicy() {
@@ -471,6 +489,40 @@ async function rebuildSearchIndex() {
   }
 }
 
+async function loadSearchProfile() {
+  searchProfileLoading.value = true;
+  searchProfileError.value = "";
+  searchProfileMessage.value = "";
+  try {
+    const profile = await httpClient.get<SearchProfile>("/admin/system/search-profile");
+    applySearchProfileForm(profile);
+    searchProfileSnapshot.value = serializeSearchProfileForm();
+  } catch (err: unknown) {
+    searchProfileError.value = readApiError(err, "加载搜索语义配置失败。");
+  } finally {
+    searchProfileLoading.value = false;
+  }
+}
+
+async function saveSearchProfile() {
+  searchProfileSaving.value = true;
+  searchProfileError.value = "";
+  searchProfileMessage.value = "";
+  try {
+    const profile = searchProfileFromForm();
+    await httpClient.request("/admin/system/search-profile", {
+      method: "PUT",
+      body: profile,
+    });
+    searchProfileSnapshot.value = serializeSearchProfileForm();
+    searchProfileMessage.value = "搜索语义配置已更新，请重建索引使其生效。";
+  } catch (err: unknown) {
+    searchProfileError.value = readApiError(err, "保存搜索语义配置失败。");
+  } finally {
+    searchProfileSaving.value = false;
+  }
+}
+
 function searchIndexStatusLabel(status: string) {
   switch (status) {
     case "available":
@@ -482,6 +534,93 @@ function searchIndexStatusLabel(status: string) {
     default:
       return status || "未知";
   }
+}
+
+function searchProfileModeLabel(mode: string) {
+  switch (mode) {
+    case "admin":
+      return "后台管理";
+    case "generic":
+      return "通用规则";
+    default:
+      return mode || "未知";
+  }
+}
+
+const searchProfileDirty = computed(() => {
+  return searchProfileSnapshot.value !== serializeSearchProfileForm();
+});
+
+function applySearchProfileForm(profile: SearchProfile) {
+  searchCategoriesText.value = formatAliasMap(profile.categories);
+  searchMaterialTypesText.value = formatAliasMap(profile.material_types);
+  searchCustomTokensText.value = formatLineList(profile.custom_tokens);
+  searchIgnoredPathSegmentsText.value = formatLineList(profile.ignored_path_segments);
+  searchIgnoredFileExtensionsText.value = formatLineList(profile.ignored_file_extensions);
+}
+
+function searchProfileFromForm(): SearchProfile {
+  return {
+    categories: parseAliasMap(searchCategoriesText.value),
+    material_types: parseAliasMap(searchMaterialTypesText.value),
+    custom_tokens: parseLineList(searchCustomTokensText.value),
+    ignored_path_segments: parseLineList(searchIgnoredPathSegmentsText.value),
+    ignored_file_extensions: parseLineList(searchIgnoredFileExtensionsText.value),
+  };
+}
+
+function serializeSearchProfileForm() {
+  return JSON.stringify(searchProfileFromForm());
+}
+
+function formatAliasMap(values: Record<string, string[]>) {
+  return Object.entries(values ?? {})
+    .map(([canonical, aliases]) => `${canonical}: ${(aliases ?? []).join(", ")}`)
+    .join("\n");
+}
+
+function parseAliasMap(value: string) {
+  const result: Record<string, string[]> = {};
+  for (const line of value.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const separator = trimmed.indexOf(":");
+    const canonical = (separator >= 0 ? trimmed.slice(0, separator) : trimmed).trim();
+    if (!canonical) {
+      continue;
+    }
+    const aliasText = separator >= 0 ? trimmed.slice(separator + 1) : "";
+    result[canonical] = parseCommaList(aliasText);
+  }
+  return result;
+}
+
+function formatLineList(values: string[]) {
+  return (values ?? []).join("\n");
+}
+
+function parseLineList(value: string) {
+  return uniqueStrings(value.split(/\r?\n/));
+}
+
+function parseCommaList(value: string) {
+  return uniqueStrings(value.split(/[,，]/));
+}
+
+function uniqueStrings(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of values) {
+    const normalized = item.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
 }
 
 function beginUnmanageManagedFolder(folderID: string) {
@@ -622,7 +761,9 @@ function isManagedRootClientChild(path: string, root: string) {
           </div>
           <div class="panel-muted px-4 py-3">
             <p class="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">语义配置</p>
-            <p class="mt-2 break-all text-sm font-medium text-slate-900">{{ searchIndexStatus?.semantic_profile_path || "通用模式" }}</p>
+            <p class="mt-2 break-all text-sm font-medium text-slate-900">
+              {{ searchIndexStatus ? searchProfileModeLabel(searchIndexStatus.semantic_profile_mode) : "未知" }}
+            </p>
           </div>
         </div>
 
@@ -640,6 +781,55 @@ function isManagedRootClientChild(path: string, root: string) {
         >
           {{ searchIndexRebuilding ? "重建中…" : "重建搜索索引" }}
         </button>
+      </SurfaceCard>
+
+      <SurfaceCard class="space-y-4">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <h3 class="text-lg font-semibold text-slate-900">搜索语义配置</h3>
+            <p class="mt-1 text-sm text-slate-500">配置课程分类、资料类型别名、忽略规则和自定义分词。保存后重建索引生效。</p>
+          </div>
+          <button type="button" class="btn-secondary" :disabled="searchProfileLoading" @click="loadSearchProfile">
+            {{ searchProfileLoading ? "刷新中…" : "刷新" }}
+          </button>
+        </div>
+
+        <div v-if="searchProfileLoading && !searchProfileSnapshot" class="text-sm text-slate-500">正在加载搜索语义配置…</div>
+        <form v-else class="grid gap-4 lg:grid-cols-2" @submit.prevent="saveSearchProfile">
+          <div class="space-y-2">
+            <label class="text-sm font-medium text-slate-700">课程分类别名</label>
+            <textarea v-model="searchCategoriesText" class="field min-h-36 font-mono text-sm" placeholder="专业课: 专业课程&#10;公共必修: 公共必修课" />
+          </div>
+          <div class="space-y-2">
+            <label class="text-sm font-medium text-slate-700">资料类型别名</label>
+            <textarea v-model="searchMaterialTypesText" class="field min-h-36 font-mono text-sm" placeholder="试卷: 真题, 历年卷&#10;课件: ppt, slides" />
+          </div>
+          <div class="space-y-2">
+            <label class="text-sm font-medium text-slate-700">自定义分词词表</label>
+            <textarea v-model="searchCustomTokensText" class="field min-h-36 font-mono text-sm" placeholder="每行一个词，例如：&#10;计算机网络&#10;数据结构" />
+          </div>
+          <div class="grid gap-4">
+            <div class="space-y-2">
+              <label class="text-sm font-medium text-slate-700">忽略目录片段</label>
+              <textarea v-model="searchIgnoredPathSegmentsText" class="field min-h-24 font-mono text-sm" placeholder="每行一个目录名，例如：&#10;.git&#10;node_modules" />
+            </div>
+            <div class="space-y-2">
+              <label class="text-sm font-medium text-slate-700">忽略文件扩展名</label>
+              <textarea v-model="searchIgnoredFileExtensionsText" class="field min-h-24 font-mono text-sm" placeholder="每行一个扩展名，例如：&#10;pdb&#10;tlog" />
+            </div>
+          </div>
+          <div class="lg:col-span-2 flex flex-wrap items-center gap-3">
+            <button type="submit" class="btn-primary" :disabled="searchProfileSaving || !searchProfileDirty">
+              {{ searchProfileSaving ? "保存中…" : "保存搜索语义配置" }}
+            </button>
+            <button type="button" class="btn-secondary" :disabled="searchIndexRebuilding || !searchIndexStatus?.enabled" @click="rebuildSearchIndex">
+              {{ searchIndexRebuilding ? "重建中…" : "保存后重建索引" }}
+            </button>
+          </div>
+        </form>
+
+        <p v-if="searchProfileMessage" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ searchProfileMessage }}</p>
+        <p v-if="searchProfileError" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ searchProfileError }}</p>
       </SurfaceCard>
 
       <div class="grid gap-6 xl:grid-cols-3">

@@ -114,7 +114,7 @@ OpenShare/
 本脚本：
 
 - 不会清空已有数据库和存储目录
-- 不会覆盖已存在的 `backend/config/config.local.json`
+- 不会覆盖已存在的 `backend/config/openshare.toml`
 - 第一次启动时会自动初始化数据库，并输出超级管理员初始凭据
 
 ```bash
@@ -127,24 +127,21 @@ LOG_DIR="$LOCAL_DATA_DIR/logs"
 BACKEND_LOG="$LOG_DIR/backend.log"
 WORKER_LOG="$LOG_DIR/worker.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
-BACKEND_CONFIG_LOCAL="$ROOT_DIR/backend/config/config.local.json"
+BACKEND_CONFIG_LOCAL="$ROOT_DIR/backend/config/openshare.toml"
 
 mkdir -p "$LOG_DIR"
 
 if [ ! -f "$BACKEND_CONFIG_LOCAL" ]; then
   echo "==> 创建本地配置"
   cat > "$BACKEND_CONFIG_LOCAL" <<EOF
-{
-  "database": {
-    "path": "$LOCAL_DATA_DIR/openshare.db"
-  },
-  "storage": {
-    "root": "$LOCAL_DATA_DIR"
-  },
-  "session": {
-    "secret": "dev-local-session-secret"
-  }
-}
+[database]
+path = "$LOCAL_DATA_DIR/openshare.db"
+
+[storage]
+root = "$LOCAL_DATA_DIR"
+
+[session]
+secret = "dev-local-session-secret"
 EOF
 else
   echo "==> 使用现有本地配置"
@@ -205,7 +202,7 @@ wait
 ### 方法二：二进制文件启动
 
 1. 从仓库的 Releases 页面下载 linux-amd64 平台的压缩包
-2. 根据需求修改 `config/config.local.json`
+2. 根据需求修改 `config/openshare.toml`
 3. 运行发布包中的 `start.sh`
 
 目录结构：

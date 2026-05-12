@@ -1,5 +1,5 @@
 export interface RequestOptions extends Omit<RequestInit, "body"> {
-  body?: BodyInit | Record<string, unknown> | null;
+  body?: BodyInit | object | null;
 }
 
 export class HttpError extends Error {

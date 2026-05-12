@@ -63,7 +63,7 @@ openshare_test_export_env() {
   export OPENSHARE_SESSION_SECRET="${OPENSHARE_SESSION_SECRET:-openshare-local-docker-test-secret-change-me}"
   export OPENSHARE_SEARCH_ENGINE_ENABLED="${OPENSHARE_SEARCH_ENGINE_ENABLED:-true}"
   export OPENSHARE_SEARCH_ENGINE_INDEX_NAME="${OPENSHARE_SEARCH_ENGINE_INDEX_NAME:-openshare_resources}"
-  export OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH="${OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH:-config/search_semantics.openwhu.json}"
+  export OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH="${OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH:-config/search.profile.openwhu.yaml}"
   export OPENSHARE_IMPORTS_CONTAINER_PATH="${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}"
   export MEILI_MASTER_KEY="${MEILI_MASTER_KEY:-openshare-development-master-key-change-me}"
 
@@ -76,31 +76,7 @@ openshare_test_export_env() {
   export MEILI_DATA_PATH
   MEILI_DATA_PATH="$(abs_path "${MEILI_DATA_PATH:-$OPENSHARE_TEST_RUNTIME_DIR/meili_data}")"
 
-  export OPENSHARE_CONFIG
-  OPENSHARE_CONFIG="$(abs_path "${OPENSHARE_CONFIG:-$OPENSHARE_TEST_RUNTIME_DIR/config.local.json}")"
-}
-
-openshare_test_write_config() {
-  mkdir -p "$OPENSHARE_DATA_PATH" "$OPENSHARE_IMPORTS_PATH" "$MEILI_DATA_PATH" "$(dirname "$OPENSHARE_CONFIG")"
-
-  if [[ -f "$OPENSHARE_CONFIG" ]]; then
-    return
-  fi
-
-  cat >"$OPENSHARE_CONFIG" <<JSON
-{
-  "session": {
-    "secret": "$OPENSHARE_SESSION_SECRET"
-  },
-  "search_engine": {
-    "enabled": true,
-    "host": "http://meilisearch:7700",
-    "api_key": "$MEILI_MASTER_KEY",
-    "index_name": "$OPENSHARE_SEARCH_ENGINE_INDEX_NAME",
-    "semantic_profile_path": "$OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH"
-  }
-}
-JSON
+  mkdir -p "$OPENSHARE_DATA_PATH" "$OPENSHARE_IMPORTS_PATH" "$MEILI_DATA_PATH"
 }
 
 openshare_test_compose_cmd() {

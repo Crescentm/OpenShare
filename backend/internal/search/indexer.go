@@ -30,15 +30,20 @@ type SearchIndexService struct {
 	clientMu        sync.Mutex
 	cfg             config.SearchEngineConfig
 	searchRepo      *SearchRepository
+	profileProvider SemanticProfileProvider
 	rebuildOnce     sync.Once
 	rebuildRequests chan string
 	client          *searchengine.MeilisearchClient
 }
 
+type SemanticProfileProvider interface {
+	GetSearchProfile(ctx context.Context) (*SemanticProfile, error)
+}
+
 type SearchIndexStatus struct {
 	Enabled             bool   `json:"enabled"`
 	IndexName           string `json:"index_name"`
-	SemanticProfilePath string `json:"semantic_profile_path"`
+	SemanticProfileMode string `json:"semantic_profile_mode"`
 	Status              string `json:"status"`
 	Error               string `json:"error,omitempty"`
 }
@@ -73,10 +78,11 @@ type searchIndexFolderSnapshot struct {
 	RootID string
 }
 
-func NewSearchIndexService(searchRepo *SearchRepository, cfg config.SearchEngineConfig) *SearchIndexService {
+func NewSearchIndexService(searchRepo *SearchRepository, cfg config.SearchEngineConfig, profileProvider SemanticProfileProvider) *SearchIndexService {
 	return &SearchIndexService{
 		cfg:             cfg,
 		searchRepo:      searchRepo,
+		profileProvider: profileProvider,
 		rebuildRequests: make(chan string, 1),
 	}
 }
@@ -144,8 +150,11 @@ func (s *SearchIndexService) Status(ctx context.Context) SearchIndexStatus {
 	status := SearchIndexStatus{
 		Enabled:             s.cfg.Enabled,
 		IndexName:           s.cfg.IndexName,
-		SemanticProfilePath: s.cfg.SemanticProfilePath,
+		SemanticProfileMode: "admin",
 		Status:              "disabled",
+	}
+	if s.profileProvider == nil {
+		status.SemanticProfileMode = "generic"
 	}
 	if !s.cfg.Enabled {
 		return status
@@ -185,7 +194,7 @@ func (s *SearchIndexService) Rebuild(ctx context.Context) (*SearchIndexRebuildRe
 		return nil, err
 	}
 
-	builder, err := s.newDocumentBuilder()
+	builder, err := s.newDocumentBuilder(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -214,13 +223,12 @@ func (s *SearchIndexService) meilisearchClient() (*searchengine.MeilisearchClien
 	return client, nil
 }
 
-func (s *SearchIndexService) newDocumentBuilder() (*SearchDocumentBuilder, error) {
-	profilePath := strings.TrimSpace(s.cfg.SemanticProfilePath)
-	if profilePath == "" {
+func (s *SearchIndexService) newDocumentBuilder(ctx context.Context) (*SearchDocumentBuilder, error) {
+	if s.profileProvider == nil {
 		return NewSearchDocumentBuilder(nil), nil
 	}
 
-	profile, err := LoadSemanticProfile(profilePath)
+	profile, err := s.profileProvider.GetSearchProfile(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load search semantic profile: %w", err)
 	}

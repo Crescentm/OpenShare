@@ -1,0 +1,23 @@
+[server]
+port = 8080
+
+[database]
+path = "/data/openshare/openshare.local.db"
+
+[storage]
+root = "/data/openshare"
+
+[session]
+secret = "change-me-before-production"
+path = "/"
+
+[managed_sync]
+refresh_interval_seconds = 60
+audit_interval_seconds = 21600
+
+[search_engine]
+enabled = true
+host = "http://meilisearch:7700"
+api_key = "change-me"
+index_name = "openshare_resources"
+semantic_profile_path = "config/search.profile.openwhu.yaml"

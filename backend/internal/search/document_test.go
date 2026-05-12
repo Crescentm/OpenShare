@@ -336,7 +336,7 @@ func newTestProfileSearchDocumentBuilder(t *testing.T) *SearchDocumentBuilder {
 
 func mustLoadTestSemanticProfile(t *testing.T) *SemanticProfile {
 	t.Helper()
-	profile, err := LoadSemanticProfile(filepath.Join("..", "..", "config", "search_semantics.openwhu.json"))
+	profile, err := LoadSemanticProfile(filepath.Join("..", "..", "config", "search.profile.openwhu.yaml"))
 	if err != nil {
 		t.Fatalf("LoadSemanticProfile() error = %v", err)
 	}

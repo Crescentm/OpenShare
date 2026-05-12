@@ -1,18 +1,20 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestLoadPreservesUploadDefaultsForPartialOverrides(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"upload":{"max_upload_total_bytes":123456789}}`,
+		`[upload]
+max_upload_total_bytes = 123456789`,
 	)
 
 	cfg, err := Load(defaultPath, localPath)
@@ -35,7 +37,8 @@ func TestLoadRejectsInvalidUploadOverride(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"upload":{"max_upload_total_bytes":0}}`,
+		`[upload]
+max_upload_total_bytes = 0`,
 	)
 
 	_, err := Load(defaultPath, localPath)
@@ -51,7 +54,8 @@ func TestLoadPreservesManagedSyncDefaultsForPartialOverrides(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"managed_sync":{"refresh_interval_seconds":15}}`,
+		`[managed_sync]
+refresh_interval_seconds = 15`,
 	)
 
 	cfg, err := Load(defaultPath, localPath)
@@ -75,7 +79,8 @@ func TestLoadPreservesDatabasePoolDefaultsForPartialOverrides(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"database":{"path":"/tmp/openshare-test.db"}}`,
+		`[database]
+path = "/tmp/openshare-test.db"`,
 	)
 
 	cfg, err := Load(defaultPath, localPath)
@@ -95,7 +100,9 @@ func TestLoadRejectsInvalidDatabasePoolConfig(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"database":{"max_open_conns":4,"max_idle_conns":5}}`,
+		`[database]
+max_open_conns = 4
+max_idle_conns = 5`,
 	)
 
 	_, err := Load(defaultPath, localPath)
@@ -111,7 +118,7 @@ func TestLoadAppliesDatabasePoolEnvOverrides(t *testing.T) {
 	t.Setenv("OPENSHARE_DATABASE_MAX_OPEN_CONNS", "12")
 	t.Setenv("OPENSHARE_DATABASE_MAX_IDLE_CONNS", "6")
 
-	defaultPath, localPath := writeTestConfigFiles(t, Default(), `{}`)
+	defaultPath, localPath := writeTestConfigFiles(t, Default(), ``)
 
 	cfg, err := Load(defaultPath, localPath)
 	if err != nil {
@@ -130,7 +137,8 @@ func TestLoadRejectsInvalidManagedSyncOverride(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"managed_sync":{"audit_interval_seconds":0}}`,
+		`[managed_sync]
+audit_interval_seconds = 0`,
 	)
 
 	_, err := Load(defaultPath, localPath)
@@ -146,7 +154,9 @@ func TestLoadPreservesSearchEngineDefaultsForPartialOverrides(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"search_engine":{"enabled":true,"api_key":"test-meili-key"}}`,
+		`[search_engine]
+enabled = true
+api_key = "test-meili-key"`,
 	)
 
 	cfg, err := Load(defaultPath, localPath)
@@ -179,7 +189,8 @@ func TestLoadRejectsEnabledSearchEngineWithoutAPIKey(t *testing.T) {
 	defaultPath, localPath := writeTestConfigFiles(
 		t,
 		Default(),
-		`{"search_engine":{"enabled":true}}`,
+		`[search_engine]
+enabled = true`,
 	)
 
 	_, err := Load(defaultPath, localPath)
@@ -196,9 +207,9 @@ func TestLoadAppliesSearchEngineEnvOverrides(t *testing.T) {
 	t.Setenv("OPENSHARE_SEARCH_ENGINE_HOST", "http://meilisearch:7700")
 	t.Setenv("OPENSHARE_SEARCH_ENGINE_API_KEY", "env-meili-key")
 	t.Setenv("OPENSHARE_SEARCH_ENGINE_INDEX_NAME", "env_resources")
-	t.Setenv("OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH", "config/search_semantics.custom.json")
+	t.Setenv("OPENSHARE_SEARCH_ENGINE_SEMANTIC_PROFILE_PATH", "config/search.profile.custom.yaml")
 
-	defaultPath, localPath := writeTestConfigFiles(t, Default(), `{}`)
+	defaultPath, localPath := writeTestConfigFiles(t, Default(), ``)
 
 	cfg, err := Load(defaultPath, localPath)
 	if err != nil {
@@ -217,31 +228,31 @@ func TestLoadAppliesSearchEngineEnvOverrides(t *testing.T) {
 	if cfg.SearchEngine.IndexName != "env_resources" {
 		t.Fatalf("SearchEngine.IndexName = %q, want env_resources", cfg.SearchEngine.IndexName)
 	}
-	if cfg.SearchEngine.SemanticProfilePath != "config/search_semantics.custom.json" {
+	if cfg.SearchEngine.SemanticProfilePath != "config/search.profile.custom.yaml" {
 		t.Fatalf(
-			"SearchEngine.SemanticProfilePath = %q, want config/search_semantics.custom.json",
+			"SearchEngine.SemanticProfilePath = %q, want config/search.profile.custom.yaml",
 			cfg.SearchEngine.SemanticProfilePath,
 		)
 	}
 }
 
-func writeTestConfigFiles(t *testing.T, cfg Config, localJSON string) (string, string) {
+func writeTestConfigFiles(t *testing.T, cfg Config, localTOML string) (string, string) {
 	t.Helper()
 
 	dir := t.TempDir()
 	cfg.Session.Secret = "test-session-secret"
 
-	defaultPath := filepath.Join(dir, "config.default.json")
-	localPath := filepath.Join(dir, "config.local.json")
+	defaultPath := filepath.Join(dir, "openshare.default.toml")
+	localPath := filepath.Join(dir, "openshare.toml")
 
-	defaultData, err := json.Marshal(cfg)
+	defaultData, err := toml.Marshal(cfg)
 	if err != nil {
 		t.Fatalf("marshal default config: %v", err)
 	}
 	if err := os.WriteFile(defaultPath, defaultData, 0o600); err != nil {
 		t.Fatalf("write default config: %v", err)
 	}
-	if err := os.WriteFile(localPath, []byte(localJSON), 0o600); err != nil {
+	if err := os.WriteFile(localPath, []byte(localTOML), 0o600); err != nil {
 		t.Fatalf("write local config: %v", err)
 	}
 

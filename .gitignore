@@ -42,6 +42,7 @@ Thumbs.db
 !/backend/web/dist/.gitkeep
 # Local Configuration (Secrets)
 /backend/config/config.local.json
+/backend/config/openshare.toml
 /backend/.env
 
 ### Backend (Data)

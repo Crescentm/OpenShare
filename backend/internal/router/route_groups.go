@@ -183,6 +183,8 @@ func registerAdminRoutes(api *gin.RouterGroup, handlers *routeHandlers) {
 	superAdminOnly.Use(middleware.RequireSuperAdmin())
 	superAdminOnly.GET("/system/settings", handlers.systemSetting.GetPolicy)
 	superAdminOnly.PUT("/system/settings", handlers.systemSetting.SavePolicy)
+	superAdminOnly.GET("/system/search-profile", handlers.systemSetting.GetSearchProfile)
+	superAdminOnly.PUT("/system/search-profile", handlers.systemSetting.SaveSearchProfile)
 
 	adminPermissionProbe := adminProtected.Group("/_internal")
 	adminPermissionProbe.GET(

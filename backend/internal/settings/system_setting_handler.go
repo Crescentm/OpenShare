@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"openshare/backend/internal/search"
 	"openshare/backend/internal/session"
 )
 
@@ -49,4 +50,38 @@ func (h *SystemSettingHandler) SavePolicy(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(http.StatusOK, policy)
+}
+
+func (h *SystemSettingHandler) GetSearchProfile(ctx *gin.Context) {
+	profile, err := h.service.GetSearchProfile(ctx.Request.Context())
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load search profile"})
+		return
+	}
+	ctx.JSON(http.StatusOK, profile)
+}
+
+func (h *SystemSettingHandler) SaveSearchProfile(ctx *gin.Context) {
+	identity, ok := session.GetAdminIdentity(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+
+	var req search.SemanticProfile
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	profile, err := h.service.SaveSearchProfile(ctx.Request.Context(), req, identity.AdminID, ctx.ClientIP())
+	if err != nil {
+		if errors.Is(err, ErrInvalidSearchProfile) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid search profile"})
+			return
+		}
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save search profile"})
+		return
+	}
+	ctx.JSON(http.StatusOK, profile)
 }

@@ -66,7 +66,7 @@ func buildRouteServices(
 	systemSettingService := settings.NewSystemSettingService(repos.systemSetting, cfg)
 	adminAuthService := admin.NewAdminAuthService(db, repos.admin, sessionManager)
 	searchService := search.NewSearchService(repos.search, cfg.SearchEngine)
-	searchIndexService := search.NewSearchIndexService(repos.search, cfg.SearchEngine)
+	searchIndexService := search.NewSearchIndexService(repos.search, cfg.SearchEngine, systemSettingService)
 
 	return &routeServices{
 		adminAuth:          adminAuthService,
