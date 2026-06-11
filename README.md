@@ -161,11 +161,17 @@ OpenShare/
 
 ```bash
 cd docker
-./init-env.sh
-docker compose up -d --build
+./up.sh
 ```
 
-脚本会自动生成 `OPENSHARE_SESSION_SECRET` 和 `MEILI_MASTER_KEY`，并创建 `data/`、`imports/`、`meili_data/`。如果 `docker/.env` 已存在，脚本不会覆盖已有配置。
+脚本会自动生成或补齐 `docker/.env`，创建 `data/`、`imports/`、`meili_data/`，然后启动 Compose。如果 `docker/.env` 已存在，脚本只补充缺失项，不覆盖已有配置。
+
+默认 Compose 会拉取 `ghcr.io/crescentm/openshare:latest`。如果需要用当前源码本地构建镜像，可以执行：
+
+```bash
+cd docker
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 访问地址：
 

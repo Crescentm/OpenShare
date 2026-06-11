@@ -1,9 +1,6 @@
 services:
   openshare:
-    build:
-      context: ..
-      dockerfile: docker/build-linux.Dockerfile
-    image: openshare:local
+    image: ${OPENSHARE_IMAGE:-ghcr.io/crescentm/openshare:latest}
     container_name: ${OPENSHARE_CONTAINER_NAME:-openshare}
     restart: unless-stopped
     ports:
@@ -21,7 +18,7 @@ services:
       - ${OPENSHARE_DATA_PATH:-./data}:/data/openshare
       - ${OPENSHARE_IMPORTS_PATH:-./imports}:${OPENSHARE_IMPORTS_CONTAINER_PATH:-/imports}
   openshare-worker:
-    image: openshare:local
+    image: ${OPENSHARE_IMAGE:-ghcr.io/crescentm/openshare:latest}
     container_name: ${OPENSHARE_WORKER_CONTAINER_NAME:-openshare-worker}
     restart: unless-stopped
     command: ["./openshare-worker"]

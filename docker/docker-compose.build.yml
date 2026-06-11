@@ -1,0 +1,9 @@
+services:
+  openshare:
+    build:
+      context: ..
+      dockerfile: docker/build-linux.Dockerfile
+    image: ${OPENSHARE_BUILD_IMAGE:-openshare:local}
+
+  openshare-worker:
+    image: ${OPENSHARE_BUILD_IMAGE:-openshare:local}
