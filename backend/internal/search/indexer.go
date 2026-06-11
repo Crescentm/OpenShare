@@ -236,22 +236,36 @@ func (s *SearchIndexService) newDocumentBuilder(ctx context.Context) (*SearchDoc
 }
 
 func (i *meilisearchIndexer) Rebuild(ctx context.Context) (*SearchIndexRebuildResult, error) {
-	if err := i.ensureIndex(ctx); err != nil {
-		return nil, err
-	}
-
 	documents, err := i.buildDocuments(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	lastTaskUID, err := i.replaceDocuments(ctx, documents.Documents)
-	if err != nil {
+	targetIndexName := i.client.IndexName()
+	replacementIndexName := temporarySearchIndexName(targetIndexName, time.Now().UTC())
+	published := false
+	defer func() {
+		if !published {
+			i.deleteIndexBestEffort(replacementIndexName)
+		}
+	}()
+
+	if err := i.ensureIndex(ctx, replacementIndexName); err != nil {
 		return nil, err
 	}
 
+	if _, err := i.replaceDocuments(ctx, replacementIndexName, documents.Documents); err != nil {
+		return nil, err
+	}
+
+	lastTaskUID, err := i.publishReplacementIndex(ctx, targetIndexName, replacementIndexName)
+	if err != nil {
+		return nil, err
+	}
+	published = true
+
 	return &SearchIndexRebuildResult{
-		IndexName:        i.client.IndexName(),
+		IndexName:        targetIndexName,
 		IndexedDocuments: len(documents.Documents),
 		IndexedFiles:     documents.IndexedFiles,
 		IndexedFolders:   documents.IndexedFolders,
@@ -261,9 +275,8 @@ func (i *meilisearchIndexer) Rebuild(ctx context.Context) (*SearchIndexRebuildRe
 	}, nil
 }
 
-func (i *meilisearchIndexer) ensureIndex(ctx context.Context) error {
+func (i *meilisearchIndexer) ensureIndex(ctx context.Context, indexName string) error {
 	service := i.client.Service()
-	indexName := i.client.IndexName()
 
 	if _, err := service.GetIndexWithContext(ctx, indexName); err != nil {
 		if !isMeilisearchNotFound(err) {
@@ -371,9 +384,9 @@ func (i *meilisearchIndexer) buildDocuments(ctx context.Context) (*searchIndexDo
 	return &documents, nil
 }
 
-func (i *meilisearchIndexer) replaceDocuments(ctx context.Context, documents []SearchDocument) (int64, error) {
+func (i *meilisearchIndexer) replaceDocuments(ctx context.Context, indexName string, documents []SearchDocument) (int64, error) {
 	service := i.client.Service()
-	index := service.Index(i.client.IndexName())
+	index := service.Index(indexName)
 
 	deleteTask, err := index.DeleteAllDocumentsWithContext(ctx, &meilisearch.DocumentOptions{})
 	if err != nil {
@@ -404,6 +417,67 @@ func (i *meilisearchIndexer) replaceDocuments(ctx context.Context, documents []S
 	}
 
 	return lastTaskUID, nil
+}
+
+func (i *meilisearchIndexer) publishReplacementIndex(ctx context.Context, targetIndexName, replacementIndexName string) (int64, error) {
+	service := i.client.Service()
+
+	_, err := service.GetIndexWithContext(ctx, targetIndexName)
+	targetExists := err == nil
+	if err != nil && !isMeilisearchNotFound(err) {
+		return 0, fmt.Errorf("load current search index: %w", err)
+	}
+
+	swap := &meilisearch.SwapIndexesParams{
+		Indexes: []string{replacementIndexName, targetIndexName},
+		Rename:  !targetExists,
+	}
+	task, err := service.SwapIndexesWithContext(ctx, []*meilisearch.SwapIndexesParams{swap})
+	if err != nil {
+		return 0, fmt.Errorf("publish rebuilt search index: %w", err)
+	}
+	lastTaskUID := int64(0)
+	if task != nil {
+		lastTaskUID = task.TaskUID
+	}
+	if err := waitMeilisearchTask(ctx, service, task); err != nil {
+		return lastTaskUID, fmt.Errorf("wait rebuilt search index publish: %w", err)
+	}
+
+	if targetExists {
+		i.deleteIndexBestEffort(replacementIndexName)
+	}
+	return lastTaskUID, nil
+}
+
+func (i *meilisearchIndexer) deleteIndexBestEffort(indexName string) {
+	indexName = strings.TrimSpace(indexName)
+	if indexName == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	service := i.client.Service()
+	task, err := service.DeleteIndexWithContext(ctx, indexName)
+	if err != nil {
+		if !isMeilisearchNotFound(err) {
+			log.Printf("[search-index] cleanup temporary index %s failed: %v", indexName, err)
+		}
+		return
+	}
+	if err := waitMeilisearchTask(ctx, service, task); err != nil {
+		log.Printf("[search-index] wait temporary index %s cleanup failed: %v", indexName, err)
+	}
+}
+
+func temporarySearchIndexName(indexName string, now time.Time) string {
+	indexName = strings.TrimSpace(indexName)
+	if indexName == "" {
+		indexName = "openshare_resources"
+	}
+	return fmt.Sprintf("%s_rebuild_%d", indexName, now.UnixNano())
 }
 
 func buildSearchIndexFolderSnapshots(folders []model.Folder) map[string]searchIndexFolderSnapshot {

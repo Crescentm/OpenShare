@@ -2,6 +2,7 @@ package search
 
 import (
 	"testing"
+	"time"
 
 	"openshare/backend/internal/model"
 )
@@ -23,5 +24,18 @@ func TestBuildSearchIndexFolderSnapshotsBuildsPathsAndRootIDs(t *testing.T) {
 	}
 	if leaf.Path != "专业课/数据结构/试卷" {
 		t.Fatalf("Path = %q, want 专业课/数据结构/试卷", leaf.Path)
+	}
+}
+
+func TestTemporarySearchIndexNameUsesDistinctRebuildIndex(t *testing.T) {
+	now := time.Unix(1700000000, 123).UTC()
+
+	got := temporarySearchIndexName("openshare_resources", now)
+	want := "openshare_resources_rebuild_1700000000000000123"
+	if got != want {
+		t.Fatalf("temporarySearchIndexName() = %q, want %q", got, want)
+	}
+	if got == "openshare_resources" {
+		t.Fatalf("temporarySearchIndexName() must not return the target index name")
 	}
 }
