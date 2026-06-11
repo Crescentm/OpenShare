@@ -115,6 +115,7 @@ OpenShare/
 │   └── web/                    嵌入式前端构建产物
 ├── docker/                     Dockerfile 与 Docker Compose 配置
 ├── frontend/                   Vue 前端项目
+├── scripts/                    本地开发辅助脚本
 └── test/                       本地 Compose 测试脚本
 ```
 
@@ -127,89 +128,20 @@ OpenShare/
 - Go 1.25+
 - Node.js / npm
 
-在项目根目录执行下面的脚本即可：
-
-本脚本：
-
-- 不会清空已有数据库和存储目录
-- 不会覆盖已存在的 `backend/config/openshare.toml`
-- 第一次启动时会自动初始化数据库，并输出超级管理员初始凭据
+在项目根目录执行：
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-ROOT_DIR="$(pwd)"
-LOCAL_DATA_DIR="$ROOT_DIR/.localdata"
-LOG_DIR="$LOCAL_DATA_DIR/logs"
-BACKEND_LOG="$LOG_DIR/backend.log"
-WORKER_LOG="$LOG_DIR/worker.log"
-FRONTEND_LOG="$LOG_DIR/frontend.log"
-BACKEND_CONFIG_LOCAL="$ROOT_DIR/backend/config/openshare.toml"
-
-mkdir -p "$LOG_DIR"
-
-if [ ! -f "$BACKEND_CONFIG_LOCAL" ]; then
-  echo "==> 创建本地配置"
-  cat > "$BACKEND_CONFIG_LOCAL" <<EOF
-[database]
-path = "$LOCAL_DATA_DIR/openshare.db"
-
-[storage]
-root = "$LOCAL_DATA_DIR"
-
-[session]
-secret = "dev-local-session-secret"
-EOF
-else
-  echo "==> 使用现有本地配置"
-fi
-
-echo "==> 安装前端依赖"
-cd "$ROOT_DIR/frontend"
-npm install > "$FRONTEND_LOG" 2>&1
-
-echo "==> 启动前端开发服务器"
-npm run dev -- --host 127.0.0.1 > "$FRONTEND_LOG" 2>&1 &
-FRONTEND_PID=$!
-
-echo "==> 启动后端服务"
-cd "$ROOT_DIR/backend"
-go run ./cmd/server > "$BACKEND_LOG" 2>&1 &
-BACKEND_PID=$!
-
-echo "==> 启动同步 worker"
-go run ./cmd/worker > "$WORKER_LOG" 2>&1 &
-WORKER_PID=$!
-
-echo
-echo "OpenShare 已启动"
-echo "Public: http://localhost:5173/"
-echo "Admin : http://localhost:5173/admin"
-echo "Health: http://127.0.0.1:8080/healthz"
-echo "Logs  : $LOG_DIR"
-echo
-
-attempts=30
-for ((i = 1; i <= attempts; i++)); do
-  if [[ -f "$BACKEND_LOG" ]]; then
-    line="$(grep -E '\[bootstrap\] super admin initialized; username=.* password=.*' "$BACKEND_LOG" | tail -n 1 || true)"
-    if [[ -n "$line" ]]; then
-      echo
-      echo "超级管理员初始凭据："
-      echo "$line"
-      echo
-      break
-    fi
-  fi
-  sleep 1
-done
-
-echo "按 Ctrl+C 停止服务"
-
-trap 'kill $FRONTEND_PID $BACKEND_PID $WORKER_PID 2>/dev/null' EXIT
-wait
+./scripts/dev.sh
 ```
+
+本脚本会：
+
+- 不会清空已有数据库和存储目录
+- 不会写入或覆盖 `backend/config/openshare.toml`
+- 通过环境变量配置本地开发运行参数
+- 自动创建 `.localdata/dev.env`，保存开发用随机 session secret
+- 自动安装前端依赖并启动前端、后端和同步 worker
+- 第一次启动时会自动初始化数据库，并输出超级管理员初始凭据
 
 默认访问地址：
 
@@ -225,26 +157,15 @@ wait
 - `openshare-worker`：托管目录同步 worker
 - `meilisearch`：可选搜索引擎服务
 
-首次启动前建议创建 `.env`，至少设置强随机密钥：
-
-```bash
-cat > docker/.env <<EOF
-OPENSHARE_SESSION_SECRET=请替换为足够长的随机字符串
-MEILI_MASTER_KEY=请替换为足够长的随机字符串
-OPENSHARE_SEARCH_ENGINE_ENABLED=true
-OPENSHARE_HTTP_PORT=8080
-MEILI_HTTP_PORT=7700
-OPENSHARE_DATA_PATH=./data
-OPENSHARE_IMPORTS_PATH=./imports
-EOF
-```
-
-启动：
+初始化并启动：
 
 ```bash
 cd docker
+./init-env.sh
 docker compose up -d --build
 ```
+
+脚本会自动生成 `OPENSHARE_SESSION_SECRET` 和 `MEILI_MASTER_KEY`，并创建 `data/`、`imports/`、`meili_data/`。如果 `docker/.env` 已存在，脚本不会覆盖已有配置。
 
 访问地址：
 

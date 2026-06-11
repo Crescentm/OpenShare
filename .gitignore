@@ -48,12 +48,14 @@ Thumbs.db
 ### Backend (Data)
 # Runtime Local Data
 /.localdata/
+/docker/data/
+/docker/imports/
+/docker/meili_data/
 
 ### General Logs
 *.log
 
-### Local Scripts
-/scripts/
+### Local Workspace
 /config/
 /test/
 /temp/
