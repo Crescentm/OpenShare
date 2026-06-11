@@ -79,8 +79,11 @@ OpenShare 是一个面向中小型组织内网环境的资料分享平台，适�
 - 管理员分为超级管理员和普通管理员，启动时会自动生成超级管理员初始密码
 - 管理后台提供控制台、审核、公告、日志、账号设置等页面
 - 支持修改账号信息，包括头像、用户名和密码
-  以下为超级管理员特有权限
-- 配置访客策略、设置上传限制、导入本地目录
+
+超级管理员特有权限：
+
+- 配置访客策略、设置上传限制、下载限制、搜索语义配置和搜索索引
+- 导入、托管、重新扫描服务器本地目录
 - 管理员创建、停用、删除、重置密码与权限分配
 
 <p align="center">
@@ -102,17 +105,17 @@ OpenShare 是一个面向中小型组织内网环境的资料分享平台，适�
 
 ```text
 OpenShare/
+├── .github/workflows/           GitHub Actions 工作流
 ├── assets/                     README 配图与静态资源
 ├── backend/                    Go 后端服务
 │   ├── cmd/server/             API 服务入口
 │   ├── cmd/worker/             目录扫描同步 worker
-│   ├── config/                默认配置与本地配置样例
+│   ├── config/                 默认配置、样例配置与搜索语义配置
 │   ├── internal/               路由、服务、仓储、模型等核心实现
 │   └── web/                    嵌入式前端构建产物
-├── docker/                     Linux 构建镜像文件
+├── docker/                     Dockerfile 与 Docker Compose 配置
 ├── frontend/                   Vue 前端项目
-├── release/                    打包输出目录
-└── scripts/                    开发与构建脚本
+└── test/                       本地 Compose 测试脚本
 ```
 
 ## 快速开始 ⚡
@@ -214,29 +217,68 @@ wait
 - Admin: `http://localhost:5173/admin`
 - API Health: `http://127.0.0.1:8080/healthz`
 
-### 方法二：二进制文件启动
+### 方法二：Docker Compose 启动
 
-1. 从仓库的 Releases 页面下载 linux-amd64 平台的压缩包
-2. 根据需求修改 `config/openshare.toml`
-3. 运行发布包中的 `start.sh`
+适合部署或接近生产环境的本地验证。Compose 会启动：
 
-目录结构：
+- `openshare`：Web/API 服务
+- `openshare-worker`：托管目录同步 worker
+- `meilisearch`：可选搜索引擎服务
 
-```text
-openshare-x.x.x-linux-amd64/
-├── openshare
-├── start.sh
-└── config/
+首次启动前建议创建 `.env`，至少设置强随机密钥：
+
+```bash
+cat > docker/.env <<EOF
+OPENSHARE_SESSION_SECRET=请替换为足够长的随机字符串
+MEILI_MASTER_KEY=请替换为足够长的随机字符串
+OPENSHARE_SEARCH_ENGINE_ENABLED=true
+OPENSHARE_HTTP_PORT=8080
+MEILI_HTTP_PORT=7700
+OPENSHARE_DATA_PATH=./data
+OPENSHARE_IMPORTS_PATH=./imports
+EOF
 ```
 
 启动：
 
 ```bash
-chmod +x start.sh
-./start.sh
+cd docker
+docker compose up -d --build
 ```
 
-默认情况下，服务会自动初始化数据库、存储目录、搜索索引，并在首次启动时创建超级管理员。
+访问地址：
+
+- Public: `http://127.0.0.1:8080/`
+- Admin: `http://127.0.0.1:8080/admin`
+- Meilisearch: `http://127.0.0.1:7700/`
+
+停止：
+
+```bash
+cd docker
+docker compose down
+```
+
+服务会自动初始化数据库和存储目录，并在首次启动时创建超级管理员。搜索功能默认依赖 Meilisearch；启用后可在超级管理员后台查看状态、调整搜索语义配置并重建索引。
+
+### GitHub Actions 构建镜像
+
+仓库包含 Docker 镜像构建工作流：`.github/workflows/docker-image.yml`。
+
+触发规则：
+
+- 推送到 `main`：构建并推送 `ghcr.io/<owner>/<repo>:main`、`:latest` 和 `:sha-<commit>`
+- 推送 `v*` Git tag：构建并推送同名镜像 tag，例如 `v1.0.0`
+- Pull Request：只构建验证，不推送镜像
+- 支持在 GitHub Actions 页面手动触发
+
+当前 fork 的镜像地址示例：
+
+```bash
+docker pull ghcr.io/crescentm/openshare:latest
+```
+
+如果首次推送 GHCR 失败，请检查仓库 `Settings -> Actions -> General -> Workflow permissions`，确保 `GITHUB_TOKEN` 允许写入 Packages。
 
 ## 致谢 🫶
 
